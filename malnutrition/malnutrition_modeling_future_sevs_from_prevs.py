@@ -17,7 +17,7 @@ Columns that should be present in the output data
 - ['location_id', 'year_id', 'rei_id', 'age_group_id', 'sex_id', 'prev_val', 'age_group_name', 'location_name', 'rei_name', 'sex', 'sev_val']
 
 Currently the function expects the future prevalence data to have prevalence by the following groups:
-- age_group_name : ['2 to 4', '12 to 23 months', '1-5 months', '6-11 months']
+- age_group_name : ['Post Neonatal', '1 to 4']
 - rei_name : ['Child wasting', 'Child stunting']
 - sex : ['Male', 'Female']
 - locations : all most detailed locations in the Forecasting location set (location_set_id=39)
@@ -27,7 +27,7 @@ import pandas as pd
 import statsmodels.formula.api as smf
 
 def model_data(future_prev_input_path, past_future_sev_prev_output_path):
-    historical_prev_sev_df=pd.read_csv(f"/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/child_malnutrition/prev_sev_models/20240524_prev_sev_data_loc_set_39.csv")
+    historical_prev_sev_df=pd.read_csv(f"/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/child_malnutrition/prev_sev_models/20240611_prev_sev_data_loc_set_39.csv")
     future_prev_df=pd.read_csv(future_prev_input_path)
     df=historical_prev_sev_df
     df['year_id'] = df['year_id'].astype(int)
