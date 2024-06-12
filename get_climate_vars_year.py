@@ -1,3 +1,5 @@
+from ctypes import cdll
+cdll.LoadLibrary('/mnt/share/homes/victorvt/envs/cgf_temperature/lib/libstdc++.so.6')
 import xarray
 import argparse
 import logging
@@ -6,18 +8,26 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-CLIMATE_ROOT = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/human-niche/chelsa-downscaled-historical/GLOBAL')
-OVER30_FSTR = "days_over_thirty_{year}.nc"
+CLIMATE_ROOT = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/human-niche/chelsa-downscaled-historical')
+OVER30_FSTR = "days_above_{threshold}_{year}.nc"
 PRECIP_FSTR = "precipitation_{year}.nc"
 TEMPERATURE_FSTR = "temperature_{year}.nc"
 
-def extract_climate_data_for_year(year:int, lats:pd.Series, longs:pd.Series)-> pd.DataFrame:
+def extract_climate_data_for_year(year:int, lats:pd.Series, longs:pd.Series, threshold = 30)-> pd.DataFrame:
+    if isinstance(threshold, int) or threshold.is_integer():
+        threshold_str = str(threshold)
+    else:
+        threshold_str = str(threshold).replace(".", "-")
     try:
-        over30_x = xarray.open_dataset(CLIMATE_ROOT / OVER30_FSTR.format(year= year))
+        over30_x = xarray.open_dataset(CLIMATE_ROOT / OVER30_FSTR.format(year= year, threshold=threshold_str))
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f'Year {year} not available. FILE {CLIMATE_ROOT / OVER30_FSTR}') from e
+    
+    try:
         temp_x = xarray.open_dataset(CLIMATE_ROOT / TEMPERATURE_FSTR.format(year= year))
         precip_x = xarray.open_dataset(CLIMATE_ROOT / PRECIP_FSTR.format(year= year))
     except FileNotFoundError as e:
-        raise FileNotFoundError(f'Year {year} not available') from e
+        raise FileNotFoundError(f'Year {year} not available.') from e
     
     year_locs = pd.concat([lats, longs], axis=1)
     year_locs['year'] = year
@@ -25,9 +35,29 @@ def extract_climate_data_for_year(year:int, lats:pd.Series, longs:pd.Series)-> p
     temp_over30_series = np.diag(over30_x.interp(lat=lats, lon=longs, method='nearest').tas)
     temp_series = np.diag(temp_x.interp(lat=lats, lon=longs, method='nearest').tas)
     precip_series = np.diag(precip_x.interp(lat=lats, lon=longs, method='nearest').pr)
-    year_locs['over30'] = temp_over30_series
+    year_locs[f'over_{threshold}'] = temp_over30_series
     year_locs['temp'] = temp_series
     year_locs['precip'] = precip_series
+    #dfs.append(year_locs)\
+    return year_locs
+
+def extract_days_over_threshold_for_year(year:int, lats:pd.Series, longs:pd.Series, threshold = 30)-> pd.DataFrame:
+    if isinstance(threshold, int) or threshold.is_integer():
+        threshold_str = str(threshold)
+    else:
+        threshold_str = str(threshold).replace(".", "-")
+    try:
+        over30_x = xarray.open_dataset(CLIMATE_ROOT / OVER30_FSTR.format(year= year, threshold=threshold_str))
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f'Year {year} not available. FILE {CLIMATE_ROOT / OVER30_FSTR}') from e
+    
+    year_locs = pd.concat([lats, longs], axis=1)
+    
+    temp_over30_series = np.diag(over30_x.interp(lat=lats, lon=longs, method='nearest').tas)
+    
+    year_locs[f'over_{threshold}'] = temp_over30_series
+    year_locs['year'] = year
+
     #dfs.append(year_locs)\
     return year_locs
 
@@ -82,7 +112,7 @@ if __name__ == "__main__":
     unique_locs_df = process_input_file(in_path, args.lat_col, args.long_col)
     if args.year:
         result = extract_climate_data_for_year(int(args.year), unique_locs_df[args.lat_col],
-            unique_locs_df[args.long_col])
+            unique_locs_df[args.long_col], threshold = 30)
     else:
         result = extract_climate_data(unique_locs_df, args.lat_col, args.long_col)
     write_output(result, Path(args.output_file))
