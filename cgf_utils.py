@@ -5,15 +5,15 @@ import matplotlib.colors as mcolors
 import seaborn as sns
 
 
-def bin_column(df, col, nbins, label_strategy = None, bin_strategy = 'quantiles'):
+def bin_column(df, col, nbins, label_strategy = None, bin_strategy = 'quantiles', retbins = False):
     precision = 3 if nbins > 10 else 1
     drop_dupes = nbins > 10
     if label_strategy == 'means':
         label_strategy = [f'{col}_bin_{i}' for i in range(nbins)] #not quite right
     if bin_strategy == 'quantiles':
-        binned = pd.qcut(df[col], q=nbins, labels=label_strategy, duplicates='drop', precision = precision)
+        binned, bins = pd.qcut(df[col], q=nbins, labels=label_strategy, duplicates='drop', precision = precision, retbins=True)
     elif bin_strategy == 'equal':
-        binned = pd.cut(df[col], bins=nbins, labels=label_strategy, include_lowest = True)
+        binned, bins = pd.cut(df[col], bins=nbins, labels=label_strategy, include_lowest = True, retbins=True)
     elif bin_strategy == 'readable_5':
         bins = [df[col].min(), 20] + list(range(22, 2+int(np.ceil(df[col].max())), 2))#list(range(5*int(df[col].min() // 5), 5+5*int(df[col].max() // 5), 5))
         binned = pd.cut(df[col], bins = bins, labels = label_strategy, include_lowest = True, right=False)
@@ -36,18 +36,32 @@ def bin_column(df, col, nbins, label_strategy = None, bin_strategy = 'quantiles'
         binned = pd.cut(df[col], bins = bins, labels = label_strategy, include_lowest = True, right=False)
     else:
         raise ValueError('bin_strategy must be either "quantiles" or "equal"')
+    if retbins:
+        return bins, binned
     return binned
 
-def group_and_bin_column(df, group_cols, bin_col, nbins, bin_strategy = 'quantiles', label_strategy = None, result_column = None, keep_count = False):
+def group_and_bin_column(df, group_cols, bin_col, nbins, bin_strategy = 'quantiles', 
+        label_strategy = None, result_column = None, keep_count = False,
+        retbins = False):
     if result_column == None:
         result_column = bin_col + '_bin'
     grouped_df = df.groupby(group_cols + [bin_col], as_index=False).size()
     if not keep_count:
         grouped_df = grouped_df.drop(columns=['size'])
-    grouped_df[result_column] = bin_column(grouped_df, bin_col, nbins, label_strategy, bin_strategy) 
-    return pd.merge(df, grouped_df, how='left')
+
+    if retbins:
+        bins, binned_column = bin_column(grouped_df, bin_col, nbins, label_strategy, bin_strategy, retbins = True) 
+    else:
+        binned_column = bin_column(grouped_df, bin_col, nbins, label_strategy, bin_strategy) 
+
+    grouped_df[result_column] = binned_column
+    if retbins:
+        return bins, pd.merge(df, grouped_df, how='left')
+    else:
+        return pd.merge(df, grouped_df, how='left')
     
-def group_and_bin_column_definition(df, bin_col, bin_category, nbins, bin_strategy = None, result_column = None):
+    
+def group_and_bin_column_definition(df, bin_col, bin_category, nbins, bin_strategy = None, result_column = None, retbins = False):
     if bin_category == 'household':
         group_cols = ['nid', 'hh_id', 'psu', 'year_start']
         bin_strategy = 'quantiles' if bin_strategy is None else bin_strategy
@@ -57,7 +71,8 @@ def group_and_bin_column_definition(df, bin_col, bin_category, nbins, bin_strate
     if bin_category == 'country':
         group_cols = ['iso3']
         bin_strategy = 'quantiles' if bin_strategy is None else bin_strategy
-    return group_and_bin_column(df, group_cols, bin_col, nbins, bin_strategy = bin_strategy, result_column = result_column)
+    return group_and_bin_column(df, group_cols, bin_col, nbins, 
+            bin_strategy = bin_strategy, result_column = result_column, retbins = retbins)
 
 printable_names = {
         'income_per_day_bin':'Daily Income (2010 USD)',
@@ -80,13 +95,20 @@ printable_names = {
         'adjusted_pred' : 'Controlling for Country Effects',
         'predict_nocountry': 'Prediction without country',
         'residual': 'residual',
-        'grid_coef' : 'dummy coefficient'
+        'grid_coef' : 'dummy coefficient',
+        'gdppc': 'GDP per capita',
+        'ldi_pc_pd': 'Lag-distributed income per day',
+        'ldi_pc_pd_bin': 'Lag-distributed income per day',
+        'ldipc': 'Lag-distributed income per day',
     }
 
 
 def bin_cgf_cols(in_df, nbins):
     res_df = in_df.copy()
-    res_df = group_and_bin_column_definition(res_df, 'income_per_day', 'household', nbins)
+    if 'income_per_day' in in_df.columns:
+        res_df = group_and_bin_column_definition(res_df, 'income_per_day', 'household', nbins)
+    if 'gdppc' in in_df.columns:
+        res_df = group_and_bin_column_definition(res_df, 'gdppc', 'household', nbins)
     res_df = group_and_bin_column_definition(res_df, 'over30', 'location', 10, bin_strategy = '0_more')
     res_df = group_and_bin_column_definition(res_df, 'temp', 'location', nbins, bin_strategy = 'readable_5')
     res_df = group_and_bin_column_definition(res_df, 'temp', 'location', nbins, bin_strategy = 'quantiles', result_column = 'temp_bin_quants')
@@ -114,7 +136,7 @@ def plot_cgf_varbins(plotcol):
 
 def plot_heatmap(df, temp_col, wealth_col = 'income_per_day_bin', country = None, year = None, 
     margins = False, filter = None, value_col = 'cgf_value', title_addin = '', file=None, 
-    pdf_handle = None, vmin = None, vmax = None, counts = True):  
+    pdf_handle = None, vmin = None, vmax = None, counts = True, figsize = (12, 8)):  
     plot_df = df.copy()
     temp_value_col = temp_col.replace("_bin", "")
     temp_value_col = temp_value_col if temp_value_col in plot_df.columns else 'temp'
@@ -147,7 +169,7 @@ def plot_heatmap(df, temp_col, wealth_col = 'income_per_day_bin', country = None
     pivot_table_count = plot_df.pivot_table(values=value_col, index=wealth_col, 
         columns=temp_col, aggfunc='count', dropna=False, margins=margins, observed=False)
 
-    fig, ax = plt.subplots(figsize=(12, 8))
+    fig, ax = plt.subplots(figsize=figsize)
 
     if vmax:
         colorbin_interval = 0.025
