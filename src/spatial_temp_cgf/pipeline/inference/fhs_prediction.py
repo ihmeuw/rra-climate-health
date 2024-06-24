@@ -4,8 +4,9 @@ import rasterra as rt
 import pickle
 from scipy.special import expit
 
-from spatial_temp_cgf import mf, income_funcs, paths
-from spatial_temp_cgf.location_mapping import load_fhs_lsae_mapping
+from spatial_temp_cgf import income_funcs, paths
+from spatial_temp_cgf.pipeline.training import mf
+from spatial_temp_cgf.pipeline.data_prep.location_mapping import load_fhs_lsae_mapping
 
 
 def get_predictions(measure, fhs_location_id, scenario, year, sex_id, age_group_id, model):
@@ -107,11 +108,11 @@ def get_predictions(measure, fhs_location_id, scenario, year, sex_id, age_group_
 
 
 def predict_on_model(measure, model_identifier, fhs_location_id, scenario, year, sex_id, age_group_id):
-    model_filepath = paths.MODEL_ROOTS / model_identifier / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
+    model_filepath = paths.MODELS / model_identifier / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
     with open(model_filepath, 'rb') as f:
         model = pickle.load(f)
     pred_df = get_predictions(measure, fhs_location_id, scenario, year, sex_id, age_group_id, model)
-    out_filepath = paths.MODEL_ROOTS / model_identifier / 'predictions' / measure / scenario / str(year) / \
+    out_filepath = paths.MODELS / model_identifier / 'predictions' / measure / scenario / str(year) / \
         f'mp_{fhs_location_id}_{scenario}_{year}_{age_group_id}_{sex_id}.parquet'
     out_filepath.parent.mkdir(parents=True, exist_ok=True)
     pred_df.to_parquet(out_filepath)

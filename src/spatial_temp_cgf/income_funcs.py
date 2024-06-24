@@ -1,10 +1,11 @@
 import pandas as pd
-import paths
+from spatial_temp_cgf import paths
+
 
 def load_binned_income_distribution_proportions(fhs_location_id = None, model = None, measure = None, year_id = None):
     if model is not None:
         model_identifier = model.model_identifier
-        ldipc_distribution_bin_proportions_filepath = paths.MODEL_ROOTS / model_identifier / f'ldipc_bin_proportions.parquet'
+        ldipc_distribution_bin_proportions_filepath = paths.MODELS / model_identifier / f'ldipc_bin_proportions.parquet'
     elif measure is not None:
         filepath = paths.LDIPC_DISTRIBUTION_BIN_PROPORTIONS_DEFAULT_FILEPATH_FORMAT.format(measure = measure)
         load_filters = []

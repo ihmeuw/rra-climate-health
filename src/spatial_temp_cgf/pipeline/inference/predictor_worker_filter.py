@@ -1,19 +1,23 @@
-from ctypes import cdll
-cdll.LoadLibrary('/mnt/share/homes/victorvt/envs/cgf_temperature/lib/libstdc++.so.6')
-import xarray as xr
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import rasterio as rio
-import rasterra as rt
-from pathlib import Path
-import geopandas as gpd
-from pymer4 import Lmer
+import argparse
 import glob
 import logging
 import pickle
-import argparse
 import sys
+from ctypes import cdll
+from pathlib import Path
+
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+import rasterio as rio
+import rasterra as rt
+import xarray as xr
+from pymer4 import Lmer
+
+from spatial_temp_cgf import paths
+
+cdll.LoadLibrary(paths.LIBSTDCPP_PATH)
+
 # 241	Child stunting
 # 240	Child wasting
 # 500	Low body-mass index
@@ -29,24 +33,24 @@ def get_location_pair(identifier):
     assert(len(row) == 1)
     return row.location_id.iloc[0], row.ihme_loc_id.iloc[0]
 
-def get_worldpop_population_raster(location_iso3, return_year = True):
-    import glob
-    OTHER_GRIDDED_PROJECTS_ROOTPATH = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/other-gridded-pop-projects/')#worldpop-bespoke/NGA/2019.tif')
+
+def get_worldpop_population_raster(location_iso3, return_year=True):
+    gridded_projects_path = paths.WORLDPOP_FILEPATH.parent
     #Try to get a bespoke one
     # 
     worldpop_products = ['worldpop-bespoke', 'worldpop-constrained']
     worldpop_product = None
     for prod in worldpop_products:
-        if (OTHER_GRIDDED_PROJECTS_ROOTPATH / prod / location_iso3).exists():
+        if (gridded_projects_path / prod / location_iso3).exists():
             worldpop_product = prod
             break
     if not worldpop_product:
         raise FileNotFoundError(f'No worldpop for {location_iso3}')
     
-    file_paths = glob.glob(str(OTHER_GRIDDED_PROJECTS_ROOTPATH / 'worldpop-constrained' / location_iso3 / f"*.tif"), recursive=True)
+    file_paths = glob.glob(str(gridded_projects_path / 'worldpop-constrained' / location_iso3 / f"*.tif"), recursive=True)
     year_versions = [int(Path(x).stem) for x in file_paths]
     year_version = max(year_versions)
-    WORLDPOP_FILEPATH = OTHER_GRIDDED_PROJECTS_ROOTPATH / 'worldpop-constrained' / location_iso3 / f"{year_version}.tif"
+    WORLDPOP_FILEPATH = gridded_projects_path / 'worldpop-constrained' / location_iso3 / f"{year_version}.tif"
     logging.info(f"Using WorldPop {worldpop_product} year {year_version} for {location_iso3}")
     pop_raster = rt.load_raster(WORLDPOP_FILEPATH)
     if return_year:
@@ -87,9 +91,8 @@ def xarray_to_raster(ds: xr.DataArray, nodata: float | int) -> rt.RasterArray:
     return raster
 
 def get_CHELSA_projection(location_iso3, threshold, scenario, year):
-    CLIMATE_ROOT = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/human-niche/chelsa-downscaled-projections')
     OVER30_FSTR = "days_above_threshold_{threshold}_{scenario}.nc"
-    projection_filepath = CLIMATE_ROOT / location_iso3 / OVER30_FSTR.format(threshold=threshold, scenario=scenario)
+    projection_filepath = paths.CHELSA_HISTORICAL_ROOT / location_iso3 / OVER30_FSTR.format(threshold=threshold, scenario=scenario)
     #over30_refscenario_filepath = CLIMATE_ROOT / location_iso3 / OVER30_FSTR.format(threshold="30-0", scenario='ssp245')
     #over30_testscenario_filepath = CLIMATE_ROOT / location_iso3 / OVER30_FSTR.format(threshold="30-0", scenario='ssp126')
     projection_ds = xr.open_dataset(projection_filepath)
@@ -281,7 +284,7 @@ def fit_and_predict_LMER(data:pd.DataFrame, model_spec:str):
 
 def make_model(cgf_measure, sex_id = None, age_group_id = None, filter = None):
     import re
-    import cgf_utils
+    import utils
     import sklearn
     df = pd.read_parquet(f'/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/new_{cgf_measure}.parquet')
 

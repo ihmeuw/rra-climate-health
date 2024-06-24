@@ -1,17 +1,22 @@
-from ctypes import cdll
-cdll.LoadLibrary('/mnt/share/homes/victorvt/envs/cgf_temperature/lib/libstdc++.so.6')
-import xarray
 import argparse
 import logging
 import sys
-import pandas as pd
-import numpy as np
+from ctypes import cdll
 from pathlib import Path
 
-CLIMATE_ROOT = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/human-niche/chelsa-downscaled-historical')
+import numpy as np
+import pandas as pd
+import xarray
+
+from spatial_temp_cgf import paths
+
+cdll.LoadLibrary(paths.LIBSTDCPP_PATH)
+
+CLIMATE_ROOT = paths.CHELSA_HISTORICAL_ROOT
 OVER30_FSTR = "days_above_{threshold}_{year}.nc"
 PRECIP_FSTR = "precipitation_{year}.nc"
 TEMPERATURE_FSTR = "temperature_{year}.nc"
+
 
 def extract_climate_data_for_year(year:int, lats:pd.Series, longs:pd.Series, threshold = 30)-> pd.DataFrame:
     if isinstance(threshold, int) or threshold.is_integer():
@@ -94,9 +99,10 @@ def write_output(df:pd.DataFrame, out_filepath:Path, **kwargs) -> None:
     else:
         raise NotImplementedError(f"File type {extension} not supported")
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description = """ Tool to extract climate data for a dataset that has latitude and longitude. \
+        description=""" Tool to extract climate data for a dataset that has latitude and longitude. \
             Example usage: python get_climate_vars.py /mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/bmi/bmi_data_outliered.csv /mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/bmi_climate.parquet -lat_col latnum -long_col longnum"""
     )
     parser.add_argument("input_file", help="filepath with lat longs to process", type=str)
