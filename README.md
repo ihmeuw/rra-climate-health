@@ -3,42 +3,29 @@
 ## Setting up a development environment
 
 * Clone this repository
-* Requirements:
-  * [Poetry](https://python-poetry.org/)
-  * Python 3.10+
-* Create a virtual environment and install the dependencies
+* Create a conda environment with python
+    
+    ```sh
+    conda create -n cgf python=3.12 poetry
+    ```
+  
+* Activate the conda environment
 
-```sh
-poetry install
-```
+    ```sh
+    conda activate cgf
+    ```
 
-* Activate the virtual environment
+* Use `pip` to install `poetry` in the conda environment
 
-```sh
-poetry shell
-```
+    ```sh
+    pip install poetry
+    ```
+  
+* Install the dependencies
 
-### Testing
-
-```sh
-pytest
-```
-
-### Documentation
-
-The documentation is automatically generated from the content of the `docs` directory and from the docstrings
- of the public signatures of the source code. The documentation is updated and published as a [Github project page
- ](https://pages.github.com/) automatically as part each release.
-
-### Releasing
-
-Trigger the [Draft release workflow](https://github.com//cgf_pipeline/actions/workflows/draft_release.yml)
-(press _Run workflow_). This will update the changelog & version and create a GitHub release which is in _Draft_ state.
-
-Find the draft release from the
-[GitHub releases](https://github.com//cgf_pipeline/releases) and publish it. When
- a release is published, it'll trigger [release](https://github.com//cgf_pipeline/blob/master/.github/workflows/release.yml) workflow which creates PyPI
- release and deploys updated documentation.
+    ```sh
+    poetry install
+    ```
 
 ### Pre-commit
 
