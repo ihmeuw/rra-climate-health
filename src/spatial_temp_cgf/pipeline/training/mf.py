@@ -1,5 +1,3 @@
-#from ctypes import cdll
-#cdll.LoadLibrary('/mnt/share/homes/victorvt/envs/cgf_temperature/lib/libstdc++.so.6')
 import xarray as xr
 import numpy as np
 import pandas as pd
@@ -7,14 +5,9 @@ import rasterio as rio
 import rasterra as rt
 from pathlib import Path
 import geopandas as gpd
-import glob
-import logging
 import pickle
-import argparse
-import sys
 import logging
-import paths
-
+from spatial_temp_cgf import paths
 
 CHELSA_CRS = rio.crs.CRS.from_string('WGS84')
 MOLLEWEIDE_CRS = rio.crs.CRS.from_string('ESRI:54009')
@@ -314,7 +307,7 @@ def get_predictions(measure, lsae_location_id, scenario, year, sex_id, age_group
     climate_var = 'over_30'
 
     location_var = 'ihme_loc_id'
-    
+
     income_var_bin = income_var + '_bin'
     climate_var_bin = climate_var + '_bin'
     location_var = 'ihme_loc_id'
@@ -330,7 +323,7 @@ def get_predictions(measure, lsae_location_id, scenario, year, sex_id, age_group
     loc_mapping = loc_mapping.iloc[0]
     lsae_location_id = loc_mapping['lsae_location_id']
     location_iso3 = loc_mapping['worldpop_iso3']
-    
+
     pop_raster = get_worldpop_population_raster(location_iso3)
     logging.debug(f"WorldPop population raster CRS {pop_raster.crs}" )
 
@@ -352,7 +345,7 @@ def get_predictions(measure, lsae_location_id, scenario, year, sex_id, age_group
     #model = make_model(measure, sex_id = sex_id, age_group_id = age_group_id)
 
     income_df = get_ldipc_bin_proportions(lsae_location_id, year, model)
-    climate_threshold_df = get_climate_threshold_proportions(model, climate_threshold_numerator, 
+    climate_threshold_df = get_climate_threshold_proportions(model, climate_threshold_numerator,
         threshold_col = climate_var, bins_left_closed = True, debug=False)
 
     if location_iso3 in model.available_locations:
@@ -362,7 +355,7 @@ def get_predictions(measure, lsae_location_id, scenario, year, sex_id, age_group
     result_df = base_grid.merge(income_df[['proportion_at_income', income_var_bin]], how='left', on=income_var_bin)\
         .merge(climate_threshold_df[['over_threshold_proportion', climate_var_bin]], how='left', on=climate_var_bin)
 
-    pred_df = result_df 
+    pred_df = result_df
     pred_df['lsae_location_id'] = lsae_location_id
     pred_df['fhs_location_id'] = fhs_location_id
     pred_df['year'] = year
@@ -390,93 +383,11 @@ def get_predictions(measure, lsae_location_id, scenario, year, sex_id, age_group
     return pred_df
 
 
-def get_predictions_countrylevel(measure, location_iso3, scenario, year, sex_id, age_group_id, model):
-    #measure, location_identifier, scenario, year, threshold = 'stunting', 'NGA', 'ssp245', 2050, 30
-    #location_identifier = 'NGA'
-    #scenario = 'ssp245'
-    #year = 2050
-    income_var = 'ldi_pc_pd'
-    climate_var = 'over_30'
 
-    location_var = 'ihme_loc_id'
-    
-    income_var_bin = income_var + '_bin'
-    climate_var_bin = climate_var + '_bin'
-    location_var = 'ihme_loc_id'
-    # sex_id = 1
-    # age_group_id = 5
-    #measure = 'stunting'
-
-    assert(scenario in ['ssp245', 'ssp119'])
-
-    location_id, location_iso3 = get_location_pair(location_iso3)
-    loc_mapping = get_fhs_lsae_location_mapping(short=True).query("lsae_location_id == @lsae_location_id")
-    assert(len(loc_mapping) == 1)
-    loc_mapping = loc_mapping.iloc[0]
-    lsae_location_id = loc_mapping['lsae_location_id']
-    location_iso3 = loc_mapping['worldpop_iso3']
-    
-    pop_raster = get_worldpop_population_raster(location_iso3)
-    logging.debug(f"WorldPop population raster CRS {pop_raster.crs}" )
-
-    #for later use
-    fhs_location_id = loc_mapping['fhs_location_id']
-    fhs_shapefile = get_FHS_shapefile(fhs_location_id).to_crs(MOLLEWEIDE_CRS)
-    fhs_pop_raster = pop_raster.clip(fhs_shapefile).mask(fhs_shapefile)
-
-    shapefile = get_LSAE_shapefile(lsae_location_id)
-    shapefile = shapefile.to_crs(MOLLEWEIDE_CRS)#(pop_raster.crs)
-    pop_raster = pop_raster.clip(shapefile).mask(shapefile)
-
-    climate_threshold_raster = get_climate_variable_raster(location_iso3, scenario, year, climate_var, shapefile, pop_raster, nodata=-99)
-
-    pop_array = pop_raster.to_numpy()
-    climate_threshold_array = climate_threshold_raster.to_numpy()
-    climate_threshold_numerator, climate_threshold_denom = get_population_distributions_for_climate_threshold_quantities(climate_threshold_array, pop_array)
-
-    #model = make_model(measure, sex_id = sex_id, age_group_id = age_group_id)
-
-    income_df = get_ldipc_bin_proportions(lsae_location_id, year, model)
-    climate_threshold_df = get_climate_threshold_proportions(model, climate_threshold_numerator, 
-        threshold_col = climate_var, bins_left_closed = True, debug=False)
-
-    if location_iso3 in model.available_locations:
-        base_grid = model.weight_grid.query(f"ihme_loc_id == @location_iso3")
-    else:
-        base_grid = model.nocountry_grid
-    result_df = base_grid.merge(income_df[['proportion_at_income', income_var_bin]], how='left', on=income_var_bin)\
-        .merge(climate_threshold_df[['over_threshold_proportion', climate_var_bin]], how='left', on=climate_var_bin)
-
-    pred_df = result_df #model.pred_grid.query("iso3 == @location_iso3").merge(result_df, how='left', on=['grid_cell', 'over30_avgperyear_bin', income_col_bin])
-    pred_df['lsae_location_id'] = lsae_location_id
-    pred_df['fhs_location_id'] = fhs_location_id
-    pred_df['year'] = year
-    pred_df['scenario'] = scenario
-    #pred_df['threshold'] = threshold
-    pred_df['age_group_id'] = age_group_id
-    pred_df['sex_id'] = sex_id
-    pred_df['measure'] = measure
-
-    fhs_pop_total = fhs_pop_raster.to_numpy()[~fhs_pop_raster.no_data_mask].sum()
-    lsae_pop_total = pop_array[~pop_raster.no_data_mask].sum()
-    pred_df['fhs_population'] = fhs_pop_total
-    pred_df['lsae_population'] = lsae_pop_total
-    pred_df['lsae_fhs_pop_proportion'] = lsae_pop_total / fhs_pop_total
-    for col in ['grid_cell', climate_var_bin, income_var_bin]:
-        pred_df[col] = pred_df[col].astype(str)
-    if True:
-        return pred_df
-    projected_population_total = get_forecasted_population(location_id, year, sex_id, age_group_id)
-
-    pred_df['population'] = projected_population_total
-    pred_df['susceptible'] =  pred_df.population * pred_df.over_threshold_proportion * pred_df.proportion_at_income
-    pred_df['prediction'] =  pred_df.population * pred_df.over_threshold_proportion * pred_df.proportion_at_income * pred_df.prediction_weight
-
-    return pred_df
 
 def run_model_and_save(measure, model_identifier, sex_id, age_group_id, model_spec, grid_vars):
     model = make_model(measure, model_spec, grid_list = grid_vars, sex_id = sex_id, age_group_id = age_group_id)
-    model_filepath = paths.MODEL_ROOTS / model_identifier / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
+    model_filepath = paths.MODELS / model_identifier / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
     model_filepath.parent.mkdir(parents=True, exist_ok=True)
 
     with open(model_filepath, 'wb') as f:
@@ -487,21 +398,21 @@ def run_model_and_predict(measure, model_identifier, lsae_location_id, scenario,
     model = make_model(measure, model_spec, grid_list = grid_vars, sex_id = sex_id, age_group_id = age_group_id)
     pred_df = get_predictions(measure, lsae_location_id, scenario, year, sex_id, age_group_id, model)
     if save_model:
-        model_filepath = paths.MODEL_ROOTS / model_identifier / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
+        model_filepath = paths.MODELS / model_identifier / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
         with open(model_filepath, 'wb') as f:
             pickle.dump(model, f)
     pred_df['model_identifier'] = model_identifier
     pred_df['model_spec'] = model_spec
     pred_df['grid_vars'] = ','.join(grid_vars)
 
-    out_filepath = paths.MODEL_ROOTS / model_identifier / 'predictions' / measure / scenario / year / \
+    out_filepath = paths.MODELS / model_identifier / 'predictions' / measure / scenario / year / \
         f'mp_{lsae_location_id}_{scenario}_{year}_{age_group_id}_{sex_id}.parquet'
     out_filepath.parent.mkdir(parents=True, exist_ok=True)
     pred_df.to_parquet(out_filepath)
 
 def predict_on_model(measure, model_identifier, lsae_location_id, scenario, year, sex_id, age_group_id):
     MODEL_ROOTS = Path('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/output/models/')
-    model_filepath = paths.MODEL_ROOTS / model_identifier / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
+    model_filepath = paths.MODELS / model_identifier / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
     with open(model_filepath, 'rb') as f:
         model = pickle.load(f)
     pred_df = get_predictions(measure, lsae_location_id, scenario, year, sex_id, age_group_id, model)
@@ -538,9 +449,8 @@ STANDARD_BINNING_SPECS = {
 def make_model(cgf_measure, model_spec, grid_list = None, grid_spec = None, 
     sex_id = None, age_group_id = None, filter = None, location_var = 'ihme_loc_id'):
     import re
-    import cgf_utils
+    import utils
     import sklearn
-    from pymer4 import Lmer
     df = get_modeling_input_data(cgf_measure)
 
     if 'grid_cell' in model_spec and grid_list is None and grid_spec is None:
@@ -599,7 +509,7 @@ def make_model(cgf_measure, model_spec, grid_list = None, grid_spec = None,
 def make_model_old(cgf_measure, sex_id = None, age_group_id = None, filter = None, climate_var = 'over_30', 
     income_var = 'ldi_pc_pd', location_var = 'ihme_loc_id'):
     import re
-    import cgf_utils
+    import utils
     import sklearn
     df = get_modeling_input_data(cgf_measure)
 
@@ -650,7 +560,6 @@ def make_model_old(cgf_measure, sex_id = None, age_group_id = None, filter = Non
 
 
 def get_fhs_lsae_location_mapping(short = False, extra_checks = False):
-    import paths
     import db_queries
     lsae_loc_meta = db_queries.get_location_metadata(125, release_id = 16)
     lsae_loc_most_detailed = lsae_loc_meta.query("most_detailed == 1").copy()[['location_id', 'ihme_loc_id', 'location_name', 'path_to_top_parent']].rename(columns = {'location_id':'lsae_location_id', 'ihme_loc_id':'lsae_ihme_loc_id', 'location_name':'lsae_location_name'})
