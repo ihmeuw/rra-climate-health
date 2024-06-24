@@ -2,5 +2,10 @@ import click
 
 
 @click.command()
-def cli() -> None:
+def strun() -> None:
+    pass
+
+
+@click.command()
+def sttask() -> None:
     pass

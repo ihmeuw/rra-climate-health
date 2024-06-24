@@ -60,7 +60,8 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [project.scripts]
-my-cli = "spatial_temp_cgf.cli:main"
+strun = "spatial_temp_cgf.cli:strun"
+sttask = "spatial_temp_cgf.cli:sttask"
 
 [tool.ruff]
 target-version = "py310" # The lowest supported version
