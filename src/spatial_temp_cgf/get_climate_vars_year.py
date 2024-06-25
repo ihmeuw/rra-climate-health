@@ -1,7 +1,6 @@
 import argparse
 import logging
 import sys
-from ctypes import cdll
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +9,7 @@ import xarray
 
 from spatial_temp_cgf import paths
 
-cdll.LoadLibrary(paths.LIBSTDCPP_PATH)
+
 
 CLIMATE_ROOT = paths.CHELSA_HISTORICAL_ROOT
 OVER30_FSTR = "days_above_{threshold}_{year}.nc"
