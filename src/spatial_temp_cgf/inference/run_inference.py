@@ -6,7 +6,6 @@ import click
 import numpy as np
 import pandas as pd
 import rasterra as rt
-import pickle
 from rra_tools import jobmon
 from scipy.special import expit
 
@@ -14,9 +13,22 @@ from spatial_temp_cgf import income_funcs, paths
 from spatial_temp_cgf.training import mf
 from spatial_temp_cgf.data_prep.location_mapping import load_fhs_lsae_mapping
 from spatial_temp_cgf import cli_options as clio
+from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
 
 
-def get_predictions(measure, fhs_location_id, scenario, year, sex_id, age_group_id, model):
+def model_inference_main(
+    output_dir: Path,
+    model_id: str,
+    measure: str,
+    fhs_location_id: int,
+    cmip6_scenario: str,
+    sex_id: int,
+    age_group_id: int,
+    year: int,
+) -> None:
+    cm_data = ClimateMalnutritionData(output_dir)
+    model = cm_data.load_model(model_id, measure, age_group_id, sex_id)
+
     loc_mapping = load_fhs_lsae_mapping(fhs_location_id)
     fhs_shapefile = loc_mapping.iloc[0].fhs_shape
     income_df = income_funcs.load_binned_income_distribution_proportions(
@@ -35,7 +47,7 @@ def get_predictions(measure, fhs_location_id, scenario, year, sex_id, age_group_
 
     climate_rasters = {}
     for var in climate_vars:
-        climate_rasters[var] = mf.get_climate_variable_raster(scenario, year, var, None, None, untreated=True)
+        climate_rasters[var] = mf.get_climate_variable_raster(cmip6_scenario, year, var, None, None, untreated=True)
         climate_rasters[var] = climate_rasters[var].resample_to(fhs_pop_raster).clip(fhs_shapefile)
 
     admin_dfs = []
@@ -65,7 +77,6 @@ def get_predictions(measure, fhs_location_id, scenario, year, sex_id, age_group_
         #temp_df = pd.DataFrame({'pop': pop_array.flatten(), 'climate_bin_idx': binned_climate_array.flatten()}).groupby('climate_bin_idx', as_index=False).pop.sum()
         # Keeping it as pixels
         temp_df = pd.DataFrame(rasters)
-        temp = temp_df.dropna(subset=['population'])
         temp_df['lsae_pop'] = np.nansum(pop_array)
         temp_df['lsae_location_id'] = lsae_location_id
         temp_df['worldpop_iso3'] = admin2_row.worldpop_iso3
@@ -111,34 +122,19 @@ def get_predictions(measure, fhs_location_id, scenario, year, sex_id, age_group_
     result = pd.DataFrame({'fhs_location_id' : [fhs_location_id], 'year_id': [year], 'age_group_id': [age_group_id], 'scenario' : [scenario], 'sex_id':[sex_id],
         'cgf_measure':[measure], 'prevalence': [fhs_df.affected_proportion.sum()]})
 
-    return result
-
-
-def model_inference_main(
-    output_dir: Path,
-    model_id: str,
-    measure: str,
-    fhs_location_id: int,
-    cmip6_scenario: str,
-    sex_id: int,
-    age_group_id: int,
-    year: int,
-) -> None:
-    model_root = output_dir.parent / 'models'
-    model_filepath = model_root / model_id / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
-    with open(model_filepath, 'rb') as f:
-        model = pickle.load(f)
-    pred_df = get_predictions(measure, fhs_location_id, cmip6_scenario, year, sex_id, age_group_id, model)
-    out_filepath = (
-            model_root / model_id / 'predictions' / measure / cmip6_scenario / str(year) /
-        f'mp_{fhs_location_id}_{cmip6_scenario}_{year}_{age_group_id}_{sex_id}.parquet'
+    cm_data.save_results(
+        result,
+        model_id=model_id,
+        measure=measure,
+        scenario=cmip6_scenario,
+        year=year,
+        age_group_id=age_group_id,
+        sex_id=sex_id
     )
-    out_filepath.parent.mkdir(parents=True, exist_ok=True)
-    pred_df.to_parquet(out_filepath)
 
 
 @click.command()
-@clio.with_output_directory(paths.RESULTS)
+@clio.with_output_directory(DEFAULT_ROOT)
 @clio.with_model_id()
 @clio.with_measure()
 @clio.with_location_id()
@@ -171,7 +167,7 @@ def model_inference_task(
 
 
 @click.command()
-@clio.with_output_directory(paths.RESULTS)
+@clio.with_output_directory(DEFAULT_ROOT)
 @clio.with_model_id()
 @clio.with_measure(allow_all=True)
 @clio.with_location_id(allow_all=True)
