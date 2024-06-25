@@ -8,12 +8,84 @@ import pandas as pd
 import rasterra as rt
 from rra_tools import jobmon
 from scipy.special import expit
+import xarray as xr
 
 from spatial_temp_cgf import income_funcs, paths
 from spatial_temp_cgf.training import mf
 from spatial_temp_cgf.data_prep.location_mapping import load_fhs_lsae_mapping
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
+
+
+def xarray_to_raster(ds: xr.DataArray, nodata: float | int) -> rt.RasterArray:
+    from affine import Affine
+    """Convert an xarray DataArray to a RasterArray."""
+    lat, lon = ds["latitude"].data, ds["longitude"].data
+
+    dlat = (lat[1:] - lat[:-1]).mean()
+    dlon = (lon[1:] - lon[:-1]).mean()
+
+    transform = Affine(
+        a=dlon,
+        b=0.0,
+        c=lon[0],
+        d=0.0,
+        e=-dlat,
+        f=lat[-1],
+    )
+    raster = rt.RasterArray(
+        data=ds.data[::-1],
+        transform=transform,
+        crs="EPSG:4326",
+        no_data_value=nodata,
+    )
+    return raster
+
+
+def get_climate_variable_dataset(scenario, year, climate_var):
+    import xarray as xr
+    climate_variables = {'temp': 'mean_temperature.nc',
+                         'precip': 'total_precipitation.nc'}
+    for threshold in range(30, 31):
+        climate_variables[f'over_{threshold}'] = f'days_over_{threshold}C/{year}.nc'
+
+    if climate_var not in climate_variables.keys():
+        raise ValueError(f"Climate variable {climate_var} not recognized")
+    filename = climate_variables[climate_var] if not climate_var.startswith(
+        'over') else climate_var + '.nc'
+    CLIMATE_FILEPATH = paths.CLIMATE_PROJECTIONS_ROOT / scenario / climate_variables[
+        climate_var]
+
+    projection_ds = xr.open_dataset(CLIMATE_FILEPATH)
+    projection_ds = projection_ds.loc[dict(year=year)]
+    return projection_ds
+
+
+def get_climate_variable_raster(
+    location_iso3,
+    scenario,
+    year,
+    climate_var,
+    shapefile,
+    reference_raster,
+    nodata=np.nan,
+    untreated=False,
+):
+    # HACK FOR NOW
+    if False: #climate_var.startswith('over') or climate_var.startswith('days'):
+        import re
+        threshold = str(float(re.search(r'\d+', climate_var).group())).replace(".", "-")# int(climate_var.split('_')[-1][:-1])
+        projection_da = get_CHELSA_projection_old(location_iso3, threshold, scenario, year).tas
+    else:
+        projection_da = get_climate_variable_dataset(scenario, year, climate_var).value
+    result_raster = xarray_to_raster(projection_da, nodata)
+    if untreated:
+        return result_raster
+    result_raster = result_raster.to_crs(reference_raster.crs)\
+            .clip(shapefile)\
+            .mask(shapefile)\
+            .resample_to(reference_raster)
+    return result_raster
 
 
 def model_inference_main(

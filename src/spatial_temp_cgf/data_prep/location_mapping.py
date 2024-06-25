@@ -21,12 +21,12 @@ def make_parquet_files():
     print('Copying LSAE Shapes')
     gpd.read_file(LSAE_RAW_SHAPE_PATH).to_parquet(LSAE_SHAPE_PATH)
     print('Copying LSAE hierarchy')
-    db_queries.get_location_metadata(125, release_id = 16).to_parquet(LSAE_HIERARCHY_PATH)
+    db_queries.get_location_metadata(125, release_id=16).to_parquet(LSAE_HIERARCHY_PATH)
 
     print('Copying FHS Shapes')
     gpd.read_file(FHS_RAW_SHAPE_PATH).to_parquet(FHS_SHAPE_PATH)
     print('Copying LSAE hierarchy')
-    db_queries.get_location_metadata(30, release_id = 16).to_parquet(FHS_HIERARCHY_PATH)
+    db_queries.get_location_metadata(30, release_id=16).to_parquet(FHS_HIERARCHY_PATH)
 
 
 def build_fhs_lsae_mapping():
@@ -38,7 +38,7 @@ def build_fhs_lsae_mapping():
     lsae_loc_most_detailed = (
         lsae_loc_meta.query("most_detailed == 1")
         .loc[:, ['location_id', 'ihme_loc_id', 'location_name', 'path_to_top_parent']]
-        .rename(columns = {'location_id':'lsae_location_id', 'ihme_loc_id':'lsae_ihme_loc_id', 'location_name':'lsae_location_name'})
+        .rename(columns={'location_id':'lsae_location_id', 'ihme_loc_id':'lsae_ihme_loc_id', 'location_name':'lsae_location_name'})
     )
     
     # FIX THE ONE PROBLEMATIC ETHIOPIA SUBNATIONAL

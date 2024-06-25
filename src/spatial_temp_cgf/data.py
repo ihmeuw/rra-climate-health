@@ -53,7 +53,6 @@ class ClimateMalnutritionData:
             model = pickle.load(f)
         return model
 
-
     @property
     def results(self) -> Path:
         return self.root / "results"
