@@ -181,3 +181,11 @@ def with_year(
         help="The year to run.",
         callback=get_choice_callback(allow_all, choices),
     )
+
+
+def with_overwrite() -> ClickOption[_P, _T]:
+    return click.option(
+        "--overwrite",
+        help="Overwrite existing files.",
+        is_flag=True,
+    )

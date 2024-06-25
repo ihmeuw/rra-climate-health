@@ -1,6 +1,7 @@
 import logging
 import sys
 from pathlib import Path
+import itertools
 
 import click
 import numpy as np
@@ -251,6 +252,7 @@ def model_inference_task(
 @clio.with_cmip6_scenario(allow_all=True)
 @clio.with_year(allow_all=True)
 @clio.with_queue()
+@clio.with_overwrite()
 def model_inference(
     output_dir: str,
     model_id: str,
@@ -259,18 +261,33 @@ def model_inference(
     cmip6_scenario: list[str],
     year: list[str],
     queue: str,
+    overwrite: bool,
 ) -> None:
     """Run model inference."""
     logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
+    cm_data = ClimateMalnutritionData(output_dir)
+
+    complete = []
+    to_run = []
+    if not overwrite:
+        for m, l, s, y in itertools.product(measure, location_id, cmip6_scenario, year):
+            if cm_data.results_path(model_id, l, m, s, y).exists():
+                complete.append((m, l, s, y))
+            else:
+                to_run.append((m, l, s, y))
+
+    print(
+        f"Run configuration has {len(complete)} jobs complete "
+        f"and {len(to_run)} jobs to run."
+    )
+
     jobmon.run_parallel(
         runner="sttask",
         task_name="inference",
-        node_args={
-            "measure": measure,
-            "location-id": location_id,
-            "cmip6-scenario": cmip6_scenario,
-            "year": year,
-        },
+        flat_node_args=(
+            ("measure", "location-id", "cmip6-scenario", "year"),
+            to_run,
+        ),
         task_args={
             "output-dir": output_dir,
             "model-id": model_id,
