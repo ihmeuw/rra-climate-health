@@ -133,12 +133,9 @@ def model_inference_main(
     measure: str,
     fhs_location_id: int,
     cmip6_scenario: str,
-    sex_id: int,
-    age_group_id: int,
     year: int,
 ) -> None:
     cm_data = ClimateMalnutritionData(output_dir)
-    model = cm_data.load_model(model_id, measure, age_group_id, sex_id)
 
     loc_mapping = load_fhs_lsae_mapping(fhs_location_id)
     fhs_shapefile = loc_mapping.iloc[0].fhs_shape
@@ -253,15 +250,15 @@ def model_inference_main(
     result_df['scenario'] = cmip6_scenario
     result_df['measure'] = measure
 
-    cm_data.save_results(
-        result_df,
-        model_id=model_id,
-        measure=measure,
-        scenario=cmip6_scenario,
-        year=year,
-        age_group_id=age_group_id,
-        sex_id=sex_id
-    )
+    # cm_data.save_results(
+    #     result_df,
+    #     model_id=model_id,
+    #     measure=measure,
+    #     scenario=cmip6_scenario,
+    #     year=year,
+    #     age_group_id=age_group_id,
+    #     sex_id=sex_id
+    # )
 
 
 @click.command()
