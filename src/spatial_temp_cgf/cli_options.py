@@ -1,4 +1,4 @@
-from typing import ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar, Callable, Any, List
 
 import click
 from rra_tools.cli_tools import (
@@ -21,6 +21,16 @@ _P = ParamSpec("_P")
 VALID_MEASURES = ["wasting", "stunting"]
 
 
+def get_choice_callback(
+    allow_all: bool,
+    choices: list[str],
+) -> Callable[[Any, Any, Any], list[str] | str]:
+    if allow_all:
+        return lambda ctx, param, value: choices if value == RUN_ALL else [value]
+    else:
+        return lambda ctx, param, value: value
+
+
 def with_measure(
     *,
     choices: list[str] = VALID_MEASURES,
@@ -32,6 +42,7 @@ def with_measure(
         allow_all=allow_all,
         choices=choices,
         help="The nutrition measure to run.",
+        callback=get_choice_callback(allow_all, choices),
     )
 
 
@@ -57,6 +68,7 @@ def with_location_id(
         allow_all=allow_all,
         choices=choices,
         help="The location ID to run.",
+        callback=get_choice_callback(allow_all, choices),
     )
 
 
@@ -80,6 +92,7 @@ def with_cmip6_scenario(
         allow_all=allow_all,
         choices=choices,
         help="The CMIP6 scenario to run.",
+        callback=get_choice_callback(allow_all, choices),
     )
 
 
@@ -97,6 +110,7 @@ def with_sex_id(
         allow_all=allow_all,
         choices=choices,
         help="The sex ID to run. 1 is Male and 2 is Female.",
+        callback=get_choice_callback(allow_all, choices),
     )
 
 
@@ -114,6 +128,7 @@ def with_age_group_id(
         allow_all=allow_all,
         choices=choices,
         help="The age group ID to run.",
+        callback=get_choice_callback(allow_all, choices),
     )
 
 
@@ -131,4 +146,5 @@ def with_year(
         allow_all=allow_all,
         choices=choices,
         help="The year to run.",
+        callback=get_choice_callback(allow_all, choices),
     )

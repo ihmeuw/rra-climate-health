@@ -183,39 +183,26 @@ def model_inference_task(
 def model_inference(
     output_dir: str,
     model_id: str,
-    measure: str,
-    location_id: str,
-    cmip6_scenario: str,
-    sex_id: str,
-    age_group_id: str,
-    year: str,
+    measure: list[str],
+    location_id: list[str],
+    cmip6_scenario: list[str],
+    sex_id: list[str],
+    age_group_id: list[str],
+    year: list[str],
     queue: str,
 ) -> None:
     """Run model inference."""
-    measures = clio.VALID_MEASURES if measure == clio.RUN_ALL else [measure]
-    location_ids = (
-        clio.VALID_FHS_LOCATION_IDS if location_id == clio.RUN_ALL else [location_id]
-    )
-    cmip6_scenarios = (
-        clio.VALID_CMIP6_SCENARIOS if cmip6_scenario == clio.RUN_ALL else [cmip6_scenario]
-    )
-    sex_ids = clio.VALID_SEX_IDS if sex_id == clio.RUN_ALL else [sex_id]
-    age_group_ids = (
-        clio.VALID_AGE_GROUP_IDS if age_group_id == clio.RUN_ALL else [age_group_id]
-    )
-    years = clio.VALID_PREDICTION_YEARS if year == clio.RUN_ALL else [year]
-
     logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
     jobmon.run_parallel(
         runner="sttask",
         task_name="model_inference",
         node_args={
-            "measure": measures,
-            "location-id": location_ids,
-            "cmip6-scenario": cmip6_scenarios,
-            "sex-id": sex_ids,
-            "age-group-id": age_group_ids,
-            "year": years,
+            "measure": measure,
+            "location-id": location_id,
+            "cmip6-scenario": cmip6_scenario,
+            "sex-id": sex_id,
+            "age-group-id": age_group_id,
+            "year": year,
         },
         task_args={
             "output-dir": output_dir,
