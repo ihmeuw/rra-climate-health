@@ -1,6 +1,7 @@
 import logging
 import sys
 from pathlib import Path
+import dill as pickle
 
 import click
 import numpy as np
@@ -11,7 +12,6 @@ from scipy.special import expit
 import xarray as xr
 
 from spatial_temp_cgf import income_funcs, paths
-from spatial_temp_cgf.training import mf
 from spatial_temp_cgf.data_prep.location_mapping import load_fhs_lsae_mapping
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
@@ -159,7 +159,7 @@ def model_inference_main(
 
     climate_rasters = {}
     for var in climate_vars:
-        climate_rasters[var] = mf.get_climate_variable_raster(cmip6_scenario, year, var, None, None, untreated=True)
+        climate_rasters[var] = get_climate_variable_raster(cmip6_scenario, year, var, None, None, untreated=True)
         climate_rasters[var] = climate_rasters[var].resample_to(fhs_pop_raster).clip(fhs_shapefile)
 
     admin_dfs = []
