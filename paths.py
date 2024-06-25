@@ -13,4 +13,11 @@ GBD_SHAPEFILE_LOCATION = Path('/snfs1/DATA/SHAPE_FILES/GBD_geographies/master/GB
 LSAE_SHAPEFILE_LOCATION = Path('/snfs1/WORK/11_geospatial/admin_shapefiles/2023_10_30/lbd_standard_admin_2.shp')
 
 CLIMATE_PROJECTIONS_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
+CLIMATE_HISTORICAL_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
+
+
 MODEL_ROOTS = Path('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/output/models/')
+
+LDIPC_DISTRIBUTION_BIN_PROPORTIONS_DEFAULT_FILEPATH_FORMAT = '/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/default_ldipc_bin_proportions_{measure}.parquet'
+
+GLOBAL_POPULATION_FILEPATH = '/mnt/team/rapidresponse/pub/population/data/01-raw-data/other-gridded-pop-projects/global-human-settlement-layer/2020/GHS_POP_E2020_GLOBE_R2023A_4326_30ss_V1_0.tif'

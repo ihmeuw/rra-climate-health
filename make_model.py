@@ -19,6 +19,7 @@ if __name__ == "__main__":
     parser.add_argument("age_group_id", help='age group', type=int)
     parser.add_argument("model_spec", help='model spec like stunting ~ ihme_loc_id + precip', type=str)
     parser.add_argument("grid_vars", help='list of vars to be binned and added to the grid in order', type=str)
+
     args = parser.parse_args()
 
     grid_vars = args.grid_vars.replace('"', '').replace("'", "").split(',')

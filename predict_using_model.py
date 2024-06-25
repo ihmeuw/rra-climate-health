@@ -21,10 +21,10 @@ if __name__ == "__main__":
     parser.add_argument("fhs_location_id", help="location id in the FHS loc hierarchy", type=int)
     parser.add_argument("scenario", help='ssp126 etc', type=str)
     parser.add_argument("year", help='guess', type=int)
-    parser.add_argument("sex_id", help='1 or 2', type=int)
-    parser.add_argument("age_group_id", help='age group', type=int)
+    # parser.add_argument("sex_id", help='1 or 2', type=int)
+    # parser.add_argument("age_group_id", help='age group', type=int)
     args = parser.parse_args()
 
     logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
-    fhs_prediction.predict_on_model(args.measure, args.model_identifier, args.fhs_location_id, args.scenario, args.year, args.sex_id, args.age_group_id)
+    fhs_prediction.predict_on_model(args.measure, args.model_identifier, args.fhs_location_id, args.scenario, args.year)
     
