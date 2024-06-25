@@ -74,8 +74,6 @@ def get_climate_variable_raster(scenario, year, climate_var, shapefile,
         .resample_to(reference_raster)
     return result_raster
 
-
-
 def scale_like_input_data(to_scale, input_min, input_max):
     return (to_scale - input_min) / (input_max - input_min)
 

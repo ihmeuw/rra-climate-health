@@ -38,7 +38,7 @@ def with_measure(
 ) -> ClickOption[_P, _T]:
     return with_choice(
         "measure",
-        "-m",
+        "m",
         allow_all=allow_all,
         choices=choices,
         help="The nutrition measure to run.",
@@ -64,7 +64,7 @@ def with_location_id(
 ) -> ClickOption[_P, _T]:
     return with_choice(
         "location-id",
-        "-l",
+        "l",
         allow_all=allow_all,
         choices=choices,
         help="The location ID to run.",
@@ -88,7 +88,7 @@ def with_cmip6_scenario(
 ) -> ClickOption[_P, _T]:
     return with_choice(
         "cmip6-scenario",
-        "-c",
+        "c",
         allow_all=allow_all,
         choices=choices,
         help="The CMIP6 scenario to run.",
@@ -142,7 +142,7 @@ def with_year(
 ) -> ClickOption[_P, _T]:
     return with_choice(
         "year",
-        "-y",
+        "y",
         allow_all=allow_all,
         choices=choices,
         help="The year to run.",
