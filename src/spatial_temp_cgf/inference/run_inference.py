@@ -74,47 +74,6 @@ def get_climate_variable_raster(scenario, year, climate_var, shapefile,
         .resample_to(reference_raster)
     return result_raster
 
-def get_climate_threshold_proportions(model, threshold_counts, threshold_col = 'over_30', threshold_col_bin = 'over_30_bin', bins_left_closed = True, debug=False):
-    climate_var_bins = model.grid_spec[threshold_col]['bins']
-    over_threshold_bins_df = pd.DataFrame({'lower_bound':climate_var_bins[:-1],
-        'upper_bound':climate_var_bins[1:],
-        threshold_col_bin:model.nocountry_grid[threshold_col_bin].sort_values().unique(),
-        })
-
-    counts_df = pd.DataFrame.from_dict(threshold_counts, orient='index').reset_index().rename(columns={'index':'days_above_threshold', 0:'count'})
-    if not bins_left_closed:
-        raise NotImplementedError()
-
-    assign_df = over_threshold_bins_df.merge(counts_df, how='cross')
-    assign_df['belong_left_closed'] = (assign_df['days_above_threshold'].ge(assign_df.lower_bound)) & \
-        (assign_df['days_above_threshold'].lt(assign_df.upper_bound))
-    over_threshold_df = assign_df.loc[assign_df.belong_left_closed].groupby(threshold_col_bin).agg(threshold_pop = ('count', 'sum'))
-    counts_df_total_pop = counts_df['count'].sum()
-    over_threshold_df['over_threshold_proportion'] = over_threshold_df['threshold_pop'] / counts_df_total_pop
-    over_threshold_df = over_threshold_df.reset_index()
-    if debug:
-        return over_threshold_df, assign_df, counts_df, over_threshold_bins_df
-    return over_threshold_df
-
-def get_model_family(model_identifier, measure):
-    import glob
-    import re
-    folder_path = paths.MODEL_ROOTS / model_identifier
-    models = []
-
-    # Pattern to match the files and capture X and Y values
-    pattern = f"model_{measure}_([0-9]+)_([0-9]+).pkl"
-
-    # Iterate through matching files in the folder
-    for file in folder_path.glob(f"model_{measure}_*.pkl"):
-        match = re.match(pattern, file.name)
-        if match:
-            age_group_id, sex_id = match.groups()
-            with open(file, 'rb') as f:
-                models.append({'model': pickle.load(f), 'age_group_id': age_group_id, 'sex_id': sex_id})
-        else:
-            raise ValueError(f"Filename {file} does not match the pattern {pattern.pattern}")
-    return models
 
 
 def scale_like_input_data(to_scale, input_min, input_max):
@@ -143,7 +102,7 @@ def model_inference_main(
         fhs_location_id=fhs_location_id, measure=measure, year_id=year
     )
 
-    models = get_model_family(model_id, measure)
+    models = cm_data.load_model_family(model_id, measure)
     model = models[0]['model'] #getting the first model to base bins and variable info off of
 
     fhs_pop_raster = rt.load_raster(paths.GLOBAL_POPULATION_FILEPATH, fhs_shapefile.bounds).set_no_data_value(np.nan)
@@ -186,10 +145,9 @@ def model_inference_main(
             rasters[var] = climate_array.flatten()
 
         # Alternative approach is to group pixels to lsae
-        #temp_df = pd.DataFrame({'pop': pop_array.flatten(), 'climate_bin_idx': binned_climate_array.flatten()}).groupby('climate_bin_idx', as_index=False).pop.sum()
         # Keeping it as pixels
         pixels_df = pd.DataFrame(rasters)
-        pixels_df = pixels_df.dropna(subset=['population']) # TODO: Reconsider this, pretty sure it's right
+        pixels_df = pixels_df.dropna(subset=['population'])  # TODO: Reconsider this, pretty sure it's right
         pixels_df['lsae_pop'] = np.nansum(pop_array)
         pixels_df['lsae_location_id'] = lsae_location_id
         pixels_df['worldpop_iso3'] = admin2_row.worldpop_iso3
@@ -250,15 +208,13 @@ def model_inference_main(
     result_df['scenario'] = cmip6_scenario
     result_df['measure'] = measure
 
-    # cm_data.save_results(
-    #     result_df,
-    #     model_id=model_id,
-    #     measure=measure,
-    #     scenario=cmip6_scenario,
-    #     year=year,
-    #     age_group_id=age_group_id,
-    #     sex_id=sex_id
-    # )
+    cm_data.save_results(
+        result_df,
+        model_id=model_id,
+        measure=measure,
+        scenario=cmip6_scenario,
+        year=year,
+    )
 
 
 @click.command()

@@ -1,5 +1,6 @@
 from pathlib import Path
 import typing
+import itertools
 
 import dill as pickle
 import pandas as pd
@@ -40,18 +41,24 @@ class ClimateMalnutritionData:
         with model_filepath.open("wb") as f:
             pickle.dump(model, f)
 
-    def load_model(
+    def load_model_family(
         self,
         model_id: str,
         measure: str,
-        age_group_id: str | int,
-        sex_id: str | int,
-    ) -> "Lmer":
+    ) -> list[dict]:
+        models = []
         model_id_dir = self.models / model_id
-        model_filepath = model_id_dir / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
-        with model_filepath.open("rb") as f:
-            model = pickle.load(f)
-        return model
+        for age_group_id, sex_id in itertools.product([4, 5], [1, 2]):
+            model_filepath = (
+                model_id_dir / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
+            )
+            with model_filepath.open("rb") as f:
+                models.append({
+                    'model': pickle.load(f),
+                    'age_group_id': age_group_id,
+                    'sex_id': sex_id
+                })
+        return models
 
     @property
     def results(self) -> Path:
@@ -64,12 +71,10 @@ class ClimateMalnutritionData:
         measure: str,
         scenario: str,
         year: str | int,
-        age_group_id: str | int,
-        sex_id: str | int,
     ) -> None:
         model_id_dir = self.results / model_id
         mkdir(model_id_dir, exist_ok=True)
-        file_name = f"{measure}_{age_group_id}_{sex_id}_{scenario}_{year}.parquet"
+        file_name = f"{measure}_{scenario}_{year}.parquet"
         results_filepath = model_id_dir / file_name
         touch(results_filepath, exist_ok=True)
         results.to_parquet(results_filepath)
