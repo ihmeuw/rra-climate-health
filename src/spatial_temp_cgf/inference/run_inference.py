@@ -263,7 +263,7 @@ def model_inference(
     logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
     jobmon.run_parallel(
         runner="sttask",
-        task_name="model_inference",
+        task_name="inference",
         node_args={
             "measure": measure,
             "location-id": location_id,

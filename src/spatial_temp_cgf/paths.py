@@ -1,7 +1,5 @@
 from pathlib import Path
 
-LIBSTDCPP_PATH = Path('/mnt/share/homes/victorvt/envs/cgf_temperature/lib/libstdc++.so.6')
-
 ################################
 # Locations, hierarchies, etc. #
 ################################
