@@ -44,48 +44,87 @@ def xarray_to_raster(ds: xr.DataArray, nodata: float | int) -> rt.RasterArray:
 
 def get_climate_variable_dataset(scenario, year, climate_var):
     import xarray as xr
-    climate_variables = {'temp': 'mean_temperature.nc',
-                         'precip': 'total_precipitation.nc'}
+    climate_variables = {'temp': 'mean_temperature',
+                         'precip': 'total_precipitation'}
     for threshold in range(30, 31):
-        climate_variables[f'over_{threshold}'] = f'days_over_{threshold}C/{year}.nc'
+        climate_variables[f'over_{threshold}'] = f'days_over_{threshold}C'
 
     if climate_var not in climate_variables.keys():
         raise ValueError(f"Climate variable {climate_var} not recognized")
-    filename = climate_variables[climate_var] if not climate_var.startswith(
-        'over') else climate_var + '.nc'
-    CLIMATE_FILEPATH = paths.CLIMATE_PROJECTIONS_ROOT / scenario / climate_variables[
-        climate_var]
 
-    projection_ds = xr.open_dataset(CLIMATE_FILEPATH)
+    subfolder = scenario if year >= 2024 else 'historical'
+
+    filepath = paths.CLIMATE_PROJECTIONS_ROOT / subfolder / climate_variables[
+        climate_var] / (str(year) + ".nc")
+
+    projection_ds = xr.open_dataset(filepath)
     projection_ds = projection_ds.loc[dict(year=year)]
     return projection_ds
 
 
-def get_climate_variable_raster(
-    location_iso3,
-    scenario,
-    year,
-    climate_var,
-    shapefile,
-    reference_raster,
-    nodata=np.nan,
-    untreated=False,
-):
-    # HACK FOR NOW
-    if False: #climate_var.startswith('over') or climate_var.startswith('days'):
-        import re
-        threshold = str(float(re.search(r'\d+', climate_var).group())).replace(".", "-")# int(climate_var.split('_')[-1][:-1])
-        projection_da = get_CHELSA_projection_old(location_iso3, threshold, scenario, year).tas
-    else:
-        projection_da = get_climate_variable_dataset(scenario, year, climate_var).value
+def get_climate_variable_raster(scenario, year, climate_var, shapefile,
+                                reference_raster, nodata=np.nan, untreated=False):
+    projection_da = get_climate_variable_dataset(scenario, year, climate_var).value
     result_raster = xarray_to_raster(projection_da, nodata)
     if untreated:
         return result_raster
-    result_raster = result_raster.to_crs(reference_raster.crs)\
-            .clip(shapefile)\
-            .mask(shapefile)\
-            .resample_to(reference_raster)
+    result_raster = result_raster.to_crs(reference_raster.crs) \
+        .clip(shapefile) \
+        .mask(shapefile) \
+        .resample_to(reference_raster)
     return result_raster
+
+def get_climate_threshold_proportions(model, threshold_counts, threshold_col = 'over_30', threshold_col_bin = 'over_30_bin', bins_left_closed = True, debug=False):
+    climate_var_bins = model.grid_spec[threshold_col]['bins']
+    over_threshold_bins_df = pd.DataFrame({'lower_bound':climate_var_bins[:-1],
+        'upper_bound':climate_var_bins[1:],
+        threshold_col_bin:model.nocountry_grid[threshold_col_bin].sort_values().unique(),
+        })
+
+    counts_df = pd.DataFrame.from_dict(threshold_counts, orient='index').reset_index().rename(columns={'index':'days_above_threshold', 0:'count'})
+    if not bins_left_closed:
+        raise NotImplementedError()
+
+    assign_df = over_threshold_bins_df.merge(counts_df, how='cross')
+    assign_df['belong_left_closed'] = (assign_df['days_above_threshold'].ge(assign_df.lower_bound)) & \
+        (assign_df['days_above_threshold'].lt(assign_df.upper_bound))
+    over_threshold_df = assign_df.loc[assign_df.belong_left_closed].groupby(threshold_col_bin).agg(threshold_pop = ('count', 'sum'))
+    counts_df_total_pop = counts_df['count'].sum()
+    over_threshold_df['over_threshold_proportion'] = over_threshold_df['threshold_pop'] / counts_df_total_pop
+    over_threshold_df = over_threshold_df.reset_index()
+    if debug:
+        return over_threshold_df, assign_df, counts_df, over_threshold_bins_df
+    return over_threshold_df
+
+def get_model_family(model_identifier, measure):
+    import glob
+    import re
+    folder_path = paths.MODEL_ROOTS / model_identifier
+    models = []
+
+    # Pattern to match the files and capture X and Y values
+    pattern = f"model_{measure}_([0-9]+)_([0-9]+).pkl"
+
+    # Iterate through matching files in the folder
+    for file in folder_path.glob(f"model_{measure}_*.pkl"):
+        match = re.match(pattern, file.name)
+        if match:
+            age_group_id, sex_id = match.groups()
+            with open(file, 'rb') as f:
+                models.append({'model': pickle.load(f), 'age_group_id': age_group_id, 'sex_id': sex_id})
+        else:
+            raise ValueError(f"Filename {file} does not match the pattern {pattern.pattern}")
+    return models
+
+
+def scale_like_input_data(to_scale, input_min, input_max):
+    return (to_scale - input_min) / (input_max - input_min)
+
+
+def reverse_scaling(X_scaled, original_min, original_max, scaled_min, scaled_max):
+    X_std = (X_scaled - scaled_min) / (scaled_max - scaled_min)
+    X_original = X_std * (original_max - original_min) + original_min
+    return X_original
 
 
 def model_inference_main(
@@ -211,8 +250,6 @@ def model_inference_main(
 @clio.with_measure()
 @clio.with_location_id()
 @clio.with_cmip6_scenario()
-@clio.with_sex_id()
-@clio.with_age_group_id()
 @clio.with_year()
 def model_inference_task(
     output_dir: str,
@@ -220,8 +257,6 @@ def model_inference_task(
     measure: str,
     location_id: str,
     cmip6_scenario: str,
-    sex_id: str,
-    age_group_id: str,
     year: str,
 ):
     """Run model inference."""
@@ -232,8 +267,6 @@ def model_inference_task(
         measure,
         int(location_id),
         cmip6_scenario,
-        int(sex_id),
-        int(age_group_id),
         int(year),
     )
 
@@ -244,8 +277,6 @@ def model_inference_task(
 @clio.with_measure(allow_all=True)
 @clio.with_location_id(allow_all=True)
 @clio.with_cmip6_scenario(allow_all=True)
-@clio.with_sex_id(allow_all=True)
-@clio.with_age_group_id(allow_all=True)
 @clio.with_year(allow_all=True)
 @clio.with_queue()
 def model_inference(
@@ -254,8 +285,6 @@ def model_inference(
     measure: list[str],
     location_id: list[str],
     cmip6_scenario: list[str],
-    sex_id: list[str],
-    age_group_id: list[str],
     year: list[str],
     queue: str,
 ) -> None:
@@ -268,8 +297,6 @@ def model_inference(
             "measure": measure,
             "location-id": location_id,
             "cmip6-scenario": cmip6_scenario,
-            "sex-id": sex_id,
-            "age-group-id": age_group_id,
             "year": year,
         },
         task_args={
@@ -280,7 +307,7 @@ def model_inference(
             "queue": queue,
             "cores": 1,
             "memory": "15Gb",
-            "runtime": "30m",
+            "runtime": "60m",
             "project": "proj_rapidresponse",
             "constraints": "archive",
 

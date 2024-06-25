@@ -15,6 +15,7 @@ LSAE_SHAPEFILE_LOCATION = Path('/snfs1/WORK/11_geospatial/admin_shapefiles/2023_
 
 LDIPC_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/national_ldipc_estimates.csv')
 LDIPC_SUBNAT_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/admin2_ldipc_estimates.csv')
+LDIPC_DISTRIBUTION_BIN_PROPORTIONS_DEFAULT_FILEPATH_FORMAT = '/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/default_ldipc_bin_proportions_{measure}.parquet'
 
 ####################
 # Demographic data #
@@ -29,7 +30,11 @@ FORECASTED_POPULATIONS_FILEPATH = Path('/mnt/share/forecasting/data/7/future/pop
 ################
 
 CHELSA_HISTORICAL_ROOT = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/human-niche/chelsa-downscaled-historical')
+CLIMATE_HISTORICAL_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
 CLIMATE_PROJECTIONS_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
+
+
+MODEL_ROOTS = Path('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/output/models/')
 
 ################
 # Output paths #
@@ -38,3 +43,4 @@ CLIMATE_PROJECTIONS_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual
 OUTPUT_ROOT = Path('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition')
 MODELS = OUTPUT_ROOT / 'models'
 RESULTS = OUTPUT_ROOT / 'results'
+

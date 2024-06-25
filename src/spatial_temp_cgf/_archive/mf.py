@@ -257,6 +257,73 @@ def run_model_and_predict(measure, model_identifier, lsae_location_id, scenario,
     pred_df.to_parquet(out_filepath)
 
 
+def make_model_oldish(cgf_measure, model_spec, grid_list=None, grid_spec=None,
+               sex_id=None, age_group_id=None, filter=None, location_var='ihme_loc_id'):
+    import re
+    import utils
+    import sklearn
+    df = get_modeling_input_data(cgf_measure)
+
+    if 'grid_cell' in model_spec and grid_list is None and grid_spec is None:
+        raise ValueError(
+            "Model specification includes grid_cell but no grid_list or grid_spec is provided")
+    if grid_list is not None:
+        grid_spec = {'grid_order': grid_list}
+        for var in grid_list:
+            grid_spec[var] = STANDARD_BINNING_SPECS[var]
+    # model_spec = f'{cgf_measure} ~ (1 | {location_var}) + (1 | grid_cell)'
+    # grid_spec = {'grid_order' : ['ldi_pc_pd', 'over_30'],
+    #     'ldi_pc_pd': {'bin_category': 'household', 'bin_strategy' : 'quantiles', 'nbins': 10, 'type': 'income'},
+    #     'over_30': {'bin_category': 'location', 'bin_strategy' : 'custom_daysover', 'nbins': 10, 'type':'climate'}}
+
+    binned_df = df.copy()
+
+    for var in grid_spec['grid_order']:
+        grid_spec[var]['var_bin'] = var + '_bin'
+        grid_spec[var]['bins'], binned_df = cgf_utils.group_and_bin_column_definition(
+            binned_df, var,
+            grid_spec[var]['bin_category'], grid_spec[var]['nbins'],
+            bin_strategy=grid_spec[var]['bin_strategy'], retbins=True)
+
+    binned_vars = [grid_spec[var]['var_bin'] for var in grid_spec['grid_order']]
+    binned_df['grid_cell'] = binned_df[binned_vars].astype(str).apply('_'.join, axis=1)
+
+    cols_to_scale = []  # 'over30_avgperyear', 'precip', 'precip_cumavg_5' ,'temp', 'temp_cumavg_5', 'income_per_day']
+    scaler = sklearn.preprocessing.MinMaxScaler()
+    if cols_to_scale:
+        scaled_cols = [f'sc_{col}' for col in cols_to_scale]
+        binned_df[scaled_cols] = scaler.fit_transform(binned_df[cols_to_scale])
+
+    if filter:
+        binned_df = binned_df.query(filter).copy()
+    if sex_id:
+        binned_df = binned_df.loc[binned_df.sex_id == sex_id].copy()
+    if age_group_id:
+        binned_df = binned_df.loc[binned_df.age_group_id == age_group_id].copy()
+
+    pred_df, model = fit_and_predict_LMER(binned_df, model_spec)
+
+    model_vars = re.findall(r'[a-zA-Z][a-zA-Z0-9_]+', model_spec)
+
+    weight_grid = binned_df[model_vars[2:] + binned_vars].drop_duplicates().merge(
+        pd.DataFrame({location_var: binned_df[location_var].unique()}), how='cross')
+    weight_grid['prediction_weight'] = model.predict(weight_grid,
+                                                     verify_predictions=False)
+    modelled_locations = binned_df[location_var].unique()
+
+    nocountry_grid = binned_df[model_vars[2:] + binned_vars].drop_duplicates()
+    nocountry_grid[location_var] = np.nan
+    nocountry_grid['prediction_weight'] = model.predict(nocountry_grid,
+                                                        verify_predictions=False)
+
+    model.model_vars = model_vars
+    model.nocountry_grid = nocountry_grid
+    model.weight_grid = weight_grid
+    model.available_locations = modelled_locations
+    model.grid_spec = grid_spec
+    return model
+
+
 def make_model_old(cgf_measure, sex_id=None, age_group_id=None, filter=None,
                    climate_var='over_30',
                    income_var='ldi_pc_pd', location_var='ihme_loc_id'):
