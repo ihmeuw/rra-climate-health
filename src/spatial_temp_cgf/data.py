@@ -68,13 +68,14 @@ class ClimateMalnutritionData:
         self,
         results: pd.DataFrame,
         model_id: str,
+        location_id: str | int,
         measure: str,
         scenario: str,
         year: str | int,
     ) -> None:
         model_id_dir = self.results / model_id
         mkdir(model_id_dir, exist_ok=True)
-        file_name = f"{measure}_{scenario}_{year}.parquet"
+        file_name = f"{measure}_{location_id}_{scenario}_{year}.parquet"
         results_filepath = model_id_dir / file_name
         touch(results_filepath, exist_ok=True)
         results.to_parquet(results_filepath)

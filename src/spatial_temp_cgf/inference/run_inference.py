@@ -1,7 +1,6 @@
 import logging
 import sys
 from pathlib import Path
-import dill as pickle
 
 import click
 import numpy as np
@@ -73,6 +72,7 @@ def get_climate_variable_raster(scenario, year, climate_var, shapefile,
         .mask(shapefile) \
         .resample_to(reference_raster)
     return result_raster
+
 
 def scale_like_input_data(to_scale, input_min, input_max):
     return (to_scale - input_min) / (input_max - input_min)
@@ -209,6 +209,7 @@ def model_inference_main(
     cm_data.save_results(
         result_df,
         model_id=model_id,
+        location_id=fhs_location_id,
         measure=measure,
         scenario=cmip6_scenario,
         year=year,
