@@ -1,30 +1,23 @@
+import re
 import sys
 import logging
 from pathlib import Path
 
+import pandas as pd
+import sklearn
 import click
 
+
+
 from spatial_temp_cgf import cli_options as clio
+from spatial_temp_cgf import cgf_utils
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
 
 
-def fit_and_predict_LMER(data:pd.DataFrame, model_spec:str):
-    from pymer4 import Lmer
-    import re
-    model_vars = re.findall(r'[a-zA-Z][a-zA-Z0-9_]+', model_spec)
-    model = Lmer(model_spec, data=data[model_vars], family='binomial')
-    model.fit()
-    pred_df = data.copy()
-    pred_df['ihme_loc_id'] = np.nan
-    pred_df['model_fit'] = model.fits
-    pred_df['model_residual'] = pred_df.cgf_value - pred_df.model_fit
-    pred_df['model_fit_nocountry'] = model.predict(pred_df)
-    pred_df['model_fit_nocountry_res'] = pred_df['model_fit_nocountry'] + pred_df['model_residual']
-    return pred_df, model
-
-def get_modeling_input_data(measure):
+def get_modeling_input_data(measure: str) -> pd.DataFrame:
     df = pd.read_parquet(f'/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/new_{measure}.parquet')
     return df
+
 
 STANDARD_BINNING_SPECS = {
     'ldi_pc_pd': {'bin_category': 'household', 'bin_strategy': 'quantiles', 'nbins': 10,
@@ -35,12 +28,14 @@ STANDARD_BINNING_SPECS = {
              'type': 'climate'}
 }
 
-def make_model(cgf_measure, model_spec, grid_list = None, binning_spec = None,
+
+def make_model(
+    cgf_measure: str,
+    model_spec: str,
+    grid_list: list[str] | None = None,
+    binning_spec: None,
     sex_id = None, age_group_id = None, filter = None, location_var = 'ihme_loc_id'):
-    import re
-    import cgf_utils
-    import sklearn
-    from pymer4 import Lmer
+
     df = get_modeling_input_data(cgf_measure)
 
     model_vars = re.findall(r'[a-zA-Z][a-zA-Z0-9_]+', model_spec)
@@ -97,7 +92,6 @@ def make_model(cgf_measure, model_spec, grid_list = None, binning_spec = None,
 
     for v in cols_to_scale:
         model_spec = model_spec.replace(v, 'sc_'+v)
-
 
     filter = None
     if filter: #We bin before we filter

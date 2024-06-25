@@ -507,3 +507,18 @@ def get_climate_threshold_proportions(model, threshold_counts, threshold_col = '
     if debug:
         return over_threshold_df, assign_df, counts_df, over_threshold_bins_df
     return over_threshold_df
+
+def fit_and_predict_LMER(
+    data: pd.DataFrame,
+    model_spec: str,
+) -> tuple[pd.DataFrame, Lmer]:
+    model_vars = re.findall(r'[a-zA-Z][a-zA-Z0-9_]+', model_spec)
+    model = Lmer(model_spec, data=data[model_vars], family='binomial')
+    model.fit()
+    pred_df = data.copy()
+    pred_df['ihme_loc_id'] = np.nan
+    pred_df['model_fit'] = model.fits
+    pred_df['model_residual'] = pred_df.cgf_value - pred_df.model_fit
+    pred_df['model_fit_nocountry'] = model.predict(pred_df)
+    pred_df['model_fit_nocountry_res'] = pred_df['model_fit_nocountry'] + pred_df['model_residual']
+    return pred_df, model

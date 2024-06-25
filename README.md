@@ -6,7 +6,7 @@
 * Create a conda environment with python and the R dependencies for the model.
     
     ```sh
-    conda create -n cgf -c conda-forge python=3.12 r r-base r-lmertest r-emmeans gcc
+    conda create -n cgf -c conda-forge python=3.12 r r-base r-lmertest r-emmeans
     ```
   
 * Activate the conda environment
