@@ -64,6 +64,16 @@ class ClimateMalnutritionData:
     def results(self) -> Path:
         return self.root / "results"
 
+    def results_path(
+        self,
+        model_id: str,
+        location_id: str | int,
+        measure: str,
+        scenario: str,
+        year: str | int,
+    ) -> Path:
+        return self.results / model_id / f"{measure}_{location_id}_{scenario}_{year}.parquet"
+
     def save_results(
         self,
         results: pd.DataFrame,
@@ -73,10 +83,8 @@ class ClimateMalnutritionData:
         scenario: str,
         year: str | int,
     ) -> None:
-        model_id_dir = self.results / model_id
-        mkdir(model_id_dir, exist_ok=True)
-        file_name = f"{measure}_{location_id}_{scenario}_{year}.parquet"
-        results_filepath = model_id_dir / file_name
-        touch(results_filepath, exist_ok=True)
-        results.to_parquet(results_filepath)
+        path = self.results_path(model_id, location_id, measure, scenario, year)
+        mkdir(path.parent, parents=True, exist_ok=True)
+        touch(path, exist_ok=True)
+        results.to_parquet(path)
 
