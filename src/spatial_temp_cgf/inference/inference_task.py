@@ -11,8 +11,8 @@ from rra_tools import jobmon
 from scipy.special import expit
 
 from spatial_temp_cgf import income_funcs, paths
-from spatial_temp_cgf.pipeline.training import mf
-from spatial_temp_cgf.pipeline.data_prep.location_mapping import load_fhs_lsae_mapping
+from spatial_temp_cgf.training import mf
+from spatial_temp_cgf.data_prep.location_mapping import load_fhs_lsae_mapping
 from spatial_temp_cgf import cli_options as clio
 
 
