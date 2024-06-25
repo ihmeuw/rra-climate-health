@@ -99,7 +99,7 @@ def get_climate_threshold_proportions(model, threshold_counts, threshold_col = '
 def get_model_family(model_identifier, measure):
     import glob
     import re
-    folder_path = paths.MODEL_ROOTS / model_identifier
+    folder_path = Path(f"/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/models/{model_identifier}")
     models = []
 
     # Pattern to match the files and capture X and Y values
