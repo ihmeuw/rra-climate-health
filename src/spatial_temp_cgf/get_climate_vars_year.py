@@ -17,7 +17,6 @@ OVER30_FSTR = "days_above_{threshold}_{year}.nc"
 PRECIP_FSTR = "precipitation_{year}.nc"
 TEMPERATURE_FSTR = "temperature_{year}.nc"
 
-
 def extract_climate_data_for_year(year:int, lats:pd.Series, longs:pd.Series, threshold = 30)-> pd.DataFrame:
     if isinstance(threshold, int) or threshold.is_integer():
         threshold_str = str(threshold)

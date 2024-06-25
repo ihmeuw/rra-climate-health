@@ -1,12 +1,19 @@
+import logging
+import sys
+from pathlib import Path
+
+import click
 import numpy as np
 import pandas as pd
 import rasterra as rt
 import pickle
+from rra_tools import jobmon
 from scipy.special import expit
 
 from spatial_temp_cgf import income_funcs, paths
 from spatial_temp_cgf.pipeline.training import mf
 from spatial_temp_cgf.pipeline.data_prep.location_mapping import load_fhs_lsae_mapping
+from spatial_temp_cgf import cli_options as clio
 
 
 def get_predictions(measure, fhs_location_id, scenario, year, sex_id, age_group_id, model):
@@ -107,12 +114,121 @@ def get_predictions(measure, fhs_location_id, scenario, year, sex_id, age_group_
     return result
 
 
-def predict_on_model(measure, model_identifier, fhs_location_id, scenario, year, sex_id, age_group_id):
-    model_filepath = paths.MODELS / model_identifier / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
+def model_inference_main(
+    output_dir: Path,
+    model_id: str,
+    measure: str,
+    fhs_location_id: int,
+    cmip6_scenario: str,
+    sex_id: int,
+    age_group_id: int,
+    year: int,
+) -> None:
+    model_root = output_dir.parent / 'models'
+    model_filepath = model_root / model_id / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
     with open(model_filepath, 'rb') as f:
         model = pickle.load(f)
-    pred_df = get_predictions(measure, fhs_location_id, scenario, year, sex_id, age_group_id, model)
-    out_filepath = paths.MODELS / model_identifier / 'predictions' / measure / scenario / str(year) / \
-        f'mp_{fhs_location_id}_{scenario}_{year}_{age_group_id}_{sex_id}.parquet'
+    pred_df = get_predictions(measure, fhs_location_id, cmip6_scenario, year, sex_id, age_group_id, model)
+    out_filepath = (
+            model_root / model_id / 'predictions' / measure / cmip6_scenario / str(year) /
+        f'mp_{fhs_location_id}_{cmip6_scenario}_{year}_{age_group_id}_{sex_id}.parquet'
+    )
     out_filepath.parent.mkdir(parents=True, exist_ok=True)
     pred_df.to_parquet(out_filepath)
+
+
+@click.command()
+@clio.with_output_directory(paths.RESULTS)
+@clio.with_model_id()
+@clio.with_measure()
+@clio.with_location_id()
+@clio.with_cmip6_scenario()
+@clio.with_sex_id()
+@clio.with_age_group_id()
+@clio.with_year()
+def model_inference_task(
+    output_dir: str,
+    model_id: str,
+    measure: str,
+    location_id: str,
+    cmip6_scenario: str,
+    sex_id: str,
+    age_group_id: str,
+    year: str,
+):
+    """Run model inference."""
+    logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
+    model_inference_main(
+        Path(output_dir),
+        model_id,
+        measure,
+        int(location_id),
+        cmip6_scenario,
+        int(sex_id),
+        int(age_group_id),
+        int(year),
+    )
+
+
+@click.command()
+@clio.with_output_directory(paths.RESULTS)
+@clio.with_model_id()
+@clio.with_measure(allow_all=True)
+@clio.with_location_id(allow_all=True)
+@clio.with_cmip6_scenario(allow_all=True)
+@clio.with_sex_id(allow_all=True)
+@clio.with_age_group_id(allow_all=True)
+@clio.with_year(allow_all=True)
+@clio.with_queue()
+def model_inference(
+    output_dir: str,
+    model_id: str,
+    measure: str,
+    location_id: str,
+    cmip6_scenario: str,
+    sex_id: str,
+    age_group_id: str,
+    year: str,
+    queue: str,
+) -> None:
+    """Run model inference."""
+    measures = clio.VALID_MEASURES if measure == clio.RUN_ALL else [measure]
+    location_ids = (
+        clio.VALID_FHS_LOCATION_IDS if location_id == clio.RUN_ALL else [location_id]
+    )
+    cmip6_scenarios = (
+        clio.VALID_CMIP6_SCENARIOS if cmip6_scenario == clio.RUN_ALL else [cmip6_scenario]
+    )
+    sex_ids = clio.VALID_SEX_IDS if sex_id == clio.RUN_ALL else [sex_id]
+    age_group_ids = (
+        clio.VALID_AGE_GROUP_IDS if age_group_id == clio.RUN_ALL else [age_group_id]
+    )
+    years = clio.VALID_PREDICTION_YEARS if year == clio.RUN_ALL else [year]
+
+    logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
+    jobmon.run_parallel(
+        runner="sttask",
+        task_name="model_inference",
+        node_args={
+            "measure": measures,
+            "location-id": location_ids,
+            "cmip6-scenario": cmip6_scenarios,
+            "sex-id": sex_ids,
+            "age-group-id": age_group_ids,
+            "year": years,
+        },
+        task_args={
+            "output-dir": output_dir,
+            "model-id": model_id,
+        },
+        task_resources={
+            "queue": queue,
+            "cores": 1,
+            "memory": "15Gb",
+            "runtime": "30m",
+            "project": "proj_rapidresponse",
+            "constraints": "archive",
+
+        },
+        max_attempts=1,
+    )

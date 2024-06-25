@@ -35,6 +35,6 @@ CLIMATE_PROJECTIONS_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual
 # Output paths #
 ################
 
-MODELS = Path('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/models/')
-RESULTS = Path('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/results/')
-
+OUTPUT_ROOT = Path('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition')
+MODELS = OUTPUT_ROOT / 'models'
+RESULTS = OUTPUT_ROOT / 'results'
