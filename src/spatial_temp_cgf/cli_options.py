@@ -107,10 +107,10 @@ def with_location_id(
 
 VALID_CMIP6_SCENARIOS = [
     "ssp119",
-    "ssp126",
+#    "ssp126",
     "ssp245",
-    "ssp370",
-    "ssp585",
+#    "ssp370",
+#    "ssp585",
 ]
 
 
