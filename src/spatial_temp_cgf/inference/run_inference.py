@@ -10,6 +10,7 @@ import rasterra as rt
 from rra_tools import jobmon
 from scipy.special import expit
 import xarray as xr
+import tqdm
 
 from spatial_temp_cgf import income_funcs, paths
 from spatial_temp_cgf.data_prep.location_mapping import load_fhs_lsae_mapping
@@ -270,7 +271,7 @@ def model_inference(
     complete = []
     to_run = []
     if not overwrite:
-        for m, l, s, y in itertools.product(measure, location_id, cmip6_scenario, year):
+        for m, l, s, y in tqdm.tqdm(list(itertools.product(measure, location_id, cmip6_scenario, year))):
             if cm_data.results_path(model_id, l, m, s, y).exists():
                 complete.append((m, l, s, y))
             else:
@@ -295,7 +296,7 @@ def model_inference(
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "15Gb",
+            "memory": "45Gb",
             "runtime": "60m",
             "project": "proj_rapidresponse",
             "constraints": "archive",
