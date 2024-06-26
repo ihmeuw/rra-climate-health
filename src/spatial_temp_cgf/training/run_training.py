@@ -10,21 +10,37 @@ import click
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf import cgf_utils
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
+from spatial_temp_cgf.model import (
+    BinningCategory,
+    BinningStrategy,
+    BinningSpecification,
+)
 
+
+STANDARD_BINNING_SPECS = {
+    "ldi_pc_pd": BinningSpecification(
+        column="ldi_pc_pd",
+        category=BinningCategory.HOUSEHOLD,
+        strategy=BinningStrategy.QUANTILES,
+        nbins=10,
+    ),
+    "over_30": BinningSpecification(
+        column="over_30",
+        category=BinningCategory.LOCATION,
+        strategy=BinningStrategy.CUSTOM_DAYSOVER,
+        nbins=10,
+    ),
+    "temp": BinningSpecification(
+        column="temp",
+        category=BinningCategory.LOCATION,
+        strategy=BinningStrategy.QUANTILES,
+        nbins=10,
+    ),
+}
 
 def get_modeling_input_data(measure: str) -> pd.DataFrame:
     df = pd.read_parquet(f'/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/new_{measure}.parquet')
     return df
-
-
-STANDARD_BINNING_SPECS = {
-    'ldi_pc_pd': {'bin_category': 'household', 'bin_strategy': 'quantiles', 'nbins': 10,
-                  'type': 'income'},
-    'over_30': {'bin_category': 'location', 'bin_strategy': 'custom_daysover',
-                'nbins': 10, 'type': 'climate'},
-    'temp': {'bin_category': 'location', 'bin_strategy': 'quantiles', 'nbins': 10,
-             'type': 'climate'}
-}
 
 
 def make_model(
@@ -54,18 +70,13 @@ def make_model(
         raise ValueError("Model specification does not include grid_cell but grid_list is provided")
     if grid_list is not None:
         grid_present = True
-        grid_spec = {'grid_order' : grid_list}
+        grid_spec = {'grid_order': grid_list}
     if binning_spec is None:
         binning_spec = dict()
         for var in vars_to_bin:
             binning_spec[var] = STANDARD_BINNING_SPECS[var]
     else:
-        #not doing this yet, really
         raise NotImplementedError("Custom binning specs not yet implemented")
-    #model_spec = f'{cgf_measure} ~ (1 | {location_var}) + (1 | grid_cell)'
-    # grid_spec = {'grid_order' : ['ldi_pc_pd', 'over_30'],
-    #     'ldi_pc_pd': {'bin_category': 'household', 'bin_strategy' : 'quantiles', 'nbins': 10, 'type': 'income'},
-    #     'over_30': {'bin_category': 'location', 'bin_strategy' : 'custom_daysover', 'nbins': 10, 'type':'climate'}}
 
     binned_df = df.copy()
     var_info = dict()
@@ -75,12 +86,9 @@ def make_model(
         var_info[var]['var_bin'] = var + '_bin'
         var_info[var]['bin_edges'], binned_df = cgf_utils.group_and_bin_column_definition(
             binned_df,
-            var,
-            binning_spec[var]['bin_category'],
-            binning_spec[var]['nbins'],
-            bin_strategy=binning_spec[var]['bin_strategy'],
+            binning_spec[var],
         )
-        var_info[var]['bins_categorical'] = pd.DataFrame({var_info[var]['var_bin']:binned_df[var_info[var]['var_bin']].unique().sort_values()}) #binned_df[var_info[var]['var_bin']].unique().sort_values()
+        var_info[var]['bins_categorical'] = pd.DataFrame({var_info[var]['var_bin']:binned_df[var_info[var]['var_bin']].unique().sort_values()})
         var_info[var]['bins'] = var_info[var]['bins_categorical'].astype(str)
 
     if grid_present:
@@ -90,7 +98,7 @@ def make_model(
         grid_spec['grid_definition_categorical'] = binned_df[grid_components_binned + ['grid_cell']].drop_duplicates().sort_values(grid_components_binned)
         grid_spec['grid_definition'] = grid_spec['grid_definition_categorical'].astype(str)
     cols_that_should_be_scaled = ['temp', 'precip', 'over_30']
-    cols_to_scale = [v for v in model_vars if v in cols_that_should_be_scaled]#'over30_avgperyear', 'precip', 'precip_cumavg_5' ,'temp', 'temp_cumavg_5', 'income_per_day']
+    cols_to_scale = [v for v in model_vars if v in cols_that_should_be_scaled] # 'over30_avgperyear', 'precip', 'precip_cumavg_5' ,'temp', 'temp_cumavg_5', 'income_per_day']
     scaler = sklearn.preprocessing.MinMaxScaler()
     if cols_to_scale:
         scaled_cols = [f'sc_{col}' for col in cols_to_scale]

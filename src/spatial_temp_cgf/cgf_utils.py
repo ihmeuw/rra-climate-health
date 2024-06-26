@@ -1,6 +1,12 @@
 import pandas as pd
 import numpy as np
 
+from spatial_temp_cgf.model import (
+    BinningSpecification,
+    BinningCategory,
+    BinningStrategy,
+)
+
 
 def get_qcut_bins(data: pd.Series, q: int, precise: bool) -> np.ndarray:
     qcut_kwargs = {
@@ -47,38 +53,37 @@ def custom_daysover_bins(data: pd.Series, nbins: int) -> np.ndarray:
 
 
 BINNING_STRATEGIES = {
-    "quantiles": quantile_bins,
-    "equal": equal_bins,
-    "readable_5": readable_5_bins,
-    "0_1_more": zero_one_more_bins,
-    "0_more": zero_more_bins,
-    "0_more_readable": zero_more_readable_bins,
-    "custom_daysover": custom_daysover_bins,
+    BinningStrategy.QUANTILES: quantile_bins,
+    BinningStrategy.EQUAL: equal_bins,
+    BinningStrategy.READABLE_5: readable_5_bins,
+    BinningStrategy.ZERO_ONE_MORE: zero_one_more_bins,
+    BinningStrategy.ZERO_MORE: zero_more_bins,
+    BinningStrategy.ZERO_MORE_READABLE: zero_more_readable_bins,
+    BinningStrategy.CUSTOM_DAYSOVER: custom_daysover_bins,
+}
+
+BINNING_CATEGORY_GROUPBY = {
+    BinningCategory.HOUSEHOLD: ['nid', 'hh_id', 'psu', 'year_start'],
+    BinningCategory.LOCATION: ['lat', 'long'],
+    BinningCategory.COUNTRY: ['iso3'],
 }
 
 
 def group_and_bin_column_definition(
     df: pd.DataFrame,
-    bin_col: str,
-    bin_category: str,
-    nbins: int,
-    bin_strategy: str = "quantiles",
-) -> tuple[list[float] | list[int], pd.DataFrame]:
-    group_cols = {
-        "household": ['nid', 'hh_id', 'psu', 'year_start'],
-        "location": ['lat', 'long'],
-        "country": ['iso3'],
-    }[bin_category]
-    result_column = bin_col + '_bin'
+    spec: BinningSpecification,
+) -> tuple[np.ndarray, pd.DataFrame]:
+    group_cols = BINNING_CATEGORY_GROUPBY[spec.category]
     grouped_df = (
-        df.groupby(group_cols + [bin_col], as_index=False)
+        df.groupby(group_cols + [spec.column], as_index=False)
         .size()
         .drop(columns=['size'])
     )
 
-    bins = BINNING_STRATEGIES[bin_strategy](grouped_df[bin_col], nbins)
+    bins = BINNING_STRATEGIES[spec.strategy](grouped_df[spec.column], spec.nbins)
+    result_column = spec.column + '_bin'
     grouped_df[result_column] = pd.cut(
-        grouped_df[bin_col],
+        grouped_df[spec.column],
         bins=bins,
         include_lowest=True,
         right=False,
