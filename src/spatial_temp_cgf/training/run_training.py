@@ -37,7 +37,6 @@ def make_model(
     filter=None,
     location_var='ihme_loc_id',
 ) -> None:
-
     df = get_modeling_input_data(cgf_measure)
 
     model_vars = re.findall(r'[a-zA-Z][a-zA-Z0-9_]+', model_spec)
@@ -74,8 +73,13 @@ def make_model(
     for var in vars_to_bin:
         var_info[var] = dict()
         var_info[var]['var_bin'] = var + '_bin'
-        var_info[var]['bin_edges'], binned_df = cgf_utils.group_and_bin_column_definition(binned_df, var,
-            binning_spec[var]['bin_category'], binning_spec[var]['nbins'], bin_strategy = binning_spec[var]['bin_strategy'], retbins = True)
+        var_info[var]['bin_edges'], binned_df = cgf_utils.group_and_bin_column_definition(
+            binned_df,
+            var,
+            binning_spec[var]['bin_category'],
+            binning_spec[var]['nbins'],
+            bin_strategy=binning_spec[var]['bin_strategy'],
+        )
         var_info[var]['bins_categorical'] = pd.DataFrame({var_info[var]['var_bin']:binned_df[var_info[var]['var_bin']].unique().sort_values()}) #binned_df[var_info[var]['var_bin']].unique().sort_values()
         var_info[var]['bins'] = var_info[var]['bins_categorical'].astype(str)
 
