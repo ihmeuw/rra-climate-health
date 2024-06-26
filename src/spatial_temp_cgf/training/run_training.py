@@ -7,8 +7,6 @@ import pandas as pd
 import sklearn
 import click
 
-
-
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf import cgf_utils
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
@@ -33,8 +31,12 @@ def make_model(
     cgf_measure: str,
     model_spec: str,
     grid_list: list[str] | None = None,
-    binning_spec: None,
-    sex_id = None, age_group_id = None, filter = None, location_var = 'ihme_loc_id'):
+    binning_spec=None,
+    sex_id=None,
+    age_group_id=None,
+    filter=None,
+    location_var='ihme_loc_id',
+) -> None:
 
     df = get_modeling_input_data(cgf_measure)
 
@@ -94,7 +96,7 @@ def make_model(
         model_spec = model_spec.replace(v, 'sc_'+v)
 
     filter = None
-    if filter: #We bin before we filter
+    if filter: # We bin before we filter
         binned_df = binned_df.query(filter).copy()
     if sex_id:
         binned_df = binned_df.loc[binned_df.sex_id == sex_id].copy()

@@ -8,14 +8,6 @@ import numpy as np
 import pandas as pd
 from pymer4 import Lmer
 
-from spatial_temp_cgf import (
-    cgf_utils,
-    get_climate_vars_year as climate_utils,
-    paths,
-)
-
-cdll.LoadLibrary(paths.LIBSTDCPP_PATH)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

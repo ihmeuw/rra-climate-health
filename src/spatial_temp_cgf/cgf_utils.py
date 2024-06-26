@@ -1,3 +1,5 @@
+from typing import Callable
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -40,7 +42,7 @@ def bin_column(df, col, nbins, label_strategy = None, bin_strategy = 'quantiles'
         return bins, binned
     return binned
 
-def group_and_bin_column(df, group_cols, bin_col, nbins, bin_strategy = 'quantiles', 
+def group_and_bin_column(df, group_cols, bin_col, nbins, bin_strategy = 'quantiles',
         label_strategy = None, result_column = None, keep_count = False,
         retbins = False):
     if result_column == None:
@@ -50,17 +52,17 @@ def group_and_bin_column(df, group_cols, bin_col, nbins, bin_strategy = 'quantil
         grouped_df = grouped_df.drop(columns=['size'])
 
     if retbins:
-        bins, binned_column = bin_column(grouped_df, bin_col, nbins, label_strategy, bin_strategy, retbins = True) 
+        bins, binned_column = bin_column(grouped_df, bin_col, nbins, label_strategy, bin_strategy, retbins = True)
     else:
-        binned_column = bin_column(grouped_df, bin_col, nbins, label_strategy, bin_strategy) 
+        binned_column = bin_column(grouped_df, bin_col, nbins, label_strategy, bin_strategy)
 
     grouped_df[result_column] = binned_column
     if retbins:
         return bins, pd.merge(df, grouped_df, how='left')
     else:
         return pd.merge(df, grouped_df, how='left')
-    
-    
+
+
 def group_and_bin_column_definition(df, bin_col, bin_category, nbins, bin_strategy = None, result_column = None, retbins = False):
     if bin_category == 'household':
         group_cols = ['nid', 'hh_id', 'psu', 'year_start']
@@ -71,31 +73,31 @@ def group_and_bin_column_definition(df, bin_col, bin_category, nbins, bin_strate
     if bin_category == 'country':
         group_cols = ['iso3']
         bin_strategy = 'quantiles' if bin_strategy is None else bin_strategy
-    return group_and_bin_column(df, group_cols, bin_col, nbins, 
+    return group_and_bin_column(df, group_cols, bin_col, nbins,
             bin_strategy = bin_strategy, result_column = result_column, retbins = retbins)
 
 printable_names = {
-        'income_per_day_bin':'Daily Income (2010 USD)',
+        'income_per_day_bin': 'Daily Income (2010 USD)',
         'temp_bin': 'Yearly Temperature (Mean)',
-        'temp_bin_quants' : 'Mean Yearly Temperature',
-        'temp_avg_bin' : 'Mean Temperature (5 year)',
+        'temp_bin_quants': 'Mean Yearly Temperature',
+        'temp_avg_bin': 'Mean Temperature (5 year)',
         'precip_bin': 'Yearly Precipitation',
         'precip_avg_bin': 'Mean Yearly Precipitation (5 year avg)',
         'over30_bin': 'Days over 30° C',
         'over30_avg_bin': 'Days over 30° C (5 year avg)',
         'stunting': 'Stunting',
-        'wasting':'Wasting',
-        'underweight':'Underweight',
-        'over30_avgperyear_bin' : 'Lifetime Yearly Average Days Above 30°C',
-        'over30_birth_bin' : 'Days over 30 in year of birth', 
+        'wasting': 'Wasting',
+        'underweight': 'Underweight',
+        'over30_avgperyear_bin': 'Lifetime Yearly Average Days Above 30°C',
+        'over30_birth_bin': 'Days over 30 in year of birth',
         'temp_diff_birth_bin': 'temp diff birth',
         'bmi': 'BMI',
-        'low_adult_bmi' : 'Low adult BMI',
+        'low_adult_bmi': 'Low adult BMI',
         'cgf_value': 'Stunting',
-        'adjusted_pred' : 'Controlling for Country Effects',
+        'adjusted_pred': 'Controlling for Country Effects',
         'predict_nocountry': 'Prediction without country',
         'residual': 'residual',
-        'grid_coef' : 'dummy coefficient',
+        'grid_coef': 'dummy coefficient',
         'gdppc': 'GDP per capita',
         'ldi_pc_pd': 'Lag-distributed income per day',
         'ldi_pc_pd_bin': 'Lag-distributed income per day',
@@ -103,36 +105,7 @@ printable_names = {
     }
 
 
-def bin_cgf_cols(in_df, nbins):
-    res_df = in_df.copy()
-    if 'income_per_day' in in_df.columns:
-        res_df = group_and_bin_column_definition(res_df, 'income_per_day', 'household', nbins)
-    if 'gdppc' in in_df.columns:
-        res_df = group_and_bin_column_definition(res_df, 'gdppc', 'household', nbins)
-    res_df = group_and_bin_column_definition(res_df, 'over30', 'location', 10, bin_strategy = '0_more')
-    res_df = group_and_bin_column_definition(res_df, 'temp', 'location', nbins, bin_strategy = 'readable_5')
-    res_df = group_and_bin_column_definition(res_df, 'temp', 'location', nbins, bin_strategy = 'quantiles', result_column = 'temp_bin_quants')
-    res_df = group_and_bin_column_definition(res_df, 'temp', 'location', 25, bin_strategy = 'equal', result_column = 'temp_bin_many')
-    res_df = group_and_bin_column_definition(res_df, 'precip', 'location', nbins, bin_strategy = 'quantiles')
-    if 'over30_avgperyear' in in_df.columns:
-        res_df = group_and_bin_column_definition(res_df, 'over30_avgperyear', 'location', nbins, bin_strategy = '0_more')
-    return res_df
 
-
-#TODO Assert NAs and length here
-# cols_to_verify = ['over30', 'over30_bin', 'temp', 'temp_bin', 'precip', 'precip_bin', 'income_per_day', 'income_per_day_bin',] 
-#         #'over30_avg', 'over30_avg_bin', 'temp_avg', 'temp_avg_bin', 'precip_avg', 'precip_avg_bin']
-# assert(merged_binned_df[cols_to_verify].notna().all().all())
-
-def plot_cgf_varbins(plotcol):
-    plot_binned_df = merged_binned_df.groupby([f'temp_bin_many', 'cgf_measure']).agg(
-        col_value = (plotcol, 'mean'), cgf_value = ('cgf_value', 'sum'), cgf_denom = ('cgf_value', 'count')).reset_index()
-    plot_binned_df = plot_binned_df.rename(columns = {'col_value' : plotcol})
-    plot_binned_df['cgf_proportion'] = plot_binned_df['cgf_value'] / plot_binned_df['cgf_denom']
-    plot_binned_df[f"temp_s"] = plot_binned_df[plotcol].astype(str)
-    fig = px.line(plot_binned_df.sort_values(plotcol), x=plotcol, y='cgf_proportion', color = 'cgf_measure', title=f'CGF (proportion) by {plotcol}',
-        hover_data = ['cgf_denom'])
-    fig.show()
 
 def plot_heatmap(df, temp_col, wealth_col = 'income_per_day_bin', country = None, year = None, 
     margins = False, filter = None, value_col = 'cgf_value', title_addin = '', file=None, 
@@ -211,47 +184,6 @@ def plot_heatmap(df, temp_col, wealth_col = 'income_per_day_bin', country = None
     if pdf_handle:
         pdf_handle.savefig(fig)
     else:
-        plt.show();
+        plt.show()
     plt.close()
 
-
-def get_coeff_df(model):
-    coeff_df= pd.DataFrame({'variable': model.params.index.str.extract(r'C\(([^\)\,]+)').values.flatten(),
-        'value' : model.params.index.str.extract(r'\[T\.(.+)\]$').values.flatten(),
-        'coef': model.params.values, })
-    return coeff_df
-
-
-def get_adjusted_model_predictions(model, df):
-    coeff_df = get_coeff_df(model)
-    for var in coeff_df.variable.dropna().unique():
-        missing_bin = set(df[var].unique()) - set(coeff_df[coeff_df.variable == var].value.unique())
-        assert(len(missing_bin) == 1)
-        missing_bin = missing_bin.pop()
-        #using concat instead of append
-        coeff_df = pd.concat([coeff_df, pd.DataFrame({'variable': var, 'value': missing_bin, 'coef': 0}, index=[0])])
-
-    coeff_df = coeff_df.reset_index(drop=True)
-    coeff_df.loc[coeff_df.variable.isna(), 'variable'] = 'intercept'
-
-    for var in coeff_df.variable.dropna().unique():
-        var_df = coeff_df[coeff_df.variable == var].copy()
-        if var_df.value.isna().all():
-            assert(len(var_df) == 1)
-            df[f'{var}_coef'] = var_df.coef.values[0]
-            continue
-        
-        var_df[f'{var}_mean'] = var_df.coef.mean()
-        var_df = var_df.rename(columns = {'coef':f'{var}_coef', 'value': var})
-        var_df = var_df.drop(columns = 'variable')
-        df = df.merge(var_df.rename(columns = {'coef':f'{var}_coef'}), on=var, how='left')
-    
-    df['linear_combination'] = df['intercept_coef'] + df['grid_cell_coef'] + df['iso3_coef'] - df['iso3_mean']
-    df['predict_nocountry'] = 1 / (1 + np.exp(-df['linear_combination']))
-    df['predict_level'] = 1 / (1 + np.exp(-(df['intercept_coef'] + df['grid_cell_coef'])))
-    df['predict'] = (1 / (1 + np.exp(-(model.fittedvalues))))
-    df['adjusted_residuals'] = df['cgf_value'] - df['predict_nocountry']
-    df['residual'] = model.resid_response
-    df['adjusted_pred'] = df['predict_nocountry'] + df['residual']
-    df['test'] = (1 / (1 + np.exp(-df['intercept_coef'] - df['grid_cell_coef'] -df['iso3_coef'] )))
-    return df

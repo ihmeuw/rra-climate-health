@@ -16,6 +16,7 @@ OVER30_FSTR = "days_above_{threshold}_{year}.nc"
 PRECIP_FSTR = "precipitation_{year}.nc"
 TEMPERATURE_FSTR = "temperature_{year}.nc"
 
+
 def extract_climate_data_for_year(year:int, lats:pd.Series, longs:pd.Series, threshold = 30)-> pd.DataFrame:
     if isinstance(threshold, int) or threshold.is_integer():
         threshold_str = str(threshold)
@@ -44,6 +45,7 @@ def extract_climate_data_for_year(year:int, lats:pd.Series, longs:pd.Series, thr
     #dfs.append(year_locs)\
     return year_locs
 
+
 def extract_days_over_threshold_for_year(year:int, lats:pd.Series, longs:pd.Series, threshold = 30)-> pd.DataFrame:
     if isinstance(threshold, int) or threshold.is_integer():
         threshold_str = str(threshold)
@@ -64,6 +66,7 @@ def extract_days_over_threshold_for_year(year:int, lats:pd.Series, longs:pd.Seri
     #dfs.append(year_locs)\
     return year_locs
 
+
 def extract_climate_data(input_df:pd.DataFrame, lat_col:str, long_col:str) -> pd.DataFrame:
     #Get unique combination of locations in input dataframe
 
@@ -75,6 +78,7 @@ def extract_climate_data(input_df:pd.DataFrame, lat_col:str, long_col:str) -> pd
         dfs.append(extract_climate_data_for_year(year, unique_locs_df[lat_col], unique_locs_df[long_col]))
     
     return pd.concat(dfs)
+
 
 def process_input_file(in_filepath:Path, lat_col, long_col) -> pd.DataFrame:
     extension = in_filepath.suffix
