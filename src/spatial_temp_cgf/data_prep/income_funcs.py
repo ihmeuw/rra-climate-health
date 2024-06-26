@@ -71,3 +71,75 @@ def get_ldipc_bin_proportions(location_id, year, model):
     income_df['ldi_pc_pd_bin'] = model.nocountry_grid['ldi_pc_pd_bin'].sort_values().unique()
     income_df = income_df.rename(columns={'population_percentile':'proportion_at_income'})
     return income_df
+
+
+def get_income_from_asset_score(asset_df: pd.DataFrame, asset_score_col='asset_score',
+                                year_df_col='year_start'):
+    # Get and clean income data
+    INCOME_FILEPATH = '/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/income_distributions.parquet'
+    income_raw = pd.read_parquet(INCOME_FILEPATH)
+    income_raw = income_raw[['pop_percent', 'cdf', 'location_id', 'year_id']]
+    income_raw['location_id'] = income_raw.location_id.astype(int)
+    income_raw['year_id'] = income_raw.year_id.astype(int)
+
+    wdf = asset_df.copy()
+
+    # We get which asset score is what percentile of that asset score for each nid
+    get_percentile = lambda x: x.rank() / len(x)
+
+    assert ('percentile' not in wdf.columns)
+    assert ('nid' in wdf.columns)
+    assert ('location_id' in wdf.columns)
+    wdf['percentile'] = wdf.groupby(['nid'], group_keys=False)[asset_score_col].apply(
+        get_percentile)
+
+    wdf = wdf.sort_values(['percentile'])
+    income_raw = income_raw.sort_values(['pop_percent'])
+
+    income_interp = income_raw.merge(
+        wdf[['location_id', year_df_col, 'percentile']].drop_duplicates().rename(
+            columns={year_df_col: 'year_id', 'percentile': 'pop_percent'}),
+        on=['location_id', 'year_id', 'pop_percent'],
+        how='outer')
+
+    # We then interpolate to get the percentiles that aren't included in the income dataset
+    income_interp = income_interp.sort_values(['location_id', 'year_id', 'pop_percent'])
+    income_interp = income_interp.set_index(['location_id', 'year_id', 'pop_percent'])
+    income_interp['income_per_day'] = \
+    income_interp.groupby(level=[0, 1], group_keys=False)['cdf'].apply(
+        lambda x: x.interpolate(method='linear', limit_area='inside'))
+    income_interp = income_interp.reset_index()
+
+    wdf = wdf.merge(income_interp, how='left',
+                    left_on=['location_id', 'year_start', 'percentile'],
+                    right_on=['location_id', 'year_id', 'pop_percent'])
+
+    # Only NAs should be because of newer surveys for which we don't have income distribution yet
+    assert ((wdf.loc[wdf.income_per_day.isna()].year_id > 2020).all())
+    return wdf
+
+
+WEALTH_FILEPATH = '/mnt/share/scratch/users/victorvt/cgfwealth_spatial/dhs_wealth_uncollapsed_again.parquet'
+loc_meta = get_location_metadata(release_id = 9, location_set_id = 35)
+
+wealth_raw = pd.read_parquet(WEALTH_FILEPATH)
+wealth_df = wealth_raw#[wealth_raw['point'] == 1]
+wealth_df = wealth_df.rename(columns = {'wealth_score':'asset_score'})
+wealth_df = wealth_df[['iso3', 'nid', 'psu', 'hh_id', 'year_start', 'asset_score']].drop_duplicates()
+# In the wealth team's dataset, sometimes there are multiple asset scores for a given household id.
+# Take away those NIDs
+bad_wealth = wealth_df.groupby(['nid', 'hh_id', 'year_start', 'psu',]).size()
+bad_nid_wealth = list(bad_wealth[bad_wealth.gt(1)].reset_index().nid.unique())
+bad_nid_wealth = bad_nid_wealth + [20315]
+wealth_df = wealth_df[~wealth_df.nid.isin(bad_nid_wealth)]
+# Make sure that by nid, psu and hh_id they all have the same lat and long
+#grouped = wealth_df.groupby(['nid', 'psu', 'hh_id'])
+#assert((grouped['lat'].nunique().lt(2) & grouped['long'].nunique().lt(2)).all())
+# Sometimes an nid has more than a year
+assert(wealth_df.groupby(['nid', 'hh_id', 'year_start', 'psu']).size().sort_values().max() == 1)
+wealth_df = wealth_df.merge(loc_meta[['location_id', 'local_id']], left_on ='iso3', right_on='local_id', how='left')
+assert(wealth_df.location_id.notna().all())
+wealth_df['year_start'] = wealth_df['year_start'].astype(int)
+wealth_df['nid'] = wealth_df['nid'].astype(int)
+
+wealth_df = get_income_from_asset_score(wealth_df)
