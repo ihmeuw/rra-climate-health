@@ -20,10 +20,9 @@ class BinningStrategy(StrEnum):
 
 
 class BinningSpecification(BaseModel):
-    column: str
     category: BinningCategory
     strategy: BinningStrategy
-    nbins: int
+    nbins: int = Field(10, gt=0)
 
 
 class ResponseMeasure(StrEnum):
@@ -32,6 +31,15 @@ class ResponseMeasure(StrEnum):
     UNDERWEIGHT = 'underweight'
     LOW_BMI = 'low_bmi'
     ANEMIA = 'anemia'
+
+
+class PredictorSpecification(BaseModel):
+    binning_specification: BinningSpecification | None = None
+
+
+class GridSpecification(BaseModel):
+    grid_predictor_x: PredictorSpecification
+    grid_predictor_y: PredictorSpecification
 
 
 class ModelSpecification(BaseModel):

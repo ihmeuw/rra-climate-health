@@ -71,19 +71,20 @@ BINNING_CATEGORY_GROUPBY = {
 
 def group_and_bin_column_definition(
     df: pd.DataFrame,
+    column: str,
     spec: BinningSpecification,
 ) -> tuple[np.ndarray, pd.DataFrame]:
     group_cols = BINNING_CATEGORY_GROUPBY[spec.category]
     grouped_df = (
-        df.groupby(group_cols + [spec.column], as_index=False)
+        df.groupby(group_cols + [column], as_index=False)
         .size()
         .drop(columns=['size'])
     )
 
-    bins = BINNING_STRATEGIES[spec.strategy](grouped_df[spec.column], spec.nbins)
-    result_column = spec.column + '_bin'
+    bins = BINNING_STRATEGIES[spec.strategy](grouped_df[column], spec.nbins)
+    result_column = column + '_bin'
     grouped_df[result_column] = pd.cut(
-        grouped_df[spec.column],
+        grouped_df[column],
         bins=bins,
         include_lowest=True,
         right=False,

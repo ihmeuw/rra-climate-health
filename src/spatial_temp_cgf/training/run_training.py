@@ -19,19 +19,16 @@ from spatial_temp_cgf.model import (
 
 STANDARD_BINNING_SPECS = {
     "ldi_pc_pd": BinningSpecification(
-        column="ldi_pc_pd",
         category=BinningCategory.HOUSEHOLD,
         strategy=BinningStrategy.QUANTILES,
         nbins=10,
     ),
     "over_30": BinningSpecification(
-        column="over_30",
         category=BinningCategory.LOCATION,
         strategy=BinningStrategy.CUSTOM_DAYSOVER,
         nbins=10,
     ),
     "temp": BinningSpecification(
-        column="temp",
         category=BinningCategory.LOCATION,
         strategy=BinningStrategy.QUANTILES,
         nbins=10,
