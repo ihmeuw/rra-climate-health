@@ -78,7 +78,7 @@ def get_income_from_asset_score(asset_df: pd.DataFrame, asset_score_col='asset_s
     # Get and clean income data
     INCOME_FILEPATH = '/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/income_distributions.parquet'
     income_raw = pd.read_parquet(INCOME_FILEPATH)
-    income_raw = income_raw[['pop_percent', 'cdf', 'location_id', 'year_id']]
+    income_raw = income_raw[['pop_percent', 'cdf', 'limporocation_id', 'year_id']]
     income_raw['location_id'] = income_raw.location_id.astype(int)
     income_raw['year_id'] = income_raw.year_id.astype(int)
 
