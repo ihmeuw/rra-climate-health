@@ -213,6 +213,9 @@ def model_training_main(
     cm_data = ClimateMalnutritionData(output_root / measure)
     model_spec = cm_data.load_model_specification(model_version)
 
+    # Load training data
+    df = cm_data.load_training_data(model_spec.version.training_data)
+
     # Build model
     model = ...
 

@@ -1,6 +1,6 @@
 version:
   training_data: "2024_06_27.01"
-response_measure: "wasting"
+measure: "wasting"
 holdout:
   type: "random"
   proportion: 0.2
