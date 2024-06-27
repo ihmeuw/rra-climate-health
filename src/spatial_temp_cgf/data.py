@@ -51,9 +51,13 @@ class ClimateMalnutritionData:
     def models(self) -> Path:
         return self.root / "models"
 
+    def new_model_version(self) -> str:
+        run_directory = get_run_directory(self.models)
+        mkdir(run_directory)
+        return run_directory.name
+
     def save_model_specification(self, model_spec: ModelSpecification, version: str) -> None:
         model_root = self.models / version
-        mkdir(model_root)
         model_spec_path = model_root / f"specification.yaml"
         touch(model_spec_path)
         model_spec.to_yaml(model_spec_path)

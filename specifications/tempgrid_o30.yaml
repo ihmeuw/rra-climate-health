@@ -1,4 +1,5 @@
-input_version: "2024_06_27.01"
+version:
+  training_data: "2024_06_27.01"
 response_measure: "wasting"
 holdout:
   type: "random"

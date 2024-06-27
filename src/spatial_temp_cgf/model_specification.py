@@ -71,9 +71,14 @@ class HoldoutSpecification(BaseModel):
     seed: int = 42
 
 
+class VersionSpecification(BaseModel):
+    training_data: str
+    model: str | None = None
+
+
 class ModelSpecification(BaseModel):
-    input_version: str
-    response_measure: OutcomeVariable
+    version: VersionSpecification
+    measure: OutcomeVariable
     holdout: HoldoutSpecification = HoldoutSpecification()
     grid_predictors: GridSpecification | None = None
     other_predictors: list[PredictorSpecification] = Field(default_factory=list)

@@ -204,31 +204,47 @@ def run_model_and_save(measure, model_identifier, sex_id, age_group_id, model_sp
 
 
 def model_training_main(
-    output_dir: Path,
-    model_id: str,
+    output_root: Path,
+    measure: str,
+    model_version: str,
     age_group_id: int,
     sex_id: int,
 ):
-    cm_data = ClimateMalnutritionData(output_dir)
-    model_spec = cm_data.load_model_specification(model_id)
+    cm_data = ClimateMalnutritionData(output_root / measure)
+    model_spec = cm_data.load_model_specification(model_version)
+
+    # Build model
+    model = ...
+
+    # Fit model
+
+    # Save model
+    cm_data.save_model(model, model_version, age_group_id, sex_id)
 
 
 @click.command()
-@clio.with_output_directory(DEFAULT_ROOT)
-@clio.with_model_id()
+@clio.with_output_root(DEFAULT_ROOT)
+@clio.with_measure()
+@click.option(
+    '--model-version',
+    '-v',
+    type=str,
+    required=True,
+)
 @clio.with_age_group_id()
 @clio.with_sex_id()
 def model_training_task(
-    output_dir: str,
-    model_id: str,
+    output_root: str,
+    measure: str,
+    model_version: str,
     age_group_id: str,
     sex_id: str,
 ) -> None:
     """Run model training."""
-    logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
     model_training_main(
-        Path(output_dir),
-        model_id,
+        Path(output_root),
+        measure,
+        model_version,
         int(sex_id),
         int(age_group_id),
     )
@@ -248,19 +264,24 @@ def model_training(
 ) -> None:
     """Run model training."""
     model_spec = ModelSpecification.from_yaml(model_specification_path)
-    cm_data = ClimateMalnutritionData(output_dir)
-    cm_data.save_model_specification(model_spec)
+    measure = model_spec.measure
+    measure_root = Path(output_root) / measure
+    cm_data = ClimateMalnutritionData(measure_root)
+    model_version = cm_data.new_model_version()
+    model_spec.version.model = model_version
+    cm_data.save_model_specification(model_spec, model_version)
 
     jobmon.run_parallel(
         runner="sttask",
         task_name="training",
-        node_args={l
+        node_args={
             "age-group-id": clio.VALID_AGE_GROUP_IDS,
             "sex-id": clio.VALID_SEX_IDS,
         },
         task_args={
-            "output-dir": output_dir,
-            "model-id": model_spec.name,
+            "output-root": output_root,
+            "measure": measure,
+            "model-version": model_version,
         },
         task_resources={
             "queue": queue,
