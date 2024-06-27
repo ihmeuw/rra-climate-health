@@ -1,206 +1,58 @@
-import re
-import sys
-import logging
 from pathlib import Path
 
 import pandas as pd
-import sklearn
+from sklearn.model_selection import train_test_split
 import click
 from rra_tools import jobmon
+from pymer4.models.Lmer import Lmer
 
 from spatial_temp_cgf import cli_options as clio
-from spatial_temp_cgf import cgf_utils
+from spatial_temp_cgf import binning, scaling
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
 from spatial_temp_cgf.model_specification import (
-    BinningCategory,
-    BinningStrategy,
-    BinningSpecification,
     ModelSpecification,
 )
 
 
-STANDARD_BINNING_SPECS = {
-    "ldi_pc_pd": BinningSpecification(
-        category=BinningCategory.HOUSEHOLD,
-        strategy=BinningStrategy.QUANTILES,
-        nbins=10,
-    ),
-    "over_30": BinningSpecification(
-        category=BinningCategory.LOCATION,
-        strategy=BinningStrategy.CUSTOM_DAYSOVER,
-        nbins=10,
-    ),
-    "temp": BinningSpecification(
-        category=BinningCategory.LOCATION,
-        strategy=BinningStrategy.QUANTILES,
-        nbins=10,
-    ),
-}
+def prepare_model_data(
+    raw_model_data: pd.DataFrame,
+    model_spec: ModelSpecification,
+) -> tuple[pd.DataFrame, dict]:
+    # Do all required data transformations
+    transformed_data = {}
+    var_info = {}
+    for var, transform in model_spec.transform_map.items():
+        if transform.type == 'binning':
+            transformed, info = binning.bin_column(raw_model_data, var, transform)
+        elif transform.type == 'scaling':
+            transformed, info = scaling.scale_column(raw_model_data, var, transform)
+        else:
+            raise ValueError(f"Unknown transformation type {transform.type}")
+        transformed_data[var] = transformed
+        var_info[var] = info
 
-def get_modeling_input_data(measure: str) -> pd.DataFrame:
-    df = pd.read_parquet(f'/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/new_{measure}.parquet')
-    return df
+    df = pd.DataFrame(transformed_data)
 
+    if model_spec.grid_predictors:
+        grid_spec = model_spec.grid_predictors.grid_spec
+        grid_vars = model_spec.grid_predictors.raw_variables
+        df['grid_cell'] = df[grid_vars].astype(str).apply('_'.join, axis=1)
 
-def make_model(
-    cgf_measure: str,
-    model_spec: str,
-    grid_list: list[str] | None = None,
-    binning_spec=None,
-    sex_id=None,
-    age_group_id=None,
-    location_var='ihme_loc_id',
-) -> None:
-    df = get_modeling_input_data(cgf_measure)
-
-    model_vars = re.findall(r'[a-zA-Z][a-zA-Z0-9_]+', model_spec)
-    outcome_var = model_vars[0]
-    model_vars = model_vars[1:]
-    binned_vars = [v for v in model_vars if v.endswith('_bin')]
-    vars_to_bin = [v.replace('_bin','') for v in binned_vars] + (grid_list if grid_list is not None else [])
-    binned_vars = [v + '_bin' for v in vars_to_bin]
-
-    grid_present = False
-
-    if 'grid_cell' in model_spec and grid_list is None:
-        raise ValueError("Model specification includes grid_cell but no grid_list is provided")
-    if 'grid_cell' not in model_spec and grid_list is not None:
-        raise ValueError("Model specification does not include grid_cell but grid_list is provided")
-    if grid_list is not None:
-        grid_present = True
-        grid_spec = {'grid_order': grid_list}
-    if binning_spec is None:
-        binning_spec = dict()
-        for var in vars_to_bin:
-            binning_spec[var] = STANDARD_BINNING_SPECS[var]
-    else:
-        raise NotImplementedError("Custom binning specs not yet implemented")
-
-    binned_df = df.copy()
-    var_info = dict()
-
-    for var in vars_to_bin:
-        var_info[var] = dict()
-        var_info[var]['var_bin'] = var + '_bin'
-        var_info[var]['bin_edges'], binned_df = cgf_utils.group_and_bin_column_definition(
-            binned_df,
-            binning_spec[var],
+        grid_spec['grid_definition_categorical'] = (
+            df[grid_vars + ['grid_cell']]
+            .drop_duplicates()
+            .sort_values(grid_vars)
         )
-        var_info[var]['bins_categorical'] = pd.DataFrame({var_info[var]['var_bin']:binned_df[var_info[var]['var_bin']].unique().sort_values()})
-        var_info[var]['bins'] = var_info[var]['bins_categorical'].astype(str)
+        grid_spec['grid_definition'] = (
+            grid_spec['grid_definition_categorical'].astype(str)
+        )
+        var_info['grid_cell'] = grid_spec
 
-    if grid_present:
-        var_info['grid_cell'] = dict()
-        grid_components_binned = [v + '_bin' for v in grid_list]
-        binned_df['grid_cell'] = binned_df[grid_components_binned].astype(str).apply('_'.join, axis=1)
-        grid_spec['grid_definition_categorical'] = binned_df[grid_components_binned + ['grid_cell']].drop_duplicates().sort_values(grid_components_binned)
-        grid_spec['grid_definition'] = grid_spec['grid_definition_categorical'].astype(str)
-    cols_that_should_be_scaled = ['temp', 'precip', 'over_30']
-    cols_to_scale = [v for v in model_vars if v in cols_that_should_be_scaled] # 'over30_avgperyear', 'precip', 'precip_cumavg_5' ,'temp', 'temp_cumavg_5', 'income_per_day']
-    scaler = sklearn.preprocessing.MinMaxScaler()
-    if cols_to_scale:
-        scaled_cols = [f'sc_{col}' for col in cols_to_scale]
-        binned_df[scaled_cols] = scaler.fit_transform(binned_df[cols_to_scale])
+    for random_effect in model_spec.random_effects:
+        if random_effect not in df:
+            df[random_effect] = raw_model_data[random_effect]
 
-    for v in cols_to_scale:
-        model_spec = model_spec.replace(v, 'sc_'+v)
-
-    filter = None
-    if filter: # We bin before we filter
-        binned_df = binned_df.query(filter).copy()
-    if sex_id:
-        binned_df = binned_df.loc[binned_df.sex_id == sex_id].copy()
-    if age_group_id:
-        binned_df = binned_df.loc[binned_df.age_group_id == age_group_id].copy()
-
-    vars_in_model_definition = re.findall(r'[a-zA-Z][a-zA-Z0-9_]+', model_spec)
-    model = Lmer(model_spec, data=binned_df[vars_in_model_definition], family='binomial')
-    model.fit()
-    if not model.fitted:
-        raise ValueError(f"Model {model_spec} did not fit.")
-
-    model_vars_without_location = [v for v in model_vars if v != location_var]
-    # weight_grid = binned_df[model_vars_without_location + binned_vars].drop_duplicates().merge(pd.DataFrame({location_var:binned_df[location_var].unique()}), how = 'cross')
-    # weight_grid['prediction_weight'] = model.predict(weight_grid, verify_predictions=False, skip_data_checks=True)
-    # modelled_locations = binned_df[location_var].unique()
-
-    # nocountry_grid = binned_df[model_vars_without_location + binned_vars].drop_duplicates()
-    # nocountry_grid[location_var] = np.nan
-    # nocountry_grid['prediction_weight'] = model.predict(nocountry_grid, verify_predictions=False, skip_data_checks=True)
-
-    randomeffects = dict()
-    if type(model.ranef) == pd.DataFrame:
-        varname = model.ranef_var.index[0]
-        varname = varname if varname != location_var else location_var
-        varname_bin = varname + ('_bin' if varname not in [location_var, 'grid_cell'] else '')
-        randomeffects[varname] = model.ranef.reset_index().rename(columns={'index':varname_bin, 'X.Intercept.':varname + '_coef'})
-    elif type(model.ranef) == list:
-        for i in range(len(model.ranef_var)):
-            varname = model.ranef_var.index[i]
-            varname_bin = varname + ('_bin' if varname not in [location_var, 'grid_cell'] else '')
-            varname = varname if varname != location_var else location_var
-            randomeffects[model.ranef_var.index[i]] = model.ranef[i].reset_index().rename(columns={'index':varname_bin, 'X.Intercept.':varname + '_coef'})
-
-    fixedeffects = dict()
-    for var in [x.replace('_bin', '') for x in model_vars]:
-        if var in randomeffects.keys():
-            # This is a random effect
-            pass #for now
-        elif var in model.coefs.index:
-            # This is a continuous variable
-            fixedeffects[var] = pd.DataFrame({var+'_coef' : [model.coefs.loc[var, 'Estimate']]})
-        elif 'sc_' + var in model.coefs.index:
-            # This is a continuous variable
-            fixedeffects[var] = pd.DataFrame({var+'_coef' : [model.coefs.loc['sc_' + var, 'Estimate']]})
-        elif var+'_bin' in model_vars:
-            # This is a categorical variable
-            varname_bin = var+'_bin'
-            betas = model.coefs[model.coefs.index.str.startswith(varname_bin)][['Estimate']].reset_index()
-            betas['index'] = betas['index'].str.replace(varname_bin, '')
-            betas = betas.rename(columns={'index':varname_bin, 'Estimate':var + '_coef'})
-            fixedeffects[var] = betas
-        else:
-            raise ValueError(f'Variable {var} not found in model')
-
-    for var in [x.replace('_bin', '') for x in model_vars]:
-        if var in randomeffects.keys():
-            if var not in var_info.keys():
-                var_info[var] = dict()
-            var_info[var]['coefs'] = randomeffects[var]
-        elif var in fixedeffects.keys():
-            if var not in var_info.keys():
-                var_info[var] = dict()
-            var_info[var]['coefs'] = fixedeffects[var]
-        else:
-            raise ValueError(f'Variable {var} not found in model')
-
-    var_info['intercept'] = {'coef': model.coefs.loc['(Intercept)', 'Estimate']}
-
-    model.scaling_bounds = {
-        col: (binned_df[col].min(), binned_df[col].max())
-        for col in cols_to_scale
-    }
-    model.var_info = var_info
-    model.model_vars = model_vars
-    model.available_locations = list(binned_df[location_var].unique())
-    model.has_grid = grid_present
-    model.grid_spec = grid_spec if grid_present else None
-    model.binned_vars = binned_vars
-    model.vars_to_bin = vars_to_bin
-    model.scaled_vars = cols_to_scale
-    return model
-
-
-
-
-def run_model_and_save(measure, model_identifier, sex_id, age_group_id, model_spec, grid_vars):
-    model = make_model(measure, model_spec, grid_list=grid_vars, sex_id=sex_id, age_group_id = age_group_id)
-    model.model_identifier = model_identifier
-    model_filepath = paths.MODELS / model_identifier / f'model_{measure}_{age_group_id}_{sex_id}.pkl'
-    model_filepath.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(model_filepath, 'wb') as f:
-        pickle.dump(model, f)
+    return df, var_info
 
 
 def model_training_main(
@@ -214,14 +66,23 @@ def model_training_main(
     model_spec = cm_data.load_model_specification(model_version)
 
     # Load training data
-    df = cm_data.load_training_data(model_spec.version.training_data)
+    full_training_data = cm_data.load_training_data(model_spec.version.training_data)
+    raw_df = full_training_data.loc[:, model_spec.raw_variables]
 
-    # Build model
-    model = ...
+    # TODO: Test/train split
 
-    # Fit model
+    df, var_info = prepare_model_data(raw_df, model_spec)
 
-    # Save model
+    subset_mask = (df.sex_id == sex_id) & (df.age_group_id == age_group_id)
+    df = df.loc[subset_mask].copy()
+
+    model = Lmer(model_spec.lmer_formula, data=df, family='binomial')
+    model.fit()
+    if not model.fitted:
+        raise ValueError(f"Model {model_spec} did not fit.")
+
+    model.var_info = var_info
+    model.raw_data = raw_df
     cm_data.save_model(model, model_version, age_group_id, sex_id)
 
 
