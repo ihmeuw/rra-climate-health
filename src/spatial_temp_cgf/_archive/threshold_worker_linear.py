@@ -65,8 +65,8 @@ if __name__ == "__main__":
     nbins = 10
     threshold_col = f"over_{threshold}"
     threshold_binned_col = f"over_{threshold}_bin"
-    data_df = cgf_utils.add_binned_column(data_df, threshold_col, 'location', nbins, bin_strategy ='custom_daysover', result_column = threshold_binned_col) #custom_daysover 0_more_readable
-    data_df = cgf_utils.add_binned_column(data_df, 'income_per_day', 'household', nbins)
+    data_df = cgf_utils.group_and_bin_column_definition(data_df, threshold_col, 'location', nbins, bin_strategy = 'custom_daysover', result_column = threshold_binned_col) #custom_daysover 0_more_readable
+    data_df = cgf_utils.group_and_bin_column_definition(data_df, 'income_per_day', 'household', nbins)
 
     data_df['grid_cell'] = data_df[threshold_binned_col].astype(str) +'_'+ data_df.income_per_day_bin.astype(str)
 

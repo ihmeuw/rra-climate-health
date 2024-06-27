@@ -295,8 +295,8 @@ def make_model(cgf_measure, sex_id = None, age_group_id = None, filter = None):
     income_var_bin = 'gdp_pc_pd_bin'
     location_var = 'ihme_loc_id'
     
-    over30_bins, binned_df = cgf_utils.add_binned_column(df, climate_var, 'location', nbins, bin_strategy ='custom_daysover', retbins = True) #custom_daysover 0_more_readable
-    income_bins, binned_df = cgf_utils.add_binned_column(binned_df, income_var, 'household', nbins, retbins = True)
+    over30_bins, binned_df = cgf_utils.group_and_bin_column_definition(df, climate_var, 'location', nbins, bin_strategy = 'custom_daysover', retbins = True) #custom_daysover 0_more_readable
+    income_bins, binned_df = cgf_utils.group_and_bin_column_definition(binned_df, income_var, 'household', nbins, retbins = True)
 
     binned_df['grid_cell'] = binned_df[climate_var_bin].astype(str) +'_'+ binned_df[income_var_bin].astype(str)
 

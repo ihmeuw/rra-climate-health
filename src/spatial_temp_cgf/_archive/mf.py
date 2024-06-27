@@ -280,7 +280,7 @@ def make_model_oldish(cgf_measure, model_spec, grid_list=None, grid_spec=None,
 
     for var in grid_spec['grid_order']:
         grid_spec[var]['var_bin'] = var + '_bin'
-        grid_spec[var]['bins'], binned_df = cgf_utils.add_binned_column(
+        grid_spec[var]['bins'], binned_df = cgf_utils.group_and_bin_column_definition(
             binned_df, var,
             grid_spec[var]['bin_category'], grid_spec[var]['nbins'],
             bin_strategy=grid_spec[var]['bin_strategy'], retbins=True)
@@ -339,16 +339,16 @@ def make_model_old(cgf_measure, sex_id=None, age_group_id=None, filter=None,
 
     model_spec = f'{cgf_measure} ~ (1 | {location_var}) + (1 | grid_cell)'
 
-    over30_bins, binned_df = cgf_utils.add_binned_column(df, climate_var,
+    over30_bins, binned_df = cgf_utils.group_and_bin_column_definition(df, climate_var,
                                                                        'location',
-                                                         nbins,
-                                                         bin_strategy='custom_daysover',
-                                                         retbins=True)  # custom_daysover 0_more_readable
-    income_bins, binned_df = cgf_utils.add_binned_column(binned_df,
-                                                         income_var,
+                                                                       nbins,
+                                                                       bin_strategy='custom_daysover',
+                                                                       retbins=True)  # custom_daysover 0_more_readable
+    income_bins, binned_df = cgf_utils.group_and_bin_column_definition(binned_df,
+                                                                       income_var,
                                                                        'household',
-                                                         nbins,
-                                                         retbins=True)
+                                                                       nbins,
+                                                                       retbins=True)
 
     binned_df['grid_cell'] = binned_df[climate_var_bin].astype(str) + '_' + binned_df[
         income_var_bin].astype(str)
