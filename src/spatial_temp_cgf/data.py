@@ -1,3 +1,4 @@
+import datetime
 from pathlib import Path
 import typing
 import itertools
@@ -5,6 +6,8 @@ import itertools
 import dill as pickle
 import pandas as pd
 from rra_tools.shell_tools import mkdir, touch
+
+from spatial_temp_cgf.model_specification import ModelSpecification
 
 
 if typing.TYPE_CHECKING:
@@ -25,6 +28,16 @@ class ClimateMalnutritionData:
     @property
     def models(self) -> Path:
         return self.root / "models"
+
+    def save_model_specification(self, model_spec: ModelSpecification) -> None:
+        model_root = self.models / model_spec.name
+        mkdir(model_root)
+        model_spec_path = model_root / f"specification.yaml"
+        model_spec.to_yaml(model_spec_path)
+
+    def load_model_specification(self, model_id: str) -> ModelSpecification:
+        model_spec_path = self.models / model_id / "specification.yaml"
+        return ModelSpecification.from_yaml(model_spec_path)
 
     def save_model(
         self,
@@ -88,3 +101,23 @@ class ClimateMalnutritionData:
         touch(path, exist_ok=True)
         results.to_parquet(path)
 
+
+def get_run_directory(output_root: str | Path) -> Path:
+    """Gets a path to a datetime directory for a new output.
+
+    Parameters
+    ----------
+    output_root
+        The root directory for all outputs.
+
+    """
+    output_root = Path(output_root).resolve()
+    launch_time = datetime.datetime.now().strftime("%Y_%m_%d")
+    today_runs = [
+        int(run_dir.name.split(".")[1])
+        for run_dir in output_root.iterdir()
+        if run_dir.name.startswith(launch_time)
+    ]
+    run_version = max(today_runs) + 1 if today_runs else 1
+    datetime_dir = output_root / f"{launch_time}.{run_version:0>2}"
+    return datetime_dir

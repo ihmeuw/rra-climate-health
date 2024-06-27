@@ -103,9 +103,12 @@ def model_inference_main(
     )
 
     models = cm_data.load_model_family(model_id, measure)
-    model = models[0]['model'] #getting the first model to base bins and variable info off of
+    # getting the first model to base bins and variable info off of
+    model = models[0]['model']
 
-    fhs_pop_raster = rt.load_raster(paths.GLOBAL_POPULATION_FILEPATH, fhs_shapefile.bounds).set_no_data_value(np.nan)
+    fhs_pop_raster = rt.load_raster(
+        paths.GLOBAL_POPULATION_FILEPATH, fhs_shapefile.bounds
+    ).set_no_data_value(np.nan)
     fhs_pop_raster = fhs_pop_raster.clip(fhs_shapefile)
 
     possible_climate_variables = ['temp', 'precip', 'over_30']
@@ -180,7 +183,8 @@ def model_inference_main(
             px_for_model_df['logistic_input'] = model.var_info['intercept']['coef']
             px_for_model_df['logistic_input'] += px_for_model_df['ihme_loc_id_coef']
             for var in climate_vars_to_match_bins:
-                if var in model.grid_spec['grid_order']: continue
+                if var in model.grid_spec['grid_order']:
+                    continue
                 px_for_model_df['logistic_input'] += px_for_model_df[var+'_bin_coef']
             for var in continuous_climate_vars:
                 px_for_model_df['logistic_input'] += px_for_model_df[var+'_coef']
@@ -190,7 +194,6 @@ def model_inference_main(
             px_for_model_df['age_group_id'] = m['age_group_id']
             px_for_model_df['sex_id'] = m['sex_id']
             admin_dfs.append(px_for_model_df)
-
 
     fhs_df = pd.concat(admin_dfs)
     #24s to 92s

@@ -1,0 +1,23 @@
+name: "tempgrid_o30"
+response_measure: "wasting"
+holdout:
+  type: "random"
+  proportion: 0.2
+  seed: 123
+grid_predictors:
+  grid_predictor_x:
+    name: "temp"
+    binning:
+      category: "location"
+      strategy: "quantiles"
+      nbins: 10
+  grid_predictor_y:
+    name: "ldi_pc_pd"
+    binning:
+      category: "household"
+      strategy: "quantiles"
+      nbins: 10
+other_predictors:
+  - name: "intercept"
+    random_effect: "ihme_loc_id"
+  - name: "over_30"

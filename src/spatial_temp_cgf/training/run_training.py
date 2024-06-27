@@ -6,14 +6,16 @@ from pathlib import Path
 import pandas as pd
 import sklearn
 import click
+from rra_tools import jobmon
 
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf import cgf_utils
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
-from spatial_temp_cgf.model import (
+from spatial_temp_cgf.model_specification import (
     BinningCategory,
     BinningStrategy,
     BinningSpecification,
+    ModelSpecification,
 )
 
 
@@ -47,7 +49,6 @@ def make_model(
     binning_spec=None,
     sex_id=None,
     age_group_id=None,
-    filter=None,
     location_var='ihme_loc_id',
 ) -> None:
     df = get_modeling_input_data(cgf_measure)
@@ -175,24 +176,18 @@ def make_model(
 
     var_info['intercept'] = {'coef': model.coefs.loc['(Intercept)', 'Estimate']}
 
-    scaling_bounds = None
-    if len(cols_to_scale) > 0:
-        scaling_bounds = dict()
-        for a in cols_to_scale:
-            scaling_bounds[a] = (binned_df[a].min(), binned_df[a].max())
-        model.scaling_bounds = scaling_bounds
-
+    model.scaling_bounds = {
+        col: (binned_df[col].min(), binned_df[col].max())
+        for col in cols_to_scale
+    }
     model.var_info = var_info
     model.model_vars = model_vars
-    #model.nocountry_grid = nocountry_grid
-    #model.weight_grid = weight_grid
     model.available_locations = list(binned_df[location_var].unique())
     model.has_grid = grid_present
     model.grid_spec = grid_spec if grid_present else None
     model.binned_vars = binned_vars
     model.vars_to_bin = vars_to_bin
     model.scaled_vars = cols_to_scale
-    #return model
     return model
 
 
@@ -207,54 +202,78 @@ def run_model_and_save(measure, model_identifier, sex_id, age_group_id, model_sp
     with open(model_filepath, 'wb') as f:
         pickle.dump(model, f)
 
+
 def model_training_main(
     output_dir: Path,
     model_id: str,
-    model_spec: str,
-    grid_vars: str,
-    measure: str,
-    sex_id: int,
     age_group_id: int,
+    sex_id: int,
 ):
-    pass
+    cm_data = ClimateMalnutritionData(output_dir)
+    model_spec = cm_data.load_model_specification(model_id)
 
 
 @click.command()
 @clio.with_output_directory(DEFAULT_ROOT)
 @clio.with_model_id()
-@click.option(
-    "--model-spec",
-    help='model spec like "stunting ~ ihme_loc_id + precip"',
-    type=str,
-)
-@click.option(
-    "--grid-vars",
-    help='list of vars to be binned and added to the grid in order',
-    type=str,
-)
-@clio.with_measure()
-@clio.with_sex_id()
 @clio.with_age_group_id()
+@clio.with_sex_id()
 def model_training_task(
     output_dir: str,
     model_id: str,
-    model_spec: str,
-    grid_vars: str,
-    measure: str,
-    sex_id: str,
     age_group_id: str,
+    sex_id: str,
 ) -> None:
     """Run model training."""
     logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
     model_training_main(
         Path(output_dir),
         model_id,
-        model_spec,
-        grid_vars,
-        measure,
         int(sex_id),
         int(age_group_id),
     )
+
+
+@click.command()
+@click.argument(
+    "model_specification_path",
+    type=click.Path(exists=True),
+)
+@clio.with_output_directory(DEFAULT_ROOT)
+@clio.with_queue()
+def model_training(
+    model_specification_path: str,
+    output_dir: str,
+    queue: str,
+) -> None:
+    """Run model training."""
+    logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
+    model_spec = ModelSpecification.from_yaml(model_specification_path)
+    cm_data = ClimateMalnutritionData(output_dir)
+    cm_data.save_model_specification(model_spec)
+
+    jobmon.run_parallel(
+        runner="sttask",
+        task_name="training",
+        node_args={
+            "age-group-id": clio.VALID_AGE_GROUP_IDS,
+            "sex-id": clio.VALID_SEX_IDS,
+        },
+        task_args={
+            "output-dir": output_dir,
+            "model-id": model_spec.name,
+        },
+        task_resources={
+            "queue": queue,
+            "cores": 1,
+            "memory": "20Gb",
+            "runtime": "96h",
+            "project": "proj_rapidresponse",
+            "constraints": "archive",
+        },
+        max_attempts=1,
+    )
+
 
 
 
