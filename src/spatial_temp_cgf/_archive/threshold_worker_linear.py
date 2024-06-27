@@ -1,34 +1,30 @@
-from ctypes import cdll
-cdll.LoadLibrary('/mnt/share/homes/victorvt/envs/cgf_temperature/lib/libstdc++.so.6')
-import pandas as pd
-from pymer4 import Lmer
-import multiprocessing as mp
-import get_climate_vars_year as climate_utils
+import argparse
 import logging
 import sys
+from ctypes import cdll
 from pathlib import Path
-import cgf_utils
-import sklearn
+
 import numpy as np
-import argparse
+import pandas as pd
+from pymer4 import Lmer
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description = """ Testing threshold. \
+        description=(
+            """Testing threshold.
             Example usage: python threshold_worker_linear.py 30 stunting"""
+        ),
     )
     parser.add_argument("threshold", help="threshold", type=float)
     parser.add_argument("measure", help="desired filepath for output", type=str)
     args = parser.parse_args()
 
-    CLIMATE_ROOT = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/human-niche/chelsa-downscaled-historical')
-
     threshold = args.threshold
     if threshold.is_integer():
         threshold = int(threshold)
 
-    years = list(range(1979, 2017)) #1979 2017
+    years = list(range(1979, 2017))  # 1979 2017
     measure = args.measure
     if measure != 'low_adult_bmi':
         in_filepath = f'/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/cgf_{measure}_cal.parquet'
@@ -43,7 +39,7 @@ if __name__ == "__main__":
     file_path = climate_utils.CLIMATE_ROOT / climate_utils.OVER30_FSTR.format(year=1981, threshold=str(threshold).replace(".","-"))
     file_exists = Path(file_path).exists()
     if not file_exists:
-        print(f"File not found: {file_path}")    #climate_utils.CLIMATE_ROOT / climate_utils.OVER30_FSTR.format(year= 1981, threshold=threshold)
+        print(f"File not found: {file_path}")
 
     lat_col = 'lat'
     long_col = 'long'

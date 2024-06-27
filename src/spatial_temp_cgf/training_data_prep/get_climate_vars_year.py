@@ -1,17 +1,21 @@
-from ctypes import cdll
-cdll.LoadLibrary('/mnt/share/homes/victorvt/envs/cgf_temperature/lib/libstdc++.so.6')
-import xarray
 import argparse
 import logging
 import sys
-import pandas as pd
-import numpy as np
 from pathlib import Path
 
-CLIMATE_ROOT = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/human-niche/chelsa-downscaled-historical')
+import numpy as np
+import pandas as pd
+import xarray
+
+from spatial_temp_cgf import paths
+
+
+
+CLIMATE_ROOT = paths.CHELSA_HISTORICAL_ROOT
 OVER30_FSTR = "days_above_{threshold}_{year}.nc"
 PRECIP_FSTR = "precipitation_{year}.nc"
 TEMPERATURE_FSTR = "temperature_{year}.nc"
+
 
 def extract_climate_data_for_year(year:int, lats:pd.Series, longs:pd.Series, threshold = 30)-> pd.DataFrame:
     if isinstance(threshold, int) or threshold.is_integer():
@@ -41,6 +45,7 @@ def extract_climate_data_for_year(year:int, lats:pd.Series, longs:pd.Series, thr
     #dfs.append(year_locs)\
     return year_locs
 
+
 def extract_days_over_threshold_for_year(year:int, lats:pd.Series, longs:pd.Series, threshold = 30)-> pd.DataFrame:
     if isinstance(threshold, int) or threshold.is_integer():
         threshold_str = str(threshold)
@@ -61,6 +66,7 @@ def extract_days_over_threshold_for_year(year:int, lats:pd.Series, longs:pd.Seri
     #dfs.append(year_locs)\
     return year_locs
 
+
 def extract_climate_data(input_df:pd.DataFrame, lat_col:str, long_col:str) -> pd.DataFrame:
     #Get unique combination of locations in input dataframe
 
@@ -72,6 +78,7 @@ def extract_climate_data(input_df:pd.DataFrame, lat_col:str, long_col:str) -> pd
         dfs.append(extract_climate_data_for_year(year, unique_locs_df[lat_col], unique_locs_df[long_col]))
     
     return pd.concat(dfs)
+
 
 def process_input_file(in_filepath:Path, lat_col, long_col) -> pd.DataFrame:
     extension = in_filepath.suffix
@@ -94,9 +101,10 @@ def write_output(df:pd.DataFrame, out_filepath:Path, **kwargs) -> None:
     else:
         raise NotImplementedError(f"File type {extension} not supported")
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description = """ Tool to extract climate data for a dataset that has latitude and longitude. \
+        description=""" Tool to extract climate data for a dataset that has latitude and longitude. \
             Example usage: python get_climate_vars.py /mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/bmi/bmi_data_outliered.csv /mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/bmi_climate.parquet -lat_col latnum -long_col longnum"""
     )
     parser.add_argument("input_file", help="filepath with lat longs to process", type=str)
