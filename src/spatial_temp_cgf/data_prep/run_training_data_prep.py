@@ -115,9 +115,22 @@ def examine_survey_schema(df, columns):
 def run_training_data_prep_main(
     measure: str,
 ):
-    survey_data = pd.read_csv(SURVEY_DATA_PATHS[measure])
+    survey_data_path = SURVEY_DATA_PATHS[measure]
     print(f"Running training data prep for {measure}...")
-    print(f"Survey data path: {SURVEY_DATA_PATHS[measure]}")
+    print(f"Survey data path: {survey_data_path}")
+
+    df = pd.read_csv(survey_data_path)
+
+    # Filter bad rows, subset to columns of interest
+
+    # Column transformations
+
+    # Crosswalk asset score to ldi
+
+    # Merge with climate data
+
+    # Write to output
+
     print("Done!")
 
 
