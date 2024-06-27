@@ -239,15 +239,14 @@ def model_training_task(
     "model_specification_path",
     type=click.Path(exists=True),
 )
-@clio.with_output_directory(DEFAULT_ROOT)
+@clio.with_output_root(DEFAULT_ROOT)
 @clio.with_queue()
 def model_training(
     model_specification_path: str,
-    output_dir: str,
+    output_root: str,
     queue: str,
 ) -> None:
     """Run model training."""
-    logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
     model_spec = ModelSpecification.from_yaml(model_specification_path)
     cm_data = ClimateMalnutritionData(output_dir)
     cm_data.save_model_specification(model_spec)
@@ -255,7 +254,7 @@ def model_training(
     jobmon.run_parallel(
         runner="sttask",
         task_name="training",
-        node_args={
+        node_args={l
             "age-group-id": clio.VALID_AGE_GROUP_IDS,
             "sex-id": clio.VALID_SEX_IDS,
         },

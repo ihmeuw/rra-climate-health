@@ -1,4 +1,5 @@
-from typing import ParamSpec, TypeVar, Callable, Any, List
+from typing import ParamSpec, TypeVar, Callable, Any
+from pathlib import Path
 
 import click
 from rra_tools.cli_tools import (
@@ -8,7 +9,6 @@ from rra_tools.cli_tools import (
     with_debugger,
     with_input_directory,
     with_num_cores,
-    with_output_directory,
     with_progress_bar,
     with_queue,
     with_verbose,
@@ -188,4 +188,15 @@ def with_overwrite() -> ClickOption[_P, _T]:
         "--overwrite",
         help="Overwrite existing files.",
         is_flag=True,
+    )
+
+
+def with_output_root(default: str | Path) -> ClickOption[_P, _T]:
+    return click.option(
+        "--output-root",
+        "-o",
+        type=click.Path(exists=True, file_okay=False, dir_okay=True),
+        default=default,
+        show_default=True,
+        help="Root directory where outputs will be saved.",
     )

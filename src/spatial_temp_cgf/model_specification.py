@@ -72,7 +72,7 @@ class HoldoutSpecification(BaseModel):
 
 
 class ModelSpecification(BaseModel):
-    name: str
+    input_version: str
     response_measure: OutcomeVariable
     holdout: HoldoutSpecification = HoldoutSpecification()
     grid_predictors: GridSpecification | None = None

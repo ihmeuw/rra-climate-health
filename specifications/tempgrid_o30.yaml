@@ -1,4 +1,4 @@
-name: "tempgrid_o30"
+input_version: "2024_06_27.01"
 response_measure: "wasting"
 holdout:
   type: "random"

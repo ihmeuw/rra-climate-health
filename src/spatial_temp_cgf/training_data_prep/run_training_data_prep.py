@@ -1,6 +1,10 @@
 from pathlib import Path
 
 import click
+import pandas as pd
+
+import spatial_temp_cgf.cli_options as clio
+from spatial_temp_cgf.data import ClimateMalnutritionData, DEFAULT_ROOT, get_run_directory
 
 
 SURVEY_DATA_ROOT = Path(
@@ -113,8 +117,13 @@ def examine_survey_schema(df, columns):
 
 
 def run_training_data_prep_main(
+    output_root: str | Path,
     measure: str,
-):
+) -> None:
+    measure_root = Path(output_root) / measure
+    cm_data = ClimateMalnutritionData(measure_root)
+    version = cm_data.new_training_version()
+
     survey_data_path = SURVEY_DATA_PATHS[measure]
     print(f"Running training data prep for {measure}...")
     print(f"Survey data path: {survey_data_path}")
@@ -130,12 +139,17 @@ def run_training_data_prep_main(
     # Merge with climate data
 
     # Write to output
+    cm_data.save_training_data(df, version)
 
     print("Done!")
 
 
 @click.command()
-def run_training_data_prep():
+@clio.with_output_root(DEFAULT_ROOT)
+@clio.with_measure(allow_all=True)
+def run_training_data_prep(output_root: str, measure: list[str]):
     """Run training data prep."""
-    logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
-    run_training_data_prep_main()
+
+    for m in measure:
+        run_training_data_prep_main(output_root, m)
+
