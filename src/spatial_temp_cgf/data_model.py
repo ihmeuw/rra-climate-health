@@ -25,7 +25,7 @@ class BinningSpecification(BaseModel):
     nbins: int = Field(10, gt=0)
 
 
-class ResponseMeasure(StrEnum):
+class OutcomeVariable(StrEnum):
     WASTING = 'wasting'
     STUNTING = 'stunting'
     UNDERWEIGHT = 'underweight'
@@ -35,16 +35,34 @@ class ResponseMeasure(StrEnum):
 
 class PredictorSpecification(BaseModel):
     binning_specification: BinningSpecification | None = None
+    random_effect: str | None = None
 
 
 class GridSpecification(BaseModel):
     grid_predictor_x: PredictorSpecification
     grid_predictor_y: PredictorSpecification
+    random_effect: str | None = None
+
+
+class HoldoutType(StrEnum):
+    random = 'random'
+    temporal = 'temporal'
+    spatial = 'spatial'
+
+
+class HoldoutSpecification(BaseModel):
+    holdout_type: HoldoutType = HoldoutType.random
+    holdout_fraction: float = 0.2
 
 
 class ModelSpecification(BaseModel):
     model_id: str
-    response_measure: ResponseMeasure
+    response_measure: OutcomeVariable
+    holdout: HoldoutSpecification = HoldoutSpecification()
+    grid_predictors: GridSpecification | None = None
+    other_predictors: dict[str, PredictorSpecification] = Field(default_factory=dict)
+
+
 
 
 
