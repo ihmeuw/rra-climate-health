@@ -1,25 +1,27 @@
 version:
   training_data: "2024_06_27.01"
-measure: "wasting"
+measure: "stunting"
 holdout:
-  type: "random"
-  proportion: 0.2
-  seed: 123
+  type: "no_holdout"  
 grid_predictors:
   x:
     name: "temp"
-    binning:
-    
+    transform:
+      type: 'binning'
       category: "location"
       strategy: "quantiles"
       nbins: 10
   y:
     name: "ldi_pc_pd"
-    binning:
+    transform:
+      type: 'binning'
       category: "household"
       strategy: "quantiles"
       nbins: 10
-other_predictors:
+predictors:
   - name: "intercept"
     random_effect: "ihme_loc_id"
   - name: "over_30"
+    transform:
+      type: 'scaling'
+      strategy: 'min_max'

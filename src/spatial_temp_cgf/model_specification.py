@@ -12,7 +12,7 @@ class ScalingStrategy(StrEnum):
 
 
 class ScalingSpecification(BaseModel):
-    type: Literal['scaling']
+    type: Literal['scaling'] = 'scaling'
     strategy: ScalingStrategy = ScalingStrategy.IDENTITY
 
 
@@ -33,7 +33,7 @@ class BinningStrategy(StrEnum):
 
 
 class BinningSpecification(BaseModel):
-    type: Literal['binning']
+    type: Literal['binning'] = 'binning'
     strategy: BinningStrategy
     category: BinningCategory
     nbins: int = Field(10, gt=0)
@@ -51,7 +51,7 @@ class PredictorSpecification(BaseModel):
     name: str = "intercept"
     transform: BinningSpecification | ScalingSpecification = Field(
         ScalingSpecification(),
-        discriminator='transformation_type',
+        discriminator='type',
     )
     random_effect: str = ""
 
@@ -74,10 +74,10 @@ class GridSpecification(BaseModel):
 
     @model_validator(mode="after")
     def check_transform_is_binning(cls, v):
-        if v.x.transform.transformation_type != 'binning':
+        if v.x.transform.type != 'binning':
             msg = "Grid predictor x must be binned"
             raise ValueError(msg)
-        if v.y.transform.transformation_type != 'binning':
+        if v.y.transform.type != 'binning':
             msg = "Grid predictor y must be binned"
             raise ValueError(msg)
         return v
@@ -125,20 +125,23 @@ class ModelSpecification(BaseModel):
     grid_predictors: GridSpecification | None = None
 
     @property
+    def random_effects(self) -> list[str]:
+        random_effects = [predictor.random_effect for predictor in self.predictors]
+        if self.grid_predictors:
+            random_effects.append(self.grid_predictors.random_effect)
+        return [re for re in random_effects if re]
+        
+    @property
     def raw_variables(self) -> list[str]:
         variables = [self.measure]
         variables += [predictor.name for predictor in self.predictors]
 
         if self.grid_predictors:
             variables += self.grid_predictors.raw_variables
-        return variables
 
-    @property
-    def random_effects(self) -> list[str]:
-        random_effects = [predictor.random_effect for predictor in self.predictors]
-        if self.grid_predictors:
-            random_effects.append(self.grid_predictors.random_effect)
-        return [re for re in random_effects if re]
+        variables = list(set(variables + self.random_effects))
+        
+        return variables
 
     @property
     def transform_map(self) -> dict[str, BinningSpecification | ScalingSpecification]:

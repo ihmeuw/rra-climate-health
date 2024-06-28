@@ -56,7 +56,7 @@ def prepare_model_data(
 
 
 def model_training_main(
-    output_root: Path,
+    output_root: Path,  
     measure: str,
     model_version: str,
     age_group_id: int,
