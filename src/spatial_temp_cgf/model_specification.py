@@ -22,6 +22,13 @@ class BinningCategory(StrEnum):
     COUNTRY = 'country'
 
 
+BINNING_CATEGORY_GROUPBY = {
+    BinningCategory.HOUSEHOLD: ['nid', 'hh_id', 'psu', 'year_start'],
+    BinningCategory.LOCATION: ['lat', 'long'],
+    BinningCategory.COUNTRY: ['iso3'],
+}
+
+
 class BinningStrategy(StrEnum):
     QUANTILES = 'quantiles'
     EQUAL = 'equal'
@@ -37,6 +44,10 @@ class BinningSpecification(BaseModel):
     strategy: BinningStrategy
     category: BinningCategory
     nbins: int = Field(10, gt=0)
+
+    @property
+    def groupby_columns(self) -> list[str]:
+        return BINNING_CATEGORY_GROUPBY[self.category]
 
 
 class OutcomeVariable(StrEnum):
@@ -54,6 +65,15 @@ class PredictorSpecification(BaseModel):
         discriminator='type',
     )
     random_effect: str = ""
+
+    @property
+    def raw_variables(self) -> list[str]:
+        variables = [self.name]
+        if self.random_effect:
+            variables.append(self.random_effect)
+        if self.transform.type == 'binning':
+            variables += self.transform.groupby_columns
+        return variables
 
 
 class GridSpecification(BaseModel):
@@ -84,7 +104,7 @@ class GridSpecification(BaseModel):
 
     @property
     def raw_variables(self) -> list[str]:
-        return [self.x.name, self.y.name]
+        return list(set(self.x.raw_variables + self.y.raw_variables))
 
     @property
     def transform_map(self) -> dict[str, BinningSpecification]:
@@ -134,12 +154,13 @@ class ModelSpecification(BaseModel):
     @property
     def raw_variables(self) -> list[str]:
         variables = [self.measure]
-        variables += [predictor.name for predictor in self.predictors]
+        for predictor in self.predictors:
+            variables += predictor.raw_variables
 
         if self.grid_predictors:
             variables += self.grid_predictors.raw_variables
 
-        variables = list(set(variables + self.random_effects))
+        variables = list(set(variables))
         
         return variables
 

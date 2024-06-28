@@ -62,12 +62,6 @@ BINNING_STRATEGIES = {
     BinningStrategy.CUSTOM_DAYSOVER: custom_daysover_bins,
 }
 
-BINNING_CATEGORY_GROUPBY = {
-    BinningCategory.HOUSEHOLD: ['nid', 'hh_id', 'psu', 'year_start'],
-    BinningCategory.LOCATION: ['lat', 'long'],
-    BinningCategory.COUNTRY: ['iso3'],
-}
-
 
 def bin_column(
     df: pd.DataFrame,
@@ -75,9 +69,8 @@ def bin_column(
     spec: BinningSpecification,
 ) -> tuple[pd.Series, dict]:
     # Why are we grouping anything here?
-    group_cols = BINNING_CATEGORY_GROUPBY[spec.category]
     grouped_df = (
-        df.groupby(group_cols + [column], as_index=False)
+        df.groupby(spec.groupby_columns + [column], as_index=False)
         .size()
         .drop(columns=['size'])
     )
