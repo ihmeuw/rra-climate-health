@@ -115,7 +115,7 @@ class GridSpecification(BaseModel):
 
     @property
     def grid_spec(self) -> dict[str, list[str]]:
-        return {'grid_order': self.raw_variables}
+        return {'grid_order': [self.x.name, self.y.name]}
 
 
 class HoldoutType(StrEnum):
@@ -175,10 +175,10 @@ class ModelSpecification(BaseModel):
 
     @property
     def lmer_formula(self) -> str:
-        formula = f"{self.response_measure.value} ~"
+        formula = f"{self.measure.value} ~"
 
         predictors = [self.grid_predictors] if self.grid_predictors else []
-        predictors += self.other_predictors
+        predictors += self.predictors
         for predictor in predictors:
             if predictor.random_effect:
                 var_name = "1" if predictor.name == "intercept" else predictor.name

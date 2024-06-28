@@ -35,7 +35,7 @@ def prepare_model_data(
 
     if model_spec.grid_predictors:
         grid_spec = model_spec.grid_predictors.grid_spec
-        grid_vars = model_spec.grid_predictors.raw_variables
+        grid_vars = grid_spec['grid_order']
         df['grid_cell'] = df[grid_vars].astype(str).apply('_'.join, axis=1)
 
         grid_spec['grid_definition_categorical'] = (
@@ -52,6 +52,8 @@ def prepare_model_data(
         if random_effect not in df:
             df[random_effect] = raw_model_data[random_effect]
 
+    df[model_spec.measure] = raw_model_data[model_spec.measure]
+
     return df, var_info
 
 
@@ -64,18 +66,28 @@ def model_training_main(
 ):
     cm_data = ClimateMalnutritionData(output_root / measure)
     model_spec = cm_data.load_model_specification(model_version)
-
+    
     # Load training data
     full_training_data = cm_data.load_training_data(model_spec.version.training_data)
-    raw_df = full_training_data.loc[:, model_spec.raw_variables]
-
-    # TODO: Test/train split
-
+    # FIXME: Prep leaves a bad index
+    full_training_data = full_training_data.reset_index(drop=True)    
+    full_training_data['intercept'] = 1.
+    
+    subset_mask = (
+        (full_training_data.sex_id == sex_id) 
+        & (full_training_data.age_group_id == age_group_id)
+    )
+    
+    raw_df = full_training_data.loc[:, model_spec.raw_variables]    
+    null_mask = raw_df.isnull().any(axis=1)
+    assert null_mask.sum() == 0
+    
     df, var_info = prepare_model_data(raw_df, model_spec)
 
-    subset_mask = (df.sex_id == sex_id) & (df.age_group_id == age_group_id)
+    raw_df = raw_df.loc[subset_mask].copy()
     df = df.loc[subset_mask].copy()
 
+    # TODO: Test/train split
     model = Lmer(model_spec.lmer_formula, data=df, family='binomial')
     model.fit()
     if not model.fitted:
