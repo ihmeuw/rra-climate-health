@@ -12,8 +12,9 @@ from scipy.special import expit
 import xarray as xr
 import tqdm
 
-from spatial_temp_cgf import income_funcs, paths
-from spatial_temp_cgf.data_prep.location_mapping import load_fhs_lsae_mapping
+from spatial_temp_cgf import paths
+from spatial_temp_cgf.training_data_prep import income_funcs
+from spatial_temp_cgf.training_data_prep.location_mapping import load_fhs_lsae_mapping
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
 
@@ -102,7 +103,7 @@ def model_inference_main(
         fhs_location_id=fhs_location_id, measure=measure, year_id=year
     )
 
-    models = cm_data.load_model_family(model_id, measure)
+    models = cm_data.load_model_family(model_id)
     # getting the first model to base bins and variable info off of
     model = models[0]['model']
 
@@ -222,7 +223,7 @@ def model_inference_main(
 
 
 @click.command()
-@clio.with_output_directory(DEFAULT_ROOT)
+@clio.with_output_root(DEFAULT_ROOT)
 @clio.with_model_id()
 @clio.with_measure()
 @clio.with_location_id()
@@ -249,7 +250,7 @@ def model_inference_task(
 
 
 @click.command()
-@clio.with_output_directory(DEFAULT_ROOT)
+@clio.with_output_root(DEFAULT_ROOT)
 @clio.with_model_id()
 @clio.with_measure(allow_all=True)
 @clio.with_location_id(allow_all=True)
