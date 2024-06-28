@@ -13,15 +13,20 @@ SURVEY_DATA_ROOT = Path(
     '/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data'
 )
 
-
+# TODO: Put these in a better format
+CGF_FILEPATH_LSAE = Path('/mnt/share/limited_use/LIMITED_USE/LU_GEOSPATIAL/geo_matched/cgf/pre_collapse/cgf_lbw_2020_06_15.csv')
+WEALTH_FILEPATH = Path('/mnt/share/scratch/users/victorvt/cgfwealth_spatial/dhs_wealth_uncollapsed_again.parquet')
+LDIPC_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/national_ldipc_estimates.csv')
 
 SURVEY_DATA_PATHS = {
-    "bmi": SURVEY_DATA_ROOT / "bmi" / "bmi_data_outliered_wealth_rex.csv",
-    "wasting": SURVEY_DATA_ROOT / "wasting_stunting" / "wasting_stunting_outliered_wealth_rex.csv",
-    "stunting": SURVEY_DATA_ROOT / "wasting_stunting" / "wasting_stunting_outliered_wealth_rex.csv",
+    "bmi": {'gbd': SURVEY_DATA_ROOT / "bmi" / "bmi_data_outliered_wealth_rex.csv"},
+    "wasting": {'gbd' : SURVEY_DATA_ROOT / "wasting_stunting" / "wasting_stunting_outliered_wealth_rex.csv",
+        'lsae': CGF_FILEPATH_LSAE},
+    "stunting": {'gbd' : SURVEY_DATA_ROOT / "wasting_stunting" / "wasting_stunting_outliered_wealth_rex.csv",
+        'lsae': CGF_FILEPATH_LSAE},
+    "wealth": {'lsae': WEALTH_FILEPATH},
 }
 
-CGF_FILEPATH_LSAE = '/mnt/share/limited_use/LIMITED_USE/LU_GEOSPATIAL/geo_matched/cgf/pre_collapse/cgf_lbw_2020_06_15.csv'
 
 
 ############################
@@ -130,6 +135,9 @@ def run_training_data_prep_main(
     cm_data = ClimateMalnutritionData(measure_root)
     version = cm_data.new_training_version()
 
+    if measure not in ['stunting', 'wasting']:
+        raise NotImplementedError(f"Measure {measure} not implemented.")
+
     survey_data_path = SURVEY_DATA_PATHS[measure]
     print(f"Running training data prep for {measure}...")
     print(f"Survey data path: {survey_data_path}")
@@ -138,11 +146,8 @@ def run_training_data_prep_main(
 
     loc_meta = get_location_metadata(39, release_id = 9)[['location_id', 'ihme_loc_id']]
 
-    CGF_FILEPATH_LSAE = '/mnt/share/limited_use/LIMITED_USE/LU_GEOSPATIAL/geo_matched/cgf/pre_collapse/cgf_lbw_2020_06_15.csv'
-    CGF_FILEPATH_NEW = '/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/wasting_stunting_outliered_wealth_rex.csv'
-
-    new_cgf_data_raw = pd.read_csv(CGF_FILEPATH_NEW, dtype={'hh_id': str, 'year_start': int, 'year_end': int})
-    lsae_cgf_data_raw = pd.read_csv(CGF_FILEPATH_LSAE, dtype={'hh_id': str, 'year_start': int, 'year_end': int})
+    lsae_cgf_data_raw = pd.read_csv(survey_data_path['lsae'], dtype={'hh_id': str, 'year_start': int, 'year_end': int})
+    new_cgf_data_raw = pd.read_csv(survey_data_path['gbd'], dtype={'hh_id': str, 'year_start': int, 'year_end': int})
 
     # Translator to harmonize column names between both sets
     gbd_columns = ['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu_id', 'strata_id', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WHZ_b2', 'WAZ_b2', 'latnum', 'longnum']
@@ -258,38 +263,26 @@ def run_training_data_prep_main(
     climate_df = pd.concat([pd.read_parquet(f'/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/cgf_climate_years/cgf_{year}.parquet') for year in range(1979, 2017)]).rename(columns={'year':'year_start'})
     cgf_consolidated = cgf_consolidated.merge(climate_df, on=['year_start', 'lat', 'long'], how='left').query('year_start < 2017')
 
-    OUT_ROOT = Path("/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi")
+    # OUT_ROOT = Path("/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi")
 
-    cgf_dfs = dict()
-    geo_dfs = dict()
-    cgf_measures = ['stunting', 'wasting']
+    # cgf_dfs = dict()
+    # geo_dfs = dict()
+    # cgf_measures = ['stunting', 'wasting']
 
-    for measure in cgf_measures:
-        cgf_dfs[measure] = cgf_consolidated[cgf_consolidated[measure].notna()].copy()
-        cgf_dfs[measure]['cgf_measure'] = measure
-        cgf_dfs[measure]['cgf_value'] = cgf_dfs[measure][measure]
-        cgf_dfs[measure].to_parquet(OUT_ROOT / f"new_{measure}.parquet")
-    cgf_consolidated.to_parquet(OUT_ROOT / f"cgf_all_measures.parquet")
+    # for measure in cgf_measures:
+    #     cgf_dfs[measure] = cgf_consolidated[cgf_consolidated[measure].notna()].copy()
+    #     cgf_dfs[measure]['cgf_measure'] = measure
+    #     cgf_dfs[measure]['cgf_value'] = cgf_dfs[measure][measure]
+    #     cgf_dfs[measure].to_parquet(OUT_ROOT / f"new_{measure}.parquet")
+    # cgf_consolidated.to_parquet(OUT_ROOT / f"cgf_all_measures.parquet")
 
     # Write to output
-    cm_data.save_training_data(df, version)
+    #cm_data.save_training_data(cgf_consolidated, version)
 
     print("Done!")
 
-
-@click.command()
-@clio.with_output_root(DEFAULT_ROOT)
-@clio.with_measure(allow_all=True)
-def run_training_data_prep(output_root: str, measure: list[str]):
-    """Run training data prep."""
-
-    for m in measure:
-        run_training_data_prep_main(output_root, m)
-
-
 def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_index_dhs', year_df_col = 'year_start'):
 #    INCOME_FILEPATH = '/mnt/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_fixGUY/gdppc_estimates.csv'
-    LDIPC_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/national_ldipc_estimates.csv')
 
     income_raw = pd.read_csv(LDIPC_FILEPATH)
     income_raw = income_raw[['population_percentile', 'ldipc', 'location_id', 'year_id']]
@@ -334,7 +327,6 @@ def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_
 
 def get_wealth_dataset():
     # Now the old LSAE data
-    WEALTH_FILEPATH = '/mnt/share/scratch/users/victorvt/cgfwealth_spatial/dhs_wealth_uncollapsed_again.parquet'
     #loc_meta = get_location_metadata(release_id = 9, location_set_id = 35)
 
     wealth_raw = pd.read_parquet(WEALTH_FILEPATH)
@@ -388,3 +380,13 @@ def assign_age_group(df:pd.DataFrame):
     df.loc[df.age_group_id == 238, 'age_group_id'] = 5
     df.loc[df.age_group_id == 34, 'age_group_id'] = 5
     return df
+
+
+@click.command()
+@clio.with_output_root(DEFAULT_ROOT)
+@clio.with_measure(allow_all=True)
+def run_training_data_prep(output_root: str, measure: list[str]):
+    """Run training data prep."""
+
+    for m in measure:
+        run_training_data_prep_main(output_root, m)
