@@ -3,25 +3,32 @@ version:
 measure: "stunting"
 holdout:
   type: "no_holdout"  
-grid_predictors:
-  x:
-    name: "temp"
-    transform:
-      type: 'binning'
-      category: "location"
-      strategy: "quantiles"
-      nbins: 10
-  y:
-    name: "ldi_pc_pd"
-    transform:
-      type: 'binning'
-      category: "household"
-      strategy: "quantiles"
-      nbins: 10
+# grid_predictors:
+#   x:
+#     name: "temp"
+#     transform:
+#       type: 'binning'
+#       category: "location"
+#       strategy: "quantiles"
+#       nbins: 10
+#   y:
+#     name: "ldi_pc_pd"
+#     transform:
+#       type: 'binning'
+#       category: "household"
+#       strategy: "quantiles"
+#       nbins: 10
 predictors:
   - name: "intercept"
     random_effect: "ihme_loc_id"
-  - name: "over_30"
+  - name: "temp"
     transform:
       type: 'scaling'
       strategy: 'min_max'
+  - name: "ldi_pc_pd"
+    transform:
+      type: 'scaling'
+      strategy: 'min_max'
+extra_terms:
+  - "temp * ldi_pc_pd"
+  - "temp * temp"

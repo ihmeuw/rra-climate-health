@@ -143,6 +143,7 @@ class ModelSpecification(BaseModel):
     holdout: HoldoutSpecification = HoldoutSpecification()
     predictors: list[PredictorSpecification] = Field(default_factory=list)
     grid_predictors: GridSpecification | None = None
+    extra_terms: list[str]
 
     @property
     def random_effects(self) -> list[str]:
@@ -185,6 +186,8 @@ class ModelSpecification(BaseModel):
                 formula += f" ({var_name} | {predictor.random_effect}) +"
             else:
                 formula += f" {predictor.name} +"
+        for term in self.extra_terms:
+            formula += f" {term} +"
         formula = formula.rstrip(" +")
         return formula
 
