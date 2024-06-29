@@ -30,5 +30,4 @@ predictors:
       type: 'scaling'
       strategy: 'min_max'
 extra_terms:
-  - "temp * ldi_pc_pd"
-  - "temp * temp"
+  - "temp * ldi_pc_pd"  
