@@ -286,7 +286,7 @@ def run_training_data_prep_main(
     print("Processing climate data...")
     climate_df = get_climate_vars_for_dataframe(cgf_consolidated)
     #climate_df = pd.concat([pd.read_parquet(f'/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/cgf_climate_years/cgf_{year}.parquet') for year in range(1979, 2017)]).rename(columns={'year':'year_start'})
-    cgf_consolidated = cgf_consolidated.merge(climate_df, on=['year_start', 'lat', 'long'], how='left')
+    cgf_consolidated = cgf_consolidated.merge(climate_df, on=['int_year', 'lat', 'long'], how='left')
 
 
     # OUT_ROOT = Path("/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi")
@@ -336,7 +336,7 @@ def get_climate_vars_for_year(year_df:pd.DataFrame, climate_variables,
             #assert temp_df[climate_variable].notna().all()
         return temp_df
 
-def get_climate_vars_for_dataframe(df:pd.DataFrame, lat_col = 'lat', long_col = 'long', year_col = 'year_start'):    
+def get_climate_vars_for_dataframe(df:pd.DataFrame, lat_col = 'lat', long_col = 'long', year_col = 'int_year'):    
 
     HISTORICAL_CLIMATE_ROOT = Path('/mnt/share/erf/climate_downscale/results/annual/historical/')
     var_names = [child.name for child in HISTORICAL_CLIMATE_ROOT.iterdir() if child.is_dir()]
