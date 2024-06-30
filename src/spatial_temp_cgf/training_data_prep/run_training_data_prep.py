@@ -310,20 +310,20 @@ def run_training_data_prep_main(
         measure_root = Path(output_root) / measure
         cm_data = ClimateMalnutritionData(measure_root)
         version = cm_data.new_training_version()
-        cm_data.save_training_data(cgf_consolidated, version)
+        cm_data.save_training_data(measure_df, version)
     print("Done!")
 
 def get_climate_vars_for_year(year_df:pd.DataFrame, climate_variables, 
-        lat_col = 'lat', long_col = 'long', year_col = 'year_start'):
+        lat_col = 'lat', long_col = 'long', year_col = 'int_year'):
         HISTORICAL_CLIMATE_ROOT = Path('/mnt/share/erf/climate_downscale/results/annual/historical/')
 
         assert(year_df[year_col].nunique() == 1)
         yr = year_df[year_col].iloc[0]
 
         temp_df = year_df.copy()
-        lats = xr.DataArray(temp_df['lat'], dims='point')
-        lons = xr.DataArray(temp_df['long'], dims='point')
-        years = xr.DataArray(temp_df['year_start'], dims='point')
+        lats = xr.DataArray(temp_df[lat_col], dims='point')
+        lons = xr.DataArray(temp_df[long_col], dims='point')
+        years = xr.DataArray(temp_df[year_col], dims='point')
         for climate_variable in climate_variables:
             #temp_df = year_df.loc[year_df.year_start == yr].copy()
             climate_ds = xr.open_dataset(HISTORICAL_CLIMATE_ROOT / climate_variable /f'{yr}.nc')
