@@ -1,6 +1,5 @@
 from spatial_temp_cgf.training_data_prep.run_training_data_prep import (
-    model_inference,
-    model_inference_task,
+    run_training_data_prep,
 )
 
 RUNNERS = {
@@ -8,4 +7,5 @@ RUNNERS = {
 }
 
 TASK_RUNNERS = {
+    "training_data_prep": run_training_data_prep,
 }
