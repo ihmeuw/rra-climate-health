@@ -50,5 +50,9 @@ def scale_column(
     spec: ScalingSpecification,
 ) -> tuple[pd.Series, Scaler]:
     scaler = Scaler(spec)
-    scaled = pd.Series(scaler(df[column].values), index=df.index, name=column)
+    scaled = pd.Series(
+        scaler(df[column].values.reshape(-1, 1)).flatten(),
+        index=df.index,
+        name=column,
+    )
     return scaled, scaler
