@@ -6,15 +6,13 @@ holdout:
 predictors:
   - name: "intercept"
     random_effect: "ihme_loc_id"
-  - name: "mean_temperature"
+  - name: "days_over_30C"
     transform:
-      type: 'binning'
-      category: "household"
-      strategy: "quantiles"
-      nbins: 10
+      type: 'scaling'
+      strategy: 'min_max'
   - name: "ldi_pc_pd"
     transform:
       type: 'scaling'
       strategy: 'min_max'
 extra_terms:
-  - "mean_temperature * ldi_pc_pd"
+  - "days_over_30C * ldi_pc_pd"

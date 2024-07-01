@@ -41,7 +41,7 @@ class Scaler:
         if not self._fitted:
             self._strategy.fit(data)
             self._fitted = True
-        self._strategy.n_features_n = data.shape[1]
+        self._strategy.n_features_in_ = data.shape[1]
         return self._strategy.transform(data)
 
 

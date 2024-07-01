@@ -51,7 +51,7 @@ def xarray_to_raster(ds: xr.DataArray, nodata: float | int) -> rt.RasterArray:
 
 
 def load_ldi(cm_data: ClimateMalnutritionData, year: int) -> rt.RasterArray:
-    if not cm_data.ldi_path(year).exists():
+    if True:  # not cm_data.ldi_path(year).exists():
         a2 = gpd.read_parquet(SHAPE_PATH)
         raster_template = rt.load_raster(RASTER_TEMPLATE_PATH)
 
@@ -102,7 +102,8 @@ def model_inference_main(
     print('loading predictors')
     m = models[0]
     variables = {}
-    for variable, info in m['model'].vars_info:
+    for variable, info in m['model'].var_info.items():
+        print(variable)
         if variable == 'ldi_pc_pd':
             v = load_ldi(cm_data, year)
             v = info['transformer'](v)
