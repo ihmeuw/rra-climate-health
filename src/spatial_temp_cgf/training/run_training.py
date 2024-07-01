@@ -148,6 +148,7 @@ def model_training(
     measure_root = Path(output_root) / measure
     cm_data = ClimateMalnutritionData(measure_root)
     model_version = cm_data.new_model_version()
+    version_root = measure_root / model_version
     model_spec.version.model = model_version
     cm_data.save_model_specification(model_spec, model_version)
 
@@ -167,11 +168,11 @@ def model_training(
             "queue": queue,
             "cores": 1,
             "memory": "20Gb",
-            "runtime": "96h",
+            "runtime": "1h",
             "project": "proj_rapidresponse",
-            "constraints": "archive",
         },
         max_attempts=1,
+        log_root=str(version_root),
     )
 
 
