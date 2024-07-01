@@ -18,6 +18,10 @@ from spatial_temp_cgf.training_data_prep.location_mapping import load_fhs_lsae_m
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
 
+RASTER_TEMPLATE_PATH = Path('/mnt/team/rapidresponse/pub/population/data/01-raw-data/other-gridded-pop-projects/global-human-settlement-layer/1km_template.tif')
+SHAPE_PATH = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/ihme/lbd_admin2.parquet')
+LDIPC_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/admin2_ldipc_estimates.csv')
+
 
 def xarray_to_raster(ds: xr.DataArray, nodata: float | int) -> rt.RasterArray:
     from affine import Affine
@@ -43,59 +47,45 @@ def xarray_to_raster(ds: xr.DataArray, nodata: float | int) -> rt.RasterArray:
     )
     return raster
 
-
-def get_climate_variable_dataset(scenario, year, climate_var):
-    import xarray as xr
-    climate_variables = {'temp': 'mean_temperature',
-                         'precip': 'total_precipitation'}
-    for threshold in range(30, 31):
-        climate_variables[f'over_{threshold}'] = f'days_over_{threshold}C'
-
-    if climate_var not in climate_variables.keys():
-        raise ValueError(f"Climate variable {climate_var} not recognized")
-
-    subfolder = scenario if year >= 2024 else 'historical'
-
-    filepath = paths.CLIMATE_PROJECTIONS_ROOT / subfolder / climate_variables[
-        climate_var] / (str(year) + ".nc")
-
-    projection_ds = xr.open_dataset(filepath)
-    projection_ds = projection_ds.loc[dict(year=year)]
-    return projection_ds
-
-
-def get_climate_variable_raster(scenario, year, climate_var, shapefile,
-                                reference_raster, nodata=np.nan, untreated=False):
-    projection_da = get_climate_variable_dataset(scenario, year, climate_var).value
-    result_raster = xarray_to_raster(projection_da, nodata)
-    if untreated:
-        return result_raster
-    result_raster = result_raster.to_crs(reference_raster.crs) \
-        .clip(shapefile) \
-        .mask(shapefile) \
-        .resample_to(reference_raster)
-    return result_raster
-
-
-def scale_like_input_data(to_scale, input_min, input_max):
-    return (to_scale - input_min) / (input_max - input_min)
-
-
-def reverse_scaling(X_scaled, original_min, original_max, scaled_min, scaled_max):
-    X_std = (X_scaled - scaled_min) / (scaled_max - scaled_min)
-    X_original = X_std * (original_max - original_min) + original_min
-    return X_original
-
-
 def model_inference_main(
-    output_dir: Path,
-    model_id: str,
+    output_dir: Path,    
     measure: str,
-    fhs_location_id: int,
+    model_version: str,
     cmip6_scenario: str,
     year: int,
 ) -> None:
-    cm_data = ClimateMalnutritionData(output_dir)
+    cm_data = ClimateMalnutritionData(output_dir/ measure)
+    
+    raster_template = rt.load_raster(RASTER_TEMPLATE_PATH)
+    a2 = gpd.read_parquet(SHAPE_PATH)
+    models = cm_data.load_model_family(model_version)
+
+    ldi = pd.read_csv(LDIPC_FILEPATH)
+    national_mean = ldi.groupby(['year_id', 'national_ihme_loc_id', 'population_percentile']).ldipc.transform('mean')
+    null_mask = ldi.ldipc.isnull()
+    ldi.loc[null_mask, 'ldipc'] = national_mean.loc[null_mask]
+    ldi['ldi_pc_pd'] = ldi['ldipc'] / 365.25
+    ldi = ldi.groupby(['year_id', 'location_id']).ldi_pc_pd.mean().reset_index()
+    polys = a2.loc[a2.loc_id.isin(ldi.location_id.unique()), ['loc_id', 'geometry']].rename(columns={'loc_id': 'location_id'}).set_index('location_id').geometry
+    
+    year_ldi = ldi[ldi.year_id == 2000].set_index('location_id').ldi_pc_pd
+    shapes = [(t.geometry, t.ldi_pc_pd) for t in pd.concat([year_ldi, polys.sort_index()], axis=1).itertuples()]
+    arr = rasterize(
+        shapes, 
+        out=np.zeros_like(raster_template), 
+        transform=raster_template.transform, 
+    )
+    r = rt.RasterArray(arr, transform=raster_template.transform, crs=raster_template.crs, no_data_value=np.nan)
+
+    t = m['model'].var_info['ldi_pc_pd']['transformer']
+    t._strategy.n_features_in_ = r.shape[1]
+
+    subfolder = cmip6_scenario if year >= 2024 else 'historical'
+    path = paths.CLIMATE_PROJECTIONS_ROOT / subfolder / "mean_temperature" / f"{year}.nc"
+    climate_ds = xr.open_dataset(path)
+    climate_raster = xarray_to_raster(climate_ds.sel(year=year)['value'], nodata=np.nan).resample_to(raster_template)
+
+    ------
 
     loc_mapping = load_fhs_lsae_mapping(fhs_location_id)
     fhs_shapefile = loc_mapping.iloc[0].fhs_shape
