@@ -62,21 +62,15 @@ BINNING_STRATEGIES = {
     BinningStrategy.CUSTOM_DAYSOVER: custom_daysover_bins,
 }
 
-BINNING_CATEGORY_GROUPBY = {
-    BinningCategory.HOUSEHOLD: ['nid', 'hh_id', 'psu', 'year_start'],
-    BinningCategory.LOCATION: ['lat', 'long'],
-    BinningCategory.COUNTRY: ['iso3'],
-}
 
-
-def group_and_bin_column_definition(
+def bin_column(
     df: pd.DataFrame,
     column: str,
     spec: BinningSpecification,
-) -> tuple[np.ndarray, pd.DataFrame]:
-    group_cols = BINNING_CATEGORY_GROUPBY[spec.category]
+) -> tuple[pd.Series, dict]:
+    # Why are we grouping anything here?
     grouped_df = (
-        df.groupby(group_cols + [column], as_index=False)
+        df.groupby(spec.groupby_columns + [column], as_index=False)
         .size()
         .drop(columns=['size'])
     )
@@ -89,4 +83,19 @@ def group_and_bin_column_definition(
         include_lowest=True,
         right=False,
     )
-    return bins, pd.merge(df, grouped_df, how='left')
+    # Hack to keep the shape right
+    df = pd.merge(df, grouped_df, how='left')
+    binned_column = df[result_column].rename(column)
+
+    bins_categorical = pd.DataFrame({
+        result_column: binned_column.unique().sort_values()
+    })
+    bin_info = {
+        'bin_edges': bins,
+        'bins_categorical': bins_categorical,
+        'bins': bins_categorical.astype(str)
+    }
+
+    return binned_column, bin_info
+
+

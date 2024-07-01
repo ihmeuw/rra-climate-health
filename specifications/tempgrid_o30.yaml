@@ -6,13 +6,14 @@ holdout:
   proportion: 0.2
   seed: 123
 grid_predictors:
-  grid_predictor_x:
+  x:
     name: "temp"
     binning:
+    
       category: "location"
       strategy: "quantiles"
       nbins: 10
-  grid_predictor_y:
+  y:
     name: "ldi_pc_pd"
     binning:
       category: "household"
