@@ -20,6 +20,7 @@ def load_binned_income_distribution_proportions(fhs_location_id = None, model = 
     else:
         raise ValueError("Either model or measure must be specified")
 
+
 def get_income_bin_proportions(income_var, location_id, year, model):
     INCOME_FILEPATH = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/income_distributions.parquet')
 

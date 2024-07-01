@@ -9,6 +9,7 @@ import yaml
 class ScalingStrategy(StrEnum):
     IDENTITY = 'identity'
     MIN_MAX = 'min_max'
+    STANDARDIZE = 'standardize'
 
 
 class ScalingSpecification(BaseModel):

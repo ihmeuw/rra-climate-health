@@ -63,11 +63,24 @@ BINNING_STRATEGIES = {
 }
 
 
+class Binner:
+
+    def __init__(self, spec: BinningSpecification):
+        self._strategy = BINNING_STRATEGIES[spec.strategy]
+        self._nbins = spec.nbins
+        self._bins = np.array([])
+
+    def __call__(self, data: pd.Series) -> np.ndarray:
+        if self._bins.size == 0:
+            self._bins = self._strategy(data, self._nbins)
+        return pd.cut(data, bins=self._bins, include_lowest=True, right=False)
+
+
 def bin_column(
     df: pd.DataFrame,
     column: str,
-    spec: BinningSpecification,
-) -> tuple[pd.Series, dict]:
+    spec: BinningSpecification
+) -> tuple[pd.Series, Binner]:
     # Why are we grouping anything here?
     grouped_df = (
         df.groupby(spec.groupby_columns + [column], as_index=False)
@@ -75,27 +88,12 @@ def bin_column(
         .drop(columns=['size'])
     )
 
-    bins = BINNING_STRATEGIES[spec.strategy](grouped_df[column], spec.nbins)
+    binner = Binner(spec)
     result_column = column + '_bin'
-    grouped_df[result_column] = pd.cut(
-        grouped_df[column],
-        bins=bins,
-        include_lowest=True,
-        right=False,
-    )
+    grouped_df[result_column] = binner(grouped_df[column])
+
     # Hack to keep the shape right
     df = pd.merge(df, grouped_df, how='left')
     binned_column = df[result_column].rename(column)
 
-    bins_categorical = pd.DataFrame({
-        result_column: binned_column.unique().sort_values()
-    })
-    bin_info = {
-        'bin_edges': bins,
-        'bins_categorical': bins_categorical,
-        'bins': bins_categorical.astype(str)
-    }
-
-    return binned_column, bin_info
-
-
+    return binned_column, binner
