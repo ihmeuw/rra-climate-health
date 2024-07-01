@@ -15,8 +15,8 @@ import tqdm
 import geopandas as gpd
 
 from spatial_temp_cgf import paths
-from spatial_temp_cgf.training_data_prep import income_funcs
-from spatial_temp_cgf.training_data_prep.location_mapping import load_fhs_lsae_mapping, FHS_SHAPE_PATH
+from spatial_temp_cgf.data_prep import income_funcs
+from spatial_temp_cgf.data_prep.location_mapping import load_fhs_lsae_mapping, FHS_SHAPE_PATH
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
 
