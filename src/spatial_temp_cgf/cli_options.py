@@ -20,6 +20,7 @@ _P = ParamSpec("_P")
 
 VALID_MEASURES = ["wasting", "stunting"]
 
+
 def get_choice_callback(
     allow_all: bool,
     choices: list[str],
@@ -44,8 +45,14 @@ def with_measure(
         callback=get_choice_callback(allow_all, choices),
     )
 
-VALID_SOURCE_TYPES=['cgf', 'bmi']
+
+VALID_SOURCE_TYPES = [
+    'cgf',
+]
+
+
 def with_source_type(
+    *,
     choices: list[str] = VALID_SOURCE_TYPES,
     allow_all: bool = False,
 ) -> ClickOption[_P, _T]:
@@ -56,6 +63,7 @@ def with_source_type(
         help="The source type of data to prep (cgf vs bmi).",
         callback=get_choice_callback(allow_all, choices),
     )
+
 
 def with_model_id() -> ClickOption[_P, _T]:
     return click.option(
@@ -118,10 +126,10 @@ def with_location_id(
 
 VALID_CMIP6_SCENARIOS = [
     "ssp119",
-#    "ssp126",
+    # "ssp126",
     "ssp245",
-#    "ssp370",
-#    "ssp585",
+    # "ssp370",
+    # "ssp585",
 ]
 
 
