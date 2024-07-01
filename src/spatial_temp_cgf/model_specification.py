@@ -80,7 +80,10 @@ class PredictorSpecification(BaseModel):
 
     @property
     def raw_variables(self) -> list[str]:
-        variables = [self.name]
+        if hasattr(self.transform, 'from_column'):
+            variables = [self.transform.from_column]
+        else:
+            variables = [self.name]
         if self.random_effect:
             variables.append(self.random_effect)
         if self.transform.type == 'binning':
