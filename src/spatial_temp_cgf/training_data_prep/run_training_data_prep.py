@@ -2,27 +2,34 @@ from pathlib import Path
 
 import click
 import pandas as pd
-
-from db_queries import get_location_metadata
+import numpy as np
+import xarray as xr
+import multiprocessing as mp
+from functools import partial
 
 import spatial_temp_cgf.cli_options as clio
 from spatial_temp_cgf.data import ClimateMalnutritionData, DEFAULT_ROOT, get_run_directory
-
+from spatial_temp_cgf import paths
 
 SURVEY_DATA_ROOT = Path(
     '/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data'
 )
+LSAE_CGF_GEOSPATIAL_ROOT = Path('/mnt/share/limited_use/LIMITED_USE/LU_GEOSPATIAL/geo_matched/cgf/pre_collapse/')
+CGF_FILEPATH_LSAE = Path('/mnt/share/limited_use/LIMITED_USE/LU_GEOSPATIAL/geo_matched/cgf/pre_collapse/cgf_lbw_2020_06_15.csv')
 
-
+# TODO: Carve out the piece of the R script that makes this file, move output someplace better
+WEALTH_FILEPATH = Path('/mnt/share/scratch/users/victorvt/cgfwealth_spatial/dhs_wealth_uncollapsed_again.parquet')
+LDIPC_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/national_ldipc_estimates.csv')
 
 SURVEY_DATA_PATHS = {
-    "bmi": SURVEY_DATA_ROOT / "bmi" / "bmi_data_outliered_wealth_rex.csv",
-    "wasting": SURVEY_DATA_ROOT / "wasting_stunting" / "wasting_stunting_outliered_wealth_rex.csv",
-    "stunting": SURVEY_DATA_ROOT / "wasting_stunting" / "wasting_stunting_outliered_wealth_rex.csv",
+    "bmi": {'gbd': SURVEY_DATA_ROOT / "bmi" / "bmi_data_outliered_wealth_rex.csv"},
+    "cgf": {'gbd' : SURVEY_DATA_ROOT / "wasting_stunting" / "wasting_stunting_outliered_wealth_rex.csv",
+        'lsae': CGF_FILEPATH_LSAE},
+    "wealth": {'lsae': WEALTH_FILEPATH},
 }
 
-CGF_FILEPATH_LSAE = '/mnt/share/limited_use/LIMITED_USE/LU_GEOSPATIAL/geo_matched/cgf/pre_collapse/cgf_lbw_2020_06_15.csv'
-
+DATA_SOURCE_TYPE = {'stunting':'cgf', 'wasting':'cgf', 'low_adult_bmi':'bmi'}
+MEASURES_IN_SOURCE = {'cgf': ['stunting', 'wasting'], 'bmi': ['low_adult_bmi']}
 
 ############################
 # Wasting/Stunting columns #
@@ -121,39 +128,55 @@ def examine_survey_schema(df, columns):
         dtype = str(df[col].dtype)
         print(template.format(col, unique, nulls, dtype))
 
+COLUMN_NAME_TRANSLATOR = {
+    'country': 'ihme_loc_id',
+    'year_start': 'year_start',
+    'end_year': 'year_end',
+    'psu_id': 'psu',
+    'strata_id': 'strata',
+    'sex': 'sex_id',
+    'age_mo': 'age_month',
+    'stunting_mod_b': 'stunting',
+    'wasting_mod_b': 'wasting',
+    'underweight_mod_b': 'underweight',
+    'HAZ_b2': 'stunting', 
+    'WHZ_b2': 'wasting', 
+    'WAZ_b2': 'underweight',
+    'latnum': 'lat',
+    'longnum': 'long',
+    'latitude': 'lat',
+    'longitude': 'long',
+}
 
 def run_training_data_prep_main(
     output_root: str | Path,
-    measure: str,
+    data_source_type: str,
 ) -> None:
-    measure_root = Path(output_root) / measure
-    cm_data = ClimateMalnutritionData(measure_root)
-    version = cm_data.new_training_version()
+    
+    if data_source_type != 'cgf':
+        raise NotImplementedError(f"Data source {data_source_type} not implemented yet.")
 
-    survey_data_path = SURVEY_DATA_PATHS[measure]
-    print(f"Running training data prep for {measure}...")
-    print(f"Survey data path: {survey_data_path}")
+    survey_data_path = SURVEY_DATA_PATHS[data_source_type]
+    print(f"Running training data prep for {data_source_type}...")
+    #print(f"Survey data path: {survey_data_path}")
 
-    df = pd.read_csv(survey_data_path)
+    #df = pd.read_csv(survey_data_path)
+    print("Processing gbd extraction survey data...")
+    loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
 
-    loc_meta = get_location_metadata(39, release_id = 9)[['location_id', 'ihme_loc_id']]
-
-    CGF_FILEPATH_LSAE = '/mnt/share/limited_use/LIMITED_USE/LU_GEOSPATIAL/geo_matched/cgf/pre_collapse/cgf_lbw_2020_06_15.csv'
-    CGF_FILEPATH_NEW = '/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/wasting_stunting_outliered_wealth_rex.csv'
-
-    new_cgf_data_raw = pd.read_csv(CGF_FILEPATH_NEW, dtype={'hh_id': str, 'year_start': int, 'year_end': int})
-    lsae_cgf_data_raw = pd.read_csv(CGF_FILEPATH_LSAE, dtype={'hh_id': str, 'year_start': int, 'year_end': int})
+    lsae_cgf_data_raw = pd.read_csv(survey_data_path['lsae'], dtype={'hh_id': str, 'year_start': int, 'int_year':int, 'year_end': int})
+    new_cgf_data_raw = pd.read_csv(survey_data_path['gbd'], dtype={'hh_id': str, 'year_start': int, 'int_year':int, 'year_end': int})
 
     # Translator to harmonize column names between both sets
-    gbd_columns = ['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu_id', 'strata_id', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WHZ_b2', 'WAZ_b2', 'latnum', 'longnum']
-    lsae_columns = ['nid', 'country', 'year_start', 'end_year', 'geospatial_id', 'psu', 'strata', 'hh_id', 'sex', 'age_year', 'age_mo', 'int_year', 'int_month', 'stunting_mod_b', 'wasting_mod_b', 'underweight_mod_b']
-    desired_columns = ['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu', 'strata', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month', 'stunting', 'wasting', 'underweight', 'lat', 'long']
-    gbd_column_translator = dict(zip(gbd_columns, desired_columns))
-    lsae_column_translator = dict(zip(lsae_columns, desired_columns))
+    #gbd_columns = ['nid', 'ihme_loc_id', 'year_start', 'year_end', 'int_year', 'geospatial_id', 'psu_id', 'strata_id', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WHZ_b2', 'WAZ_b2', 'latnum', 'longnum']
+    #lsae_columns = ['nid', 'country', 'year_start', 'end_year','int_year', 'geospatial_id', 'psu', 'strata', 'hh_id', 'sex', 'age_year', 'age_mo', 'int_year', 'int_month', 'stunting_mod_b', 'wasting_mod_b', 'underweight_mod_b']
+    #desired_columns = ['nid', 'ihme_loc_id', 'year_start', 'year_end', 'int_year', 'geospatial_id', 'psu', 'strata', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month', 'stunting', 'wasting', 'underweight', 'lat', 'long']
+    #gbd_column_translator = dict(zip(gbd_columns, desired_columns))
+    #lsae_column_translator = dict(zip(lsae_columns, desired_columns))
 
     # subset to columns of interest
     gbd_cgf_data = new_cgf_data_raw[['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu_id', 'strata_id', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WHZ_b2', 'WAZ_b2', 'wealth_index_dhs','latnum', 'longnum']]
-    gbd_cgf_data = gbd_cgf_data.rename(columns=gbd_column_translator)
+    gbd_cgf_data = gbd_cgf_data.rename(columns=COLUMN_NAME_TRANSLATOR)
 
     # Take away NIDs without wealth information, to see later if we can add it from second source
     print(len(gbd_cgf_data))
@@ -163,6 +186,7 @@ def run_training_data_prep_main(
     print(len(gbd_cgf_data))
 
     # We get wealth data to be merged with GBD CGF data and merge
+    print("Processing wealth data...")
     gbd_data_wealth_distribution = gbd_cgf_data.groupby(['nid', 'ihme_loc_id', 'year_start', 'psu', 'hh_id']).agg(wealth_index_dhs = ('wealth_index_dhs', 'first'), check = ('wealth_index_dhs', 'nunique')).reset_index()
     assert((gbd_data_wealth_distribution.check == 1).all())
     gbd_data_wealth_distribution = gbd_data_wealth_distribution.merge(loc_meta, how='left', on='ihme_loc_id')
@@ -176,9 +200,10 @@ def run_training_data_prep_main(
     # Now the old LSAE data
     # We get wealth data to be merged with CGF data and the lsae cgf data with standard column names
     wealth_df = get_ldipc_from_asset_score(get_wealth_dataset(), asset_score_col = 'wealth_index_dhs')
-    lsae_cgf_data = lsae_cgf_data_raw[['nid', 'country', 'year_start', 'end_year', 'geospatial_id', 'psu', 'strata', 'hh_id', 'sex', 'age_year', 'age_mo', 'int_year', 'int_month', 'stunting_mod_b', 'wasting_mod_b', 'underweight_mod_b']]
-    lsae_cgf_data = lsae_cgf_data.rename(columns=lsae_column_translator)
+    lsae_cgf_data = lsae_cgf_data_raw[['nid', 'country', 'year_start', 'end_year',  'geospatial_id', 'psu', 'strata', 'hh_id', 'sex', 'age_year', 'age_mo', 'int_year', 'int_month', 'stunting_mod_b', 'wasting_mod_b', 'underweight_mod_b']]
+    lsae_cgf_data = lsae_cgf_data.rename(columns=COLUMN_NAME_TRANSLATOR)
 
+    print("Processing LSAE data...")
     # Take away bad NIDs, without household information
     print(len(lsae_cgf_data))
     no_hhid_nids = lsae_cgf_data.groupby('nid').filter(lambda x: x['hh_id'].isna().all()).nid.unique()
@@ -186,11 +211,10 @@ def run_training_data_prep_main(
 
     # Get NIDs in common between wealth and LSAE extraction CGF data and subset to that
     common_nids = set(lsae_cgf_data['nid'].unique()).intersection(set(wealth_df['nid'].unique()))
-    wealth_lsae_df = wealth_df[wealth_df['nid'].isin(common_nids)][['nid', 'ihme_loc_id', 'location_id', 'year_start', 'psu', 'hh_id', 'geospatial_id', 'lat', 'long', 'ldipc']]
+    wealth_lsae_df = wealth_df[wealth_df['nid'].isin(common_nids)][['nid', 'ihme_loc_id', 'location_id', 'year_start', 'psu', 'hh_id', 'geospatial_id', 'lat', 'long', 'wealth_index_dhs', 'ldipc']]
 
     # Try to make household id usable to merge on 
     # For some reason in some extractions hh_id is a string with household id and psu, in others it's just the household id
-    # TODO: why is it so different between the datasets if it's ostensibly the same source?
     lsae_cgf_data = lsae_cgf_data[lsae_cgf_data['nid'].isin(common_nids)].copy()
     lsae_cgf_data = lsae_cgf_data.rename(columns = {'latitude':'lat', 'longitude':'long', 'hh_id':'old_hh_id'})
     wealth_lsae_df = wealth_lsae_df.rename(columns = {'hh_id':'old_hh_id'})
@@ -207,7 +231,7 @@ def run_training_data_prep_main(
     lsae_cgf_data = lsae_cgf_data[~lsae_cgf_data['nid'].isin([157057, 286780, 341838])]
     merge_cols = ['nid', 'ihme_loc_id', 'hh_id', 'psu', 'year_start']
 
-    lsae_merged = lsae_cgf_data.drop(columns=['old_hh_id']).merge(wealth_lsae_df[['ihme_loc_id', 'location_id', 'nid', 'psu', 'hh_id', 'year_start', 'ldipc', 'lat', 'long']], on=merge_cols, how='left')
+    lsae_merged = lsae_cgf_data.drop(columns=['old_hh_id']).merge(wealth_lsae_df[['ihme_loc_id', 'location_id', 'nid', 'psu', 'hh_id', 'year_start', 'wealth_index_dhs', 'ldipc', 'lat', 'long']], on=merge_cols, how='left')
     #print(len(lsae_cgf_data_raw))
     print(len(lsae_cgf_data))
     print(len(lsae_merged))
@@ -233,8 +257,8 @@ def run_training_data_prep_main(
 
     # For the GBD NIDs that need wealth information, attempt to get it
     gbd_nids_need_wealth = [x for x in nids_without_wealth if x in wealth_df.nid.unique() and x not in lsae_cgf_data.nid.unique()]
-    extra_nids = new_cgf_data_raw.query("nid in @gbd_nids_need_wealth")[['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu_id', 'strata_id', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WAZ_b2', 'WHZ_b2','latnum', 'longnum']]
-    extra_nids = extra_nids.rename(columns=gbd_column_translator)
+    extra_nids = new_cgf_data_raw.query("nid in @gbd_nids_need_wealth")[['nid', 'ihme_loc_id', 'year_start', 'year_end',  'geospatial_id', 'psu_id', 'strata_id', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WAZ_b2', 'WHZ_b2','latnum', 'longnum', 'wealth_index_dhs']]
+    extra_nids = extra_nids.rename(columns=COLUMN_NAME_TRANSLATOR)
     extra_nids['hh_id'] = extra_nids['hh_id'].str.split(r'[_ ]').str[-1]
     extra_nids = extra_nids.merge(wealth_df[['ihme_loc_id', 'location_id', 'nid', 'psu', 'hh_id', 'year_start', 'ldipc']], on=['nid', 'ihme_loc_id', 'year_start', 'psu', 'hh_id'], how='left')
     extra_nids = extra_nids.dropna(subset=['ldipc'])
@@ -242,10 +266,14 @@ def run_training_data_prep_main(
     # Bring the two datasets (LSAE and GBD) together, giving preference to the new extractions
     new_extraction_nids = gbd_cgf_data.nid.unique()
     lsae_only = lsae_merged.loc[~lsae_merged.nid.isin(new_extraction_nids)]
-    assert(set(lsae_only.columns) == set(gbd_cgf_data.columns))
+    #assert(set(lsae_only.columns) == set(gbd_cgf_data.columns))
+    #temporary thing TODO take this out
+    if not (set(lsae_only.columns) == set(gbd_cgf_data.columns)):
+        print(lsae_only.columns)
+        print(gbd_cgf_data.columns)
 
-    # Merge the two datasets
-    cgf_consolidated = pd.concat([gbd_cgf_data, lsae_only, extra_nids], ignore_index=True)
+    # Merge the two datasets and the NIDs that needed wealth information
+    cgf_consolidated = pd.concat([gbd_cgf_data, lsae_only, extra_nids], ignore_index=True).reset_index(drop=True)
 
     cgf_consolidated = cgf_consolidated.drop(columns = ['strata', 'geospatial_id'])
     cgf_consolidated['ldi_pc_pd'] = cgf_consolidated['ldipc'] / 365
@@ -255,41 +283,78 @@ def run_training_data_prep_main(
     cgf_consolidated = cgf_consolidated.dropna(subset=['age_group_id'])
 
     #Merge with climate data
-    climate_df = pd.concat([pd.read_parquet(f'/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/cgf_climate_years/cgf_{year}.parquet') for year in range(1979, 2017)]).rename(columns={'year':'year_start'})
-    cgf_consolidated = cgf_consolidated.merge(climate_df, on=['year_start', 'lat', 'long'], how='left').query('year_start < 2017')
+    print("Processing climate data...")
+    climate_df = get_climate_vars_for_dataframe(cgf_consolidated)
+    #climate_df = pd.concat([pd.read_parquet(f'/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/cgf_climate_years/cgf_{year}.parquet') for year in range(1979, 2017)]).rename(columns={'year':'year_start'})
+    cgf_consolidated = cgf_consolidated.merge(climate_df, on=['int_year', 'lat', 'long'], how='left')
 
-    OUT_ROOT = Path("/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi")
 
-    cgf_dfs = dict()
-    geo_dfs = dict()
-    cgf_measures = ['stunting', 'wasting']
+    # OUT_ROOT = Path("/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi")
 
-    for measure in cgf_measures:
-        cgf_dfs[measure] = cgf_consolidated[cgf_consolidated[measure].notna()].copy()
-        cgf_dfs[measure]['cgf_measure'] = measure
-        cgf_dfs[measure]['cgf_value'] = cgf_dfs[measure][measure]
-        cgf_dfs[measure].to_parquet(OUT_ROOT / f"new_{measure}.parquet")
-    cgf_consolidated.to_parquet(OUT_ROOT / f"cgf_all_measures.parquet")
+    # cgf_dfs = dict()
+    # geo_dfs = dict()
+    # cgf_measures = ['stunting', 'wasting']
+
+    # for measure in cgf_measures:
+    #     cgf_dfs[measure] = cgf_consolidated[cgf_consolidated[measure].notna()].copy()
+    #     cgf_dfs[measure]['cgf_measure'] = measure
+    #     cgf_dfs[measure]['cgf_value'] = cgf_dfs[measure][measure]
+    #     cgf_dfs[measure].to_parquet(OUT_ROOT / f"new_{measure}.parquet")
+    # cgf_consolidated.to_parquet(OUT_ROOT / f"cgf_all_measures.parquet")
 
     # Write to output
-    cm_data.save_training_data(df, version)
-
+    for measure in MEASURES_IN_SOURCE[data_source_type]:
+        measure_df = cgf_consolidated[cgf_consolidated[measure].notna()].copy()
+        measure_df['cgf_measure'] = measure
+        measure_df['cgf_value'] = measure_df[measure]
+        measure_root = Path(output_root) / measure
+        cm_data = ClimateMalnutritionData(measure_root)
+        version = cm_data.new_training_version()
+        cm_data.save_training_data(measure_df, version)
     print("Done!")
 
+def get_climate_vars_for_year(year_df:pd.DataFrame, climate_variables, 
+        lat_col = 'lat', long_col = 'long', year_col = 'int_year'):
+        HISTORICAL_CLIMATE_ROOT = Path('/mnt/share/erf/climate_downscale/results/annual/historical/')
 
-@click.command()
-@clio.with_output_root(DEFAULT_ROOT)
-@clio.with_measure(allow_all=True)
-def run_training_data_prep(output_root: str, measure: list[str]):
-    """Run training data prep."""
+        assert(year_df[year_col].nunique() == 1)
+        yr = year_df[year_col].iloc[0]
 
-    for m in measure:
-        run_training_data_prep_main(output_root, m)
+        temp_df = year_df.copy()
+        lats = xr.DataArray(temp_df[lat_col], dims='point')
+        lons = xr.DataArray(temp_df[long_col], dims='point')
+        years = xr.DataArray(temp_df[year_col], dims='point')
+        for climate_variable in climate_variables:
+            #temp_df = year_df.loc[year_df.year_start == yr].copy()
+            climate_ds = xr.open_dataset(HISTORICAL_CLIMATE_ROOT / climate_variable /f'{yr}.nc')
+            temp_df[climate_variable] = climate_ds['value'].sel(
+                latitude=lats,
+                longitude=lons,
+                year=years,
+                method='nearest'
+            ).values
+            #assert temp_df[climate_variable].notna().all()
+        return temp_df
+
+def get_climate_vars_for_dataframe(df:pd.DataFrame, lat_col = 'lat', long_col = 'long', year_col = 'int_year'):    
+
+    HISTORICAL_CLIMATE_ROOT = Path('/mnt/share/erf/climate_downscale/results/annual/historical/')
+    var_names = [child.name for child in HISTORICAL_CLIMATE_ROOT.iterdir() if child.is_dir()]
+    temp_dfs = []
+
+    unique_coords = df[[lat_col, long_col, year_col]].drop_duplicates()
+
+    df_splits = [year_df for _, year_df in  unique_coords.groupby(year_col)]
+    p = mp.Pool(processes=5)
+    results_df = pd.concat(p.map(partial(get_climate_vars_for_year,climate_variables=var_names), df_splits))
+    #results_df = pd.concat(p.map(find_peaks_and_troughs_in_df, df_splits))
+    p.close()
+    p.join()
+    return results_df
 
 
 def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_index_dhs', year_df_col = 'year_start'):
 #    INCOME_FILEPATH = '/mnt/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_fixGUY/gdppc_estimates.csv'
-    LDIPC_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/national_ldipc_estimates.csv')
 
     income_raw = pd.read_csv(LDIPC_FILEPATH)
     income_raw = income_raw[['population_percentile', 'ldipc', 'location_id', 'year_id']]
@@ -333,15 +398,11 @@ def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_
     return wdf
 
 def get_wealth_dataset():
-    # Now the old LSAE data
-    WEALTH_FILEPATH = '/mnt/share/scratch/users/victorvt/cgfwealth_spatial/dhs_wealth_uncollapsed_again.parquet'
-    #loc_meta = get_location_metadata(release_id = 9, location_set_id = 35)
-
-    wealth_raw = pd.read_parquet(WEALTH_FILEPATH)
+    loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
+    wealth_raw = pd.read_parquet(SURVEY_DATA_PATHS['wealth']['lsae'])
     wealth_df = wealth_raw[wealth_raw['point'] == 1]
     wealth_df = wealth_df.rename(columns = {'wealth_score':'wealth_index_dhs', 'iso3':'ihme_loc_id'})
-    wealth_df = wealth_df.rename(columns = lsae_column_translator)
-    wealth_df = wealth_df.rename(columns = gbd_column_translator)
+    wealth_df = wealth_df.rename(columns = COLUMN_NAME_TRANSLATOR)
     wealth_df = wealth_df[['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu', 'strata', 'hh_id', 'wealth_index_dhs', 'lat', 'long']]
     wealth_df = wealth_df[['ihme_loc_id', 'nid', 'psu', 'hh_id', 'lat', 'long', 'year_start', 'wealth_index_dhs', 'geospatial_id']].drop_duplicates()
 
@@ -372,8 +433,8 @@ def get_wealth_dataset():
     return wealth_df
 
 def assign_age_group(df:pd.DataFrame):
-    from db_queries import get_age_spans
-    age_group_spans = get_age_spans().query('age_group_id in [388, 389, 238, 34]')
+    age_group_spans = pd.read_parquet(paths.AGE_SPANS_FILEPATH)
+    age_group_spans = age_group_spans.query('age_group_id in [388, 389, 238, 34]')
     df['age_group_id'] = np.nan
     for i, row in age_group_spans.iterrows():
         df.loc[(df.age_year >= row.age_group_years_start.round(5)) & (df.age_year < row.age_group_years_end), 'age_group_id'] = row.age_group_id
@@ -388,3 +449,13 @@ def assign_age_group(df:pd.DataFrame):
     df.loc[df.age_group_id == 238, 'age_group_id'] = 5
     df.loc[df.age_group_id == 34, 'age_group_id'] = 5
     return df
+
+
+@click.command()
+@clio.with_output_root(DEFAULT_ROOT)
+@clio.with_source_type(allow_all=False)
+def run_training_data_prep(output_root: str, source_type: str):
+    """Run training data prep."""
+    print(f"Running training data prep for {source_type}...")
+    #for src in source_type:
+    run_training_data_prep_main(output_root, source_type)
