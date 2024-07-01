@@ -22,13 +22,17 @@ def prepare_model_data(
     var_info = {}
     for var, transform in model_spec.transform_map.items():
         if transform.type == 'binning':
-            transformed, info = binning.bin_column(raw_model_data, var, transform)
+            transformed, transformer = binning.bin_column(
+                raw_model_data, var, transform
+            )
         elif transform.type == 'scaling':
-            transformed, info = scaling.scale_column(raw_model_data, var, transform)
+            transformed, transformer = scaling.scale_column(
+                raw_model_data, var, transform
+            )
         else:
             raise ValueError(f"Unknown transformation type {transform.type}")
         transformed_data[var] = transformed
-        var_info[var] = info
+        var_info[var] = {"transformer": transformer}
 
     df = pd.DataFrame(transformed_data)
 
