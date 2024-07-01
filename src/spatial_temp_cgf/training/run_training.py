@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pandas as pd
-from sklearn.model_selection import train_test_split
 import click
 from rra_tools import jobmon
 from pymer4.models.Lmer import Lmer

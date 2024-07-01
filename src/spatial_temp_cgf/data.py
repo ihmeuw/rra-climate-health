@@ -2,8 +2,8 @@ import datetime
 from pathlib import Path
 import typing
 import itertools
+import pickle
 
-import dill as pickle
 import pandas as pd
 from rra_tools.shell_tools import mkdir, touch
 
