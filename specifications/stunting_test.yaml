@@ -8,8 +8,10 @@ predictors:
     random_effect: "ihme_loc_id"
   - name: "mean_temperature"
     transform:
-      type: 'scaling'
-      strategy: 'min_max'
+      type: 'binning'
+      category: "household"
+      strategy: "quantiles"
+      nbins: 10
   - name: "ldi_pc_pd"
     transform:
       type: 'scaling'

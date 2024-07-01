@@ -78,7 +78,7 @@ class ClimateMalnutritionData:
         model_filepath = model_root / f'{age_group_id}_{sex_id}.pkl'
         touch(model_filepath, exist_ok=True)
         with model_filepath.open("wb") as f:
-            pickle.dump(model, f)
+            pickle.dump(model, f)    
 
     def load_model_family(
         self,
