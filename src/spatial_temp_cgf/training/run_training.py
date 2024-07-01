@@ -95,25 +95,11 @@ def model_training_main(
         # TODO save these to a file
         print(model.warnings)
         raise ValueError(f"Model {model_spec} did not fit.")
-    # model.var_info = var_info
-    # model.raw_data = raw_df
+    model.var_info = var_info
+    model.raw_data = raw_df
 
-    cat_coefs, cont_coefs = extract_coefficients_from_model(model, model_spec)
-    
-    from types import SimpleNamespace
-    fakemodel = SimpleNamespace()
-    fakemodel.var_info = var_info
-    fakemodel.raw_data = raw_df
-    fakemodel.ranef = model.ranef
-    fakemodel.ranef_var = model.ranef_var
-    fakemodel.fixef = model.fixef
-    fakemodel.coefficients = model.coefs
-    fakemodel.formula = model.formula
-    fakemodel.categorical_coefs = cat_coefs
-    fakemodel.continuous_coefs = cont_coefs
-    #cm_data.save_model(model, model_version, age_group_id, sex_id)
-    cm_data.save_model(fakemodel, model_version, age_group_id, sex_id)
-
+    # cat_coefs, cont_coefs = extract_coefficients_from_model(model, model_spec)
+    cm_data.save_model(model, model_version, age_group_id, sex_id)
 
 
 @click.command()

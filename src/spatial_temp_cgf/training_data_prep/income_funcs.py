@@ -1,4 +1,9 @@
+import logging
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
+
 from spatial_temp_cgf import paths
 
 
@@ -15,7 +20,7 @@ def load_binned_income_distribution_proportions(fhs_location_id = None, model = 
     else:
         raise ValueError("Either model or measure must be specified")
 
-def get_income_bin_proportions(location_id, year, model):
+def get_income_bin_proportions(income_var, location_id, year, model):
     INCOME_FILEPATH = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/income_distributions.parquet')
 
     income_df_raw = pd.read_parquet(INCOME_FILEPATH)
@@ -35,6 +40,7 @@ def get_income_bin_proportions(location_id, year, model):
     income_df = income_df[income_df.upper_bound.notna()]
     income_df['income_per_day_bin'] = model.nocountry_grid['income_per_day_bin'].sort_values().unique()
     return income_df
+
 
 def get_ldipc_bin_proportions(location_id, year, model):
     LDIPC_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/national_ldipc_estimates.csv')
@@ -119,27 +125,29 @@ def get_income_from_asset_score(asset_df: pd.DataFrame, asset_score_col='asset_s
     return wdf
 
 
-WEALTH_FILEPATH = '/mnt/share/scratch/users/victorvt/cgfwealth_spatial/dhs_wealth_uncollapsed_again.parquet'
-loc_meta = get_location_metadata(release_id = 9, location_set_id = 35)
+def notebook_cell():
+    from db_queries import get_location_metadata
+    WEALTH_FILEPATH = '/mnt/share/scratch/users/victorvt/cgfwealth_spatial/dhs_wealth_uncollapsed_again.parquet'
+    loc_meta = get_location_metadata(release_id = 9, location_set_id = 35)
 
-wealth_raw = pd.read_parquet(WEALTH_FILEPATH)
-wealth_df = wealth_raw#[wealth_raw['point'] == 1]
-wealth_df = wealth_df.rename(columns = {'wealth_score':'asset_score'})
-wealth_df = wealth_df[['iso3', 'nid', 'psu', 'hh_id', 'year_start', 'asset_score']].drop_duplicates()
-# In the wealth team's dataset, sometimes there are multiple asset scores for a given household id.
-# Take away those NIDs
-bad_wealth = wealth_df.groupby(['nid', 'hh_id', 'year_start', 'psu',]).size()
-bad_nid_wealth = list(bad_wealth[bad_wealth.gt(1)].reset_index().nid.unique())
-bad_nid_wealth = bad_nid_wealth + [20315]
-wealth_df = wealth_df[~wealth_df.nid.isin(bad_nid_wealth)]
-# Make sure that by nid, psu and hh_id they all have the same lat and long
-#grouped = wealth_df.groupby(['nid', 'psu', 'hh_id'])
-#assert((grouped['lat'].nunique().lt(2) & grouped['long'].nunique().lt(2)).all())
-# Sometimes an nid has more than a year
-assert(wealth_df.groupby(['nid', 'hh_id', 'year_start', 'psu']).size().sort_values().max() == 1)
-wealth_df = wealth_df.merge(loc_meta[['location_id', 'local_id']], left_on ='iso3', right_on='local_id', how='left')
-assert(wealth_df.location_id.notna().all())
-wealth_df['year_start'] = wealth_df['year_start'].astype(int)
-wealth_df['nid'] = wealth_df['nid'].astype(int)
+    wealth_raw = pd.read_parquet(WEALTH_FILEPATH)
+    wealth_df = wealth_raw#[wealth_raw['point'] == 1]
+    wealth_df = wealth_df.rename(columns = {'wealth_score':'asset_score'})
+    wealth_df = wealth_df[['iso3', 'nid', 'psu', 'hh_id', 'year_start', 'asset_score']].drop_duplicates()
+    # In the wealth team's dataset, sometimes there are multiple asset scores for a given household id.
+    # Take away those NIDs
+    bad_wealth = wealth_df.groupby(['nid', 'hh_id', 'year_start', 'psu',]).size()
+    bad_nid_wealth = list(bad_wealth[bad_wealth.gt(1)].reset_index().nid.unique())
+    bad_nid_wealth = bad_nid_wealth + [20315]
+    wealth_df = wealth_df[~wealth_df.nid.isin(bad_nid_wealth)]
+    # Make sure that by nid, psu and hh_id they all have the same lat and long
+    #grouped = wealth_df.groupby(['nid', 'psu', 'hh_id'])
+    #assert((grouped['lat'].nunique().lt(2) & grouped['long'].nunique().lt(2)).all())
+    # Sometimes an nid has more than a year
+    assert(wealth_df.groupby(['nid', 'hh_id', 'year_start', 'psu']).size().sort_values().max() == 1)
+    wealth_df = wealth_df.merge(loc_meta[['location_id', 'local_id']], left_on ='iso3', right_on='local_id', how='left')
+    assert(wealth_df.location_id.notna().all())
+    wealth_df['year_start'] = wealth_df['year_start'].astype(int)
+    wealth_df['nid'] = wealth_df['nid'].astype(int)
 
-wealth_df = get_income_from_asset_score(wealth_df)
+    wealth_df = get_income_from_asset_score(wealth_df)
