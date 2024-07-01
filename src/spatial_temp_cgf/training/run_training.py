@@ -83,11 +83,11 @@ def model_training_main(
     
     df, var_info = prepare_model_data(raw_df, model_spec)
 
-    raw_df = raw_df.loc[subset_mask].copy()
-    df = df.loc[subset_mask].copy()
+    raw_df = raw_df.loc[subset_mask].reset_index(drop=True)
+    df = df.loc[subset_mask].reset_index(drop=True)
 
     # TODO: Test/train split
-    print(f"Training {model_spec.lmer_formula} for {measure} {model_version} age {age_group_id} sex{sex_id} cols {df.columns}")
+    print(f"Training {model_spec.lmer_formula} for {measure} {model_version} age {age_group_id} sex {sex_id} cols {df.columns}")
     model = Lmer(model_spec.lmer_formula, data=df, family='binomial')
     model.fit()
     if len(model.warnings) > 0:
