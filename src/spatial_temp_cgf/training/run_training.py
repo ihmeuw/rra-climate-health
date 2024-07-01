@@ -147,7 +147,7 @@ def model_training(
     measure_root = Path(output_root) / measure
     cm_data = ClimateMalnutritionData(measure_root)
     model_version = cm_data.new_model_version()
-    version_root = measure_root / model_version
+    version_root = cm_data.models / model_version
     model_spec.version.model = model_version
     cm_data.save_model_specification(model_spec, model_version)
 
