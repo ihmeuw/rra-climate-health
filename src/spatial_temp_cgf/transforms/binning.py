@@ -3,7 +3,6 @@ import numpy as np
 
 from spatial_temp_cgf.model_specification import (
     BinningSpecification,
-    BinningCategory,
     BinningStrategy,
 )
 

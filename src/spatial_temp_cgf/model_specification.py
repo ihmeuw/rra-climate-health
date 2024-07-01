@@ -51,6 +51,17 @@ class BinningSpecification(BaseModel):
         return BINNING_CATEGORY_GROUPBY[self.category]
 
 
+class MaskingSpecification(BaseModel):
+    type: Literal['masking'] = 'masking'
+    from_column: str
+    threshold: float
+
+
+TransformSpecification = (
+    BinningSpecification | ScalingSpecification | MaskingSpecification
+)
+
+
 class OutcomeVariable(StrEnum):
     WASTING = 'wasting'
     STUNTING = 'stunting'
@@ -61,7 +72,7 @@ class OutcomeVariable(StrEnum):
 
 class PredictorSpecification(BaseModel):
     name: str = "intercept"
-    transform: BinningSpecification | ScalingSpecification = Field(
+    transform: TransformSpecification = Field(
         ScalingSpecification(),
         discriminator='type',
     )

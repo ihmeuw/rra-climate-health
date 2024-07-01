@@ -6,7 +6,7 @@ from rra_tools import jobmon
 from pymer4.models.Lmer import Lmer
 
 from spatial_temp_cgf import cli_options as clio
-from spatial_temp_cgf import binning, scaling
+from spatial_temp_cgf.transforms import transform_column
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
 from spatial_temp_cgf.model_specification import (
     ModelSpecification,
@@ -21,16 +21,9 @@ def prepare_model_data(
     transformed_data = {}
     var_info = {}
     for var, transform in model_spec.transform_map.items():
-        if transform.type == 'binning':
-            transformed, transformer = binning.bin_column(
-                raw_model_data, var, transform
-            )
-        elif transform.type == 'scaling':
-            transformed, transformer = scaling.scale_column(
-                raw_model_data, var, transform
-            )
-        else:
-            raise ValueError(f"Unknown transformation type {transform.type}")
+        transformed, transformer = transform_column(
+            raw_model_data, var, transform
+        )
         transformed_data[var] = transformed
         var_info[var] = {"transformer": transformer}
 
@@ -91,7 +84,10 @@ def model_training_main(
     df = df.loc[subset_mask].reset_index(drop=True)
 
     # TODO: Test/train split
-    print(f"Training {model_spec.lmer_formula} for {measure} {model_version} age {age_group_id} sex {sex_id} cols {df.columns}")
+    print(
+        f"Training {model_spec.lmer_formula} for {measure} {model_version} "
+        f"age {age_group_id} sex {sex_id} cols {df.columns}"
+    )
     model = Lmer(model_spec.lmer_formula, data=df, family='binomial')
     model.fit()
     if len(model.warnings) > 0:
@@ -101,7 +97,6 @@ def model_training_main(
     model.var_info = var_info
     model.raw_data = raw_df
 
-    # cat_coefs, cont_coefs = extract_coefficients_from_model(model, model_spec)
     cm_data.save_model(model, model_version, age_group_id, sex_id)
 
 

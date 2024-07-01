@@ -1,5 +1,5 @@
 version:
-  training_data: "2024_06_30.02"
+  training_data: "2024_07_01.01"
 measure: "stunting"
 holdout:
   type: "no_holdout"  
@@ -14,5 +14,18 @@ predictors:
     transform:
       type: 'scaling'
       strategy: 'min_max'
+  - name: "elevation"
+    transform:
+      type: 'scaling'
+      strategy: 'min_max'
+  - name: "mean_temperature"
+    transform:
+      type: 'scaling'
+      strategy: 'min_max'
+  - name: "any_days_over_30C"
+    transform:
+      type: 'masking'
+      from_column: 'days_over_30C'
+      threshold: 0
 extra_terms:
-  - "days_over_30C * ldi_pc_pd"
+  - "any_days_over_30C * ldi_pc_pd"
