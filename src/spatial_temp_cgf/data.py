@@ -5,6 +5,7 @@ import itertools
 import pickle
 
 import pandas as pd
+import rasterra as rt
 from rra_tools.shell_tools import mkdir, touch
 
 from spatial_temp_cgf.model_specification import ModelSpecification
@@ -102,29 +103,54 @@ class ClimateMalnutritionData:
     def results(self) -> Path:
         return self.root / "results"
 
-    def results_path(
+    def raster_results_path(
         self,
-        model_id: str,
-        location_id: str | int,
-        measure: str,
+        model_version: str,
         scenario: str,
         year: str | int,
+        age_group_id: str | int,
+        sex_id: str | int,
     ) -> Path:
-        return self.results / model_id / f"{measure}_{location_id}_{scenario}_{year}.parquet"
+        return self.results / model_version / f"{year}_{scenario}_{age_group_id}_{sex_id}.tif"
 
-    def save_results(
+    def save_raster_results(
+        self,
+        results: rt.RasterArray,
+        model_version: str,
+        scenario: str,
+        year: str | int,
+        age_group_id: str | int,
+        sex_id: str | int,
+    ) -> None:
+        path = self.raster_results_path(model_version, scenario, year, age_group_id, sex_id)
+        mkdir(path.parent, parents=True, exist_ok=True)
+        save_raster(results, path)
+
+    def save_results_table(
         self,
         results: pd.DataFrame,
-        model_id: str,
-        location_id: str | int,
-        measure: str,
+        model_version: str,
         scenario: str,
         year: str | int,
     ) -> None:
-        path = self.results_path(model_id, location_id, measure, scenario, year)
-        mkdir(path.parent, parents=True, exist_ok=True)
+        path = self.results / model_version / f"{year}_{scenario}.parquet"
         touch(path, exist_ok=True)
         results.to_parquet(path)
+
+    @property
+    def shared_inputs(self) -> Path:
+        return self.root.parent / 'input'
+
+    def ldi_path(self, year: int) -> Path:
+        return self.shared_inputs / "ldi" / f"{year}.tif"
+
+    def load_ldi(self, year: int) -> rt.RasterArray:
+        return rt.load_raster(self.ldi_path(year))
+
+    def cache_ldi(self, year: int, ldi: rt.RasterArray) -> None:
+        path = self.ldi_path(year)
+        mkdir(path.parent, parents=True, exist_ok=True)
+        save_raster(ldi, path)
 
 
 def get_run_directory(output_root: str | Path) -> Path:
@@ -146,3 +172,24 @@ def get_run_directory(output_root: str | Path) -> Path:
     run_version = max(today_runs) + 1 if today_runs else 1
     datetime_dir = output_root / f"{launch_time}.{run_version:0>2}"
     return datetime_dir
+
+
+def save_raster(
+    raster: rt.RasterArray,
+    output_path: str | Path,
+    num_cores: int = 1,
+    **kwargs,
+) -> None:
+    """Save a raster to a file with standard parameters."""
+    save_params = {
+        "tiled": True,
+        "blockxsize": 512,
+        "blockysize": 512,
+        "compress": "ZSTD",
+        "predictor": 2,  # horizontal differencing
+        "num_threads": num_cores,
+        "bigtiff": "yes",
+        **kwargs,
+    }
+    touch(output_path, exist_ok=True)
+    raster.to_file(output_path, **save_params)
