@@ -10,7 +10,7 @@ import geopandas as gpd
 
 from spatial_temp_cgf import utils
 from spatial_temp_cgf import cli_options as clio
-
+from spatial_temp_cgf.data import ClimateMalnutritionData
 from spatial_temp_cgf.model_specification import PredictorSpecification, ModelSpecification
 
 
@@ -107,6 +107,12 @@ def get_model_prevalence(
     for i in range(1, 11):
         print(i)
         ldi = cm_data.load_ldi(year, f"{i / 10.:.1f}")
+        ldi = rt.RasterArray(
+            model.var_info['ldi_pc_pd']['transformer'](ldi),
+            transform=ldi.transform,
+            crs=ldi.crs,
+            no_data_value=np.nan,
+        )
         prevalence += 0.1 * 1 / (1 + np.exp(-z_partial - beta_ldi * ldi))
 
     return prevalence.astype(np.float32)
