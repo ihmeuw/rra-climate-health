@@ -184,7 +184,7 @@ def with_age_group_id(
     )
 
 
-VALID_PREDICTION_YEARS = [str(year) for year in range(2010, 2101)]
+VALID_PREDICTION_YEARS = [str(year) for year in range(2020, 2101)]
 
 
 def with_year(

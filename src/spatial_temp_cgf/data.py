@@ -6,6 +6,7 @@ import pickle
 
 import pandas as pd
 import rasterra as rt
+import geopandas as gpd
 from rra_tools.shell_tools import mkdir, touch
 
 from spatial_temp_cgf.model_specification import ModelSpecification
@@ -141,16 +142,42 @@ class ClimateMalnutritionData:
     def shared_inputs(self) -> Path:
         return self.root.parent / 'input'
 
-    def ldi_path(self, year: int) -> Path:
-        return self.shared_inputs / "ldi" / f"{year}.tif"
+    def ldi_path(self, year: int | str, percentile: float | str) -> Path:
+        return self.shared_inputs / "ldi" / f"{year}_{percentile}.tif"
 
-    def load_ldi(self, year: int) -> rt.RasterArray:
-        return rt.load_raster(self.ldi_path(year))
+    def load_ldi(self, year: int | str, percentile: float | str) -> rt.RasterArray:
+        return rt.load_raster(self.ldi_path(year, percentile))
 
-    def cache_ldi(self, year: int, ldi: rt.RasterArray) -> None:
-        path = self.ldi_path(year)
+    def save_ldi_raster(
+        self,
+        ldi: rt.RasterArray,
+        year: int | str,
+        percentile: float | str,
+    ) -> None:
+        path = self.ldi_path(year, percentile)
         mkdir(path.parent, parents=True, exist_ok=True)
         save_raster(ldi, path)
+
+    #########################
+    # Upstream paths we own #
+    #########################
+
+    _POP_DATA_ROOT = Path('/mnt/team/rapidresponse/pub/population/data')
+    _RAW_DATA_ROOT = _POP_DATA_ROOT / '01-raw-data'
+    _PROCESSED_DATA_ROOT = _POP_DATA_ROOT / '02-processed-data'
+
+    def load_lbd_admin2_shapes(self) -> gpd.GeoDataFrame:
+        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'lbd_admin2.parquet'
+        return gpd.read_parquet(path)
+
+    def load_raster_template(self) -> rt.RasterArray:
+        path = self._RAW_DATA_ROOT / 'other-gridded-pop-projects' / 'global-human-settlement-layer' / '1km_template.tif'
+        return rt.load_raster(path)
+
+
+
+
+
 
 
 def get_run_directory(output_root: str | Path) -> Path:
