@@ -181,7 +181,7 @@ class ModelSpecification(BaseModel):
         return variables
 
     @property
-    def transform_map(self) -> dict[str, BinningSpecification | ScalingSpecification]:
+    def transform_map(self) -> dict[str, TransformSpecification]:
         transform_map = {
             predictor.name: predictor.transform for predictor in self.predictors
         }
