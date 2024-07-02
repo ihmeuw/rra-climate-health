@@ -106,26 +106,31 @@ class ClimateMalnutritionData:
     def results(self) -> Path:
         return self.root / "results"
 
+    def new_results_version(self) -> str:
+        run_directory = get_run_directory(self.results)
+        mkdir(run_directory)
+        return run_directory.name
+
     def raster_results_path(
         self,
-        model_version: str,
+        results_version: str,
         scenario: str,
         year: str | int,
         age_group_id: str | int,
         sex_id: str | int,
     ) -> Path:
-        return self.results / model_version / f"{year}_{scenario}_{age_group_id}_{sex_id}.tif"
+        return self.results / results_version / f"{year}_{scenario}_{age_group_id}_{sex_id}.tif"
 
     def save_raster_results(
         self,
         results: rt.RasterArray,
-        model_version: str,
+        results_version: str,
         scenario: str,
         year: str | int,
         age_group_id: str | int,
         sex_id: str | int,
     ) -> None:
-        path = self.raster_results_path(model_version, scenario, year, age_group_id, sex_id)
+        path = self.raster_results_path(results_version, scenario, year, age_group_id, sex_id)
         mkdir(path.parent, parents=True, exist_ok=True)
         save_raster(results, path)
 
@@ -159,6 +164,9 @@ class ClimateMalnutritionData:
         path = self.ldi_path(year, percentile)
         mkdir(path.parent, parents=True, exist_ok=True)
         save_raster(ldi, path)
+
+    def load_elevation(self) -> rt.RasterArray:
+        return rt.load_raster(self.shared_inputs / "srtm_elevation.tif")
 
     #########################
     # Upstream paths we own #
