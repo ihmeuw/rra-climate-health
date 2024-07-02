@@ -1,0 +1,31 @@
+version:
+  training_data: "2024_07_01.01"
+measure: "stunting"
+holdout:
+  type: "no_holdout"  
+predictors:
+  - name: "intercept"
+    random_effect: "ihme_loc_id"
+  - name: "days_over_30C"
+    transform:
+      type: 'scaling'
+      strategy: 'inner_ninety_five'
+  - name: "ldi_pc_pd"
+    transform:
+      type: 'scaling'
+      strategy: 'inner_ninety_five'
+  - name: "elevation"
+    transform:
+      type: 'scaling'
+      strategy: 'inner_ninety_five'
+  - name: "mean_temperature"
+    transform:
+      type: 'scaling'
+      strategy: 'inner_ninety_five'
+  - name: "any_days_over_30C"
+    transform:
+      type: 'masking'
+      from_column: 'days_over_30C'
+      threshold: 0
+extra_terms:
+  - "any_days_over_30C * ldi_pc_pd"

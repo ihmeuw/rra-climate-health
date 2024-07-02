@@ -175,7 +175,7 @@ def with_results_version() -> ClickOption[_P, _T]:
 def with_model_version() -> ClickOption[_P, _T]:
     return click.option(
         "--model-version",
-        "-m",
+        "-t",
         type=str,
         required=True,
         help="The model version to run.",

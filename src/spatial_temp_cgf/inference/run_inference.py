@@ -10,7 +10,7 @@ import geopandas as gpd
 
 from spatial_temp_cgf import utils
 from spatial_temp_cgf import cli_options as clio
-from spatial_temp_cgf.data import ClimateMalnutritionData
+from spatial_temp_cgf.data import ClimateMalnutritionData, DEFAULT_ROOT
 from spatial_temp_cgf.model_specification import PredictorSpecification, ModelSpecification
 
 
