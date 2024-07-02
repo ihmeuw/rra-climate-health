@@ -20,12 +20,15 @@ def prepare_model_data(
     # Do all required data transformations
     transformed_data = {}
     var_info = {}
-    for var, transform in model_spec.transform_map.items():
+    for var, transform_spec in model_spec.transform_map.items():
         transformed, transformer = transform_column(
-            raw_model_data, var, transform
+            raw_model_data, var, transform_spec
         )
         transformed_data[var] = transformed
-        var_info[var] = {"transformer": transformer}
+        var_info[var] = {
+            "transformer": transformer,
+            "transform_spec": transform_spec,
+        }
 
     df = pd.DataFrame(transformed_data)
 

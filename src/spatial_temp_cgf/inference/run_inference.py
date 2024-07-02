@@ -60,11 +60,66 @@ def model_inference_main(
     year: int,
 ) -> None:
     cm_data = ClimateMalnutritionData(output_dir / measure)
-
-    print('loading raster template')
+    spec = cm_data.load_model_specification(model_version)
+    print('loading raster template and shapes')
     raster_template = cm_data.load_raster_template()
+    fhs_shapes = cm_data.load_fhs_shapes()
     print('loading models')
     models = cm_data.load_model_family(model_version)
+    # =============
+
+    model = models[0]['model']
+
+    coefs = model.coefs['Estimate']
+    ranefs = model.ranef
+    
+    partial_estimates = {}
+    
+    for predictor in spec.predictors:
+        if predictor.name == 'intercept':
+            partial_estimates[predictor.name] = get_intercept_raster(
+                predictor, coefs, ranefs, fhs_shapes, raster_template,
+            )
+        elif predictor.name == 'ldi_pc_pd':
+            ldi_spec = predictor  # deal with later
+        elif predictor.name == 'elevation':
+            v = rt.load_raster('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/srtm_elevation.tif')
+            beta = coefs.loc[predictor.name]
+            partial_estimates[predictor.name] = rt.RasterArray(
+                beta * np.array(model.var_info[predictor.name]['transformer'](v)),
+                transform=v.transform,
+                crs=v.crs,
+                no_data_value=np.nan,
+            )
+        else:
+            if predictor.random_effect:
+                msg = 'Random slopes not implemented'
+                raise NotImplementedError(msg)
+                
+            transform = predictor.transform
+            variable = transform.from_column if hasattr(transform, 'from_column') else predictor.name    
+            ds = cm_data.load_climate_raster(variable, cmip6_scenario, year)
+            v = utils.xarray_to_raster(ds, nodata=np.nan).resample_to(raster_template)
+            beta = coefs.loc[predictor.name]
+            partial_estimates[predictor.name] = rt.RasterArray(
+                beta * np.array(model.var_info[predictor.name]['transformer'](v)),
+                transform=v.transform,
+                crs=v.crs,
+                no_data_value=np.nan,
+            )
+    
+    assert spec.extra_terms == ['any_days_over_30C * ldi_pc_pd']
+    
+    beta_interaction = coefs.loc['ldi_pc_pd:any_days_over_30C'] / coefs.loc['any_days_over_30C']
+    beta_ldi = beta_interaction * partial_estimates['any_days_over_30C'] + coefs.loc['ldi_pc_pd']
+    z_partial = sum(partial_estimates.values())
+
+    prevalence = 0
+    for i in range(1, 11):
+        print(i)
+        ldi = cm_data.load_ldi(year, f"{i/10.:.1f}")
+        prevalence += 0.1 * 1 / (1 + np.exp(-z_partial - beta_ldi * ldi))
+# =====================
 
     print('loading predictors')
     m = models[0]
