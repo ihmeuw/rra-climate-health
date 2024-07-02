@@ -9,14 +9,12 @@ import pandas as pd
 import rasterra as rt
 from rasterio.features import rasterize
 from rra_tools import jobmon
-from scipy.special import expit
 import xarray as xr
 import tqdm
 import geopandas as gpd
 
 from spatial_temp_cgf import paths
-from spatial_temp_cgf.data_prep import income_funcs
-from spatial_temp_cgf.data_prep.location_mapping import load_fhs_lsae_mapping, FHS_SHAPE_PATH
+from spatial_temp_cgf.data_prep.location_mapping import FHS_SHAPE_PATH
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
 
@@ -129,7 +127,6 @@ def model_inference_main(
         s_id = model_dict['sex_id']
         cm_data.save_raster_results(prediction, model_version, cmip6_scenario, year, a_id, s_id)
         model_dict['prediction'] = prediction
-
 
     print("loading fhs shape data")
     fhs_shapes = gpd.read_parquet(FHS_SHAPE_PATH).set_index('loc_id').geometry.to_dict()

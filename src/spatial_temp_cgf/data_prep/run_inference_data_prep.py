@@ -1,7 +1,5 @@
 
 
-
-
 def run_ldi_prep_main(
     year: int,
 ) -> None:
