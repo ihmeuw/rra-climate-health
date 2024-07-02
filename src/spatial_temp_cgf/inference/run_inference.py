@@ -38,13 +38,11 @@ def model_inference_main(
     for variable, info in m['model'].var_info.items():
         print(variable)
         if variable == 'ldi_pc_pd':
-            v = load_ldi(cm_data, year)
+            v = cm_data.load_ldi(year, 0.1)
             v = info['transformer'](v)
         else:
-            subfolder = cmip6_scenario if year >= 2024 else 'historical'
-            path = paths.CLIMATE_PROJECTIONS_ROOT / subfolder / "mean_temperature" / f"{year}.nc"
-            v_ds = xr.open_dataset(path).sel(year=year)['value']
-            v = utils.xarray_to_raster(v_ds, nodata=np.nan).resample_to(raster_template)
+            ds = cm_data.load_climate_raster(variable, cmip6_scenario, year)
+            v = utils.xarray_to_raster(ds, nodata=np.nan).resample_to(raster_template)
         variables[variable] = v.to_numpy().reshape(-1, 1)
 
     print('predicting...')

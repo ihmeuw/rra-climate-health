@@ -7,6 +7,7 @@ import pickle
 import pandas as pd
 import rasterra as rt
 import geopandas as gpd
+import xarray as xr
 from rra_tools.shell_tools import mkdir, touch
 
 from spatial_temp_cgf.model_specification import ModelSpecification
@@ -165,6 +166,7 @@ class ClimateMalnutritionData:
     _POP_DATA_ROOT = Path('/mnt/team/rapidresponse/pub/population/data')
     _RAW_DATA_ROOT = _POP_DATA_ROOT / '01-raw-data'
     _PROCESSED_DATA_ROOT = _POP_DATA_ROOT / '02-processed-data'
+    _CLIMATE_DATA_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
 
     def load_lbd_admin2_shapes(self) -> gpd.GeoDataFrame:
         path = self._PROCESSED_DATA_ROOT / 'ihme' / 'lbd_admin2.parquet'
@@ -174,10 +176,10 @@ class ClimateMalnutritionData:
         path = self._RAW_DATA_ROOT / 'other-gridded-pop-projects' / 'global-human-settlement-layer' / '1km_template.tif'
         return rt.load_raster(path)
 
-
-
-
-
+    def load_climate_raster(self, variable: str, scenario: str, year: int | str) -> xr.DataArray:
+        scenario_folder = 'historical' if year < 2024 else scenario
+        path = self._CLIMATE_DATA_ROOT / scenario_folder / variable / f"{year}.nc"
+        return xr.open_dataset(path).sel(year=year)['value']
 
 
 def get_run_directory(output_root: str | Path) -> Path:

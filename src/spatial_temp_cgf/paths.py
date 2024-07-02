@@ -20,9 +20,8 @@ FORECASTED_POPULATIONS_FILEPATH = Path('/mnt/share/forecasting/data/7/future/pop
 # Climate data #
 ################
 
-CHELSA_HISTORICAL_ROOT = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/human-niche/chelsa-downscaled-historical')
-CLIMATE_HISTORICAL_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
-CLIMATE_PROJECTIONS_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
+
+
 
 
 MODEL_ROOTS = Path('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/output/models/')
