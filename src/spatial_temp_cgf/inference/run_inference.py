@@ -18,6 +18,29 @@ from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
 
 
+def get_intercept_raster(param_spec, coefs, ranefs):    
+    icept = coefs.loc['(Intercept)']
+    if p.random_effect == 'ihme_loc_id':
+        r_icept = ranefs['X.Intercept.'].reset_index()
+        r_icept = r_icept.merge(fhs_shapes, left_on='index', right_on='ihme_lc_id', how='left')
+        shapes = list(r_icept[['geometry', 'X.Intercept.']].itertuples(index=False, name=None))
+        icept_arr = rasterize(
+            shapes, out=icept*np.ones_like(raster_template), transform=raster_template.transform, 
+        )
+        icept_raster = rt.RasterArray(
+            icept_arr,
+            transform=raster_template.transform,
+            crs=raster_template.crs,
+            no_data_value=np.nan
+        )
+    elif not p.random_effect:
+        icept_raster = raster_template + icept
+    else:
+        msg = 'Only location random intercepts are supported'
+        raise NotImplementedError(msg)
+    return icept_raster
+
+
 def model_inference_main(
     output_dir: Path,    
     measure: str,

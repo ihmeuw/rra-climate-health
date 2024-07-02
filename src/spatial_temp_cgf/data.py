@@ -179,12 +179,12 @@ class ClimateMalnutritionData:
         return gpd.read_parquet(path)
 
     def save_fhs_shapes(self, gdf: gpd.GeoDataFrame) -> None:
-        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs.parquet'
+        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs_most_detailed.parquet'
         touch(path, exist_ok=True)
         gdf.to_parquet(path)
 
     def load_fhs_shapes(self) -> gpd.GeoDataFrame:
-        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs.parquet'
+        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs_most_detailed.parquet'
         return gpd.read_parquet(path)
 
     def load_raster_template(self) -> rt.RasterArray:

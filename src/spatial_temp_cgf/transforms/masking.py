@@ -10,7 +10,7 @@ class Masker:
         self._threshold = spec.threshold
 
     def __call__(self, data: np.ndarray) -> np.ndarray:
-        return data > self._threshold
+        return (data > self._threshold).astype(float)
 
 
 def mask_column(
