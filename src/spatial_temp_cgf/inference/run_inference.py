@@ -7,25 +7,36 @@ import click
 import numpy as np
 import pandas as pd
 import rasterra as rt
+from rasterio.features import rasterize
 from rra_tools import jobmon
-import xarray as xr
 import tqdm
 import geopandas as gpd
 
-from spatial_temp_cgf import paths, utils
-from spatial_temp_cgf.data_prep.location_mapping import FHS_SHAPE_PATH
+from spatial_temp_cgf import utils
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
+from spatial_temp_cgf.model_specification import PredictorSpecification
 
 
-def get_intercept_raster(param_spec, coefs, ranefs):    
+def get_intercept_raster(
+    pred_spec: PredictorSpecification,
+    coefs: pd.DataFrame,
+    ranefs: pd.DataFrame,
+    fhs_shapes: gpd.GeoDataFrame,
+    raster_template: rt.RasterArray,
+) -> rt.RasterArray:
     icept = coefs.loc['(Intercept)']
-    if p.random_effect == 'ihme_loc_id':
-        r_icept = ranefs['X.Intercept.'].reset_index()
-        r_icept = r_icept.merge(fhs_shapes, left_on='index', right_on='ihme_lc_id', how='left')
-        shapes = list(r_icept[['geometry', 'X.Intercept.']].itertuples(index=False, name=None))
+    if pred_spec.random_effect == 'ihme_loc_id':
+        shapes = list(
+            ranefs['X.Intercept.'].reset_index()
+            .merge(fhs_shapes, left_on='index', right_on='ihme_lc_id', how='left')
+            .loc[:, ['geometry', 'X.Intercept.']]
+            .itertuples(index=False, name=None)
+        )
         icept_arr = rasterize(
-            shapes, out=icept*np.ones_like(raster_template), transform=raster_template.transform, 
+            shapes,
+            out=icept*np.ones_like(raster_template),
+            transform=raster_template.transform,
         )
         icept_raster = rt.RasterArray(
             icept_arr,
@@ -33,7 +44,7 @@ def get_intercept_raster(param_spec, coefs, ranefs):
             crs=raster_template.crs,
             no_data_value=np.nan
         )
-    elif not p.random_effect:
+    elif not pred_spec.random_effect:
         icept_raster = raster_template + icept
     else:
         msg = 'Only location random intercepts are supported'
