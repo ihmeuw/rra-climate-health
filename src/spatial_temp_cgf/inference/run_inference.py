@@ -109,7 +109,7 @@ def get_model_prevalence(
         ldi = cm_data.load_ldi(year, f"{i / 10.:.1f}")
         prevalence += 0.1 * 1 / (1 + np.exp(-z_partial - beta_ldi * ldi))
 
-    return prevalence
+    return prevalence.astype(np.float32)
 
 
 def model_inference_main(
@@ -201,27 +201,27 @@ def model_inference_task(
 @click.command()
 @clio.with_output_root(DEFAULT_ROOT)
 @clio.with_model_version()
-@clio.with_measure(allow_all=True)
+@clio.with_measure()
 @clio.with_cmip6_scenario(allow_all=True)
 @clio.with_year(allow_all=True)
 @clio.with_queue()
 def model_inference(
     output_root: str,
     model_version: str,
-    measure: list[str],
+    measure: str,
     cmip6_scenario: list[str],
     year: list[str],
     queue: str,
 ) -> None:
     """Run model inference."""
-    cm_data = ClimateMalnutritionData(Path(output_root))
+    cm_data = ClimateMalnutritionData(Path(output_root) / measure)
     results_version = cm_data.new_results_version()
 
     jobmon.run_parallel(
         runner="sttask",
         task_name="inference",
         node_args={
-            "measure": measure,
+            "measure": [measure],
             "cmip6-scenario": cmip6_scenario,
             "year": year,
         },
@@ -233,7 +233,7 @@ def model_inference(
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "60Gb",
+            "memory": "150Gb",
             "runtime": "120m",
             "project": "proj_rapidresponse",
         },
