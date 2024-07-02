@@ -17,9 +17,10 @@ SURVEY_DATA_ROOT = Path(
 LSAE_CGF_GEOSPATIAL_ROOT = Path('/mnt/share/limited_use/LIMITED_USE/LU_GEOSPATIAL/geo_matched/cgf/pre_collapse/')
 CGF_FILEPATH_LSAE = Path('/mnt/share/limited_use/LIMITED_USE/LU_GEOSPATIAL/geo_matched/cgf/pre_collapse/cgf_lbw_2020_06_15.csv')
 
-# TODO: Carve out the piece of the R script that makes this file, move output someplace better
+
+# TODO: Carve out the piece of the R script that makes this file,
+#  move output someplace better
 WEALTH_FILEPATH = Path('/mnt/share/scratch/users/victorvt/cgfwealth_spatial/dhs_wealth_uncollapsed_again.parquet')
-LDIPC_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/national_ldipc_estimates.csv')
 
 SURVEY_DATA_PATHS = {
     "bmi": {'gbd': SURVEY_DATA_ROOT / "bmi" / "bmi_data_outliered_wealth_rex.csv"},

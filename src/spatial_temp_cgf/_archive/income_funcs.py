@@ -7,12 +7,16 @@ import pandas as pd
 from spatial_temp_cgf import paths
 
 
+
+LDIPC_DISTRIBUTION_BIN_PROPORTIONS_DEFAULT_FILEPATH_FORMAT = '/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/default_ldipc_bin_proportions_{measure}.parquet'
+
+
 def load_binned_income_distribution_proportions(fhs_location_id = None, model = None, measure = None, year_id = None):
     if model is not None:
         model_identifier = model.model_identifier
         ldipc_distribution_bin_proportions_filepath = paths.MODELS / model_identifier / f'ldipc_bin_proportions.parquet'
     elif measure is not None:
-        filepath = paths.LDIPC_DISTRIBUTION_BIN_PROPORTIONS_DEFAULT_FILEPATH_FORMAT.format(measure = measure)
+        filepath = LDIPC_DISTRIBUTION_BIN_PROPORTIONS_DEFAULT_FILEPATH_FORMAT.format(measure = measure)
         load_filters = []
         if fhs_location_id: load_filters.append(('fhs_location_id', '==', fhs_location_id))
         if year_id : load_filters.append(('year_id', '==', year_id))

@@ -9,80 +9,18 @@ import pandas as pd
 import rasterra as rt
 from rasterio.features import rasterize
 from rra_tools import jobmon
-from scipy.special import expit
 import xarray as xr
 import tqdm
 import geopandas as gpd
 
-from spatial_temp_cgf import paths
-from spatial_temp_cgf.training_data_prep import income_funcs
-from spatial_temp_cgf.training_data_prep.location_mapping import load_fhs_lsae_mapping, FHS_SHAPE_PATH
+from spatial_temp_cgf import paths, utils
+from spatial_temp_cgf.data_prep.location_mapping import FHS_SHAPE_PATH
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
 
 RASTER_TEMPLATE_PATH = Path('/mnt/team/rapidresponse/pub/population/data/01-raw-data/other-gridded-pop-projects/global-human-settlement-layer/1km_template.tif')
-SHAPE_PATH = Path('/mnt/team/rapidresponse/pub/population/data/02-processed-data/ihme/lbd_admin2.parquet')
 LDIPC_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/admin2_ldipc_estimates.csv')
 
-
-def xarray_to_raster(ds: xr.DataArray, nodata: float | int) -> rt.RasterArray:
-    from affine import Affine
-    """Convert an xarray DataArray to a RasterArray."""
-    lat, lon = ds["latitude"].data, ds["longitude"].data
-
-    dlat = (lat[1:] - lat[:-1]).mean()
-    dlon = (lon[1:] - lon[:-1]).mean()
-
-    transform = Affine(
-        a=dlon,
-        b=0.0,
-        c=lon[0],
-        d=0.0,
-        e=-dlat,
-        f=lat[-1],
-    )
-    raster = rt.RasterArray(
-        data=ds.data[::-1],
-        transform=transform,
-        crs="EPSG:4326",
-        no_data_value=nodata,
-    )
-    return raster
-
-
-def load_ldi(cm_data: ClimateMalnutritionData, year: int) -> rt.RasterArray:
-    if True:  # not cm_data.ldi_path(year).exists():
-        a2 = gpd.read_parquet(SHAPE_PATH)
-        raster_template = rt.load_raster(RASTER_TEMPLATE_PATH)
-
-        ldi = pd.read_csv(LDIPC_FILEPATH)
-        national_mean = ldi.groupby(['year_id', 'national_ihme_loc_id', 'population_percentile']).ldipc.transform('mean')
-        null_mask = ldi.ldipc.isnull()
-        ldi.loc[null_mask, 'ldipc'] = national_mean.loc[null_mask]
-        ldi['ldi_pc_pd'] = ldi['ldipc'] / 365.25
-        ldi = ldi.groupby(['year_id', 'location_id']).ldi_pc_pd.mean().reset_index()
-        polys = (
-            a2.loc[a2.loc_id.isin(ldi.location_id.unique()), ['loc_id', 'geometry']]
-            .rename(columns={'loc_id': 'location_id'})
-            .set_index('location_id')
-            .geometry
-        )
-        year_ldi = ldi[ldi.year_id == 2000].set_index('location_id').ldi_pc_pd
-        shapes = [(t.geometry, t.ldi_pc_pd) for t in
-                  pd.concat([year_ldi, polys.sort_index()], axis=1).itertuples()]
-        arr = rasterize(
-            shapes,
-            out=np.zeros_like(raster_template),
-            transform=raster_template.transform,
-        )
-        r = rt.RasterArray(
-            arr,
-            transform=raster_template.transform,
-            crs=raster_template.crs,
-            no_data_value=np.nan,
-        )
-        cm_data.cache_ldi(year, r)
-    return cm_data.load_ldi(year)
 
 
 def model_inference_main(
@@ -111,7 +49,7 @@ def model_inference_main(
             subfolder = cmip6_scenario if year >= 2024 else 'historical'
             path = paths.CLIMATE_PROJECTIONS_ROOT / subfolder / "mean_temperature" / f"{year}.nc"
             v_ds = xr.open_dataset(path).sel(year=year)['value']
-            v = xarray_to_raster(v_ds, nodata=np.nan).resample_to(raster_template)
+            v = utils.xarray_to_raster(v_ds, nodata=np.nan).resample_to(raster_template)
         variables[variable] = v.to_numpy().reshape(-1, 1)
 
     print('predicting...')
@@ -129,7 +67,6 @@ def model_inference_main(
         s_id = model_dict['sex_id']
         cm_data.save_raster_results(prediction, model_version, cmip6_scenario, year, a_id, s_id)
         model_dict['prediction'] = prediction
-
 
     print("loading fhs shape data")
     fhs_shapes = gpd.read_parquet(FHS_SHAPE_PATH).set_index('loc_id').geometry.to_dict()
