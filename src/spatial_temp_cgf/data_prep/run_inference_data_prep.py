@@ -20,10 +20,12 @@ def run_ldi_prep_main(
     """Run LDI data preparation."""
     # Measure doesn't matter for this task
     cm_data = ClimateMalnutritionData(output_root / 'stunting')
+    print("Loading admin2 shapes and raster template")
     admin2 = cm_data.load_lbd_admin2_shapes()
     raster_template = cm_data.load_raster_template()
-    ldi = pd.read_csv(upstream_paths.LDIPC_SUBNATIONAL_FILEPATH)
 
+    print("Loading LDI data")
+    ldi = pd.read_csv(upstream_paths.LDIPC_SUBNATIONAL_FILEPATH)
     # Fill in missing values with national mean
     national_mean = (
         ldi.groupby(['year_id', 'national_ihme_loc_id', 'population_percentile'])
@@ -32,11 +34,11 @@ def run_ldi_prep_main(
     )
     null_mask = ldi.ldipc.isnull()
     ldi.loc[null_mask, 'ldipc'] = national_mean.loc[null_mask]
-
     # Convert to daily, and drop 0th percentile, which is just 0.
     ldi['ldi_pc_pd'] = ldi['ldipc'] / 365.25
     ldi = ldi[ldi.population_percentile > 0]
 
+    print("Building shape map")
     ldi_locs = ldi['location_id'].unique().tolist()
     shape_map = (
         admin2.loc[admin2.loc_id.isin(ldi_locs), ['loc_id', 'geometry']]
@@ -45,8 +47,10 @@ def run_ldi_prep_main(
         .geometry
     )
 
+    print("Rasterizing LDI data")
     percentiles = ldi['population_percentile'].unique().tolist()
     for percentile in percentiles:
+        print(f"Rasterizing percentile: {percentile}")
         p_year_mask = (
             (ldi.population_percentile == percentile) & (ldi.year_id == year)
         )
