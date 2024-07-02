@@ -62,9 +62,9 @@ def model_inference_main(
         model_dict['prediction'] = prediction
 
     print("loading fhs shape data")
-    fhs_shapes = gpd.read_parquet(FHS_SHAPE_PATH).set_index('loc_id').geometry.to_dict()
+    fhs_shapes = cm_data.load_fhs_shapes().set_index('loc_id').geometry.to_dict()
     print("loading population")
-    fhs_pop_raster = rt.load_raster(paths.GLOBAL_POPULATION_FILEPATH).set_no_data_value(np.nan)
+    fhs_pop_raster = cm_data.load_population_raster().set_no_data_value(np.nan)
 
     print('Computing zonal statistics')
     out = []

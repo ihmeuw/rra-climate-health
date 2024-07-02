@@ -8,6 +8,7 @@ import pandas as pd
 import rasterra as rt
 import geopandas as gpd
 import xarray as xr
+import numpy as np
 from rra_tools.shell_tools import mkdir, touch
 
 from spatial_temp_cgf.model_specification import ModelSpecification
@@ -168,13 +169,31 @@ class ClimateMalnutritionData:
     _PROCESSED_DATA_ROOT = _POP_DATA_ROOT / '02-processed-data'
     _CLIMATE_DATA_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
 
+    def save_lbd_admin2_shapes(self, gdf: gpd.GeoDataFrame) -> None:
+        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'lbd_admin2.parquet'
+        touch(path, exist_ok=True)
+        gdf.to_parquet(path)
+
     def load_lbd_admin2_shapes(self) -> gpd.GeoDataFrame:
         path = self._PROCESSED_DATA_ROOT / 'ihme' / 'lbd_admin2.parquet'
+        return gpd.read_parquet(path)
+
+    def save_fhs_shapes(self, gdf: gpd.GeoDataFrame) -> None:
+        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs.parquet'
+        touch(path, exist_ok=True)
+        gdf.to_parquet(path)
+
+    def load_fhs_shapes(self) -> gpd.GeoDataFrame:
+        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs.parquet'
         return gpd.read_parquet(path)
 
     def load_raster_template(self) -> rt.RasterArray:
         path = self._RAW_DATA_ROOT / 'other-gridded-pop-projects' / 'global-human-settlement-layer' / '1km_template.tif'
         return rt.load_raster(path)
+
+    def load_population_raster(self) -> rt.RasterArray:
+        path = self._RAW_DATA_ROOT / 'other-gridded-pop-projects' /  'global-human-settlement-layer' / '1km_population.tif'
+        return rt.load_raster(path).set_no_data_value(np.nan)
 
     def load_climate_raster(self, variable: str, scenario: str, year: int | str) -> xr.DataArray:
         scenario_folder = 'historical' if year < 2024 else scenario
