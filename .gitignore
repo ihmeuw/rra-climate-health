@@ -77,3 +77,9 @@ venv.bak/
 
 # IDEs
 .idea/
+
+# Common data formats
+*.tif
+*.parquet
+*.nc
+*.hdf

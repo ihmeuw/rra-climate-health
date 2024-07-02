@@ -1,249 +1,198 @@
-import logging
-import sys
 from pathlib import Path
-import itertools
 
 import click
 import numpy as np
 import pandas as pd
 import rasterra as rt
+from rasterio.features import rasterize
 from rra_tools import jobmon
-from scipy.special import expit
-import xarray as xr
-import tqdm
+import geopandas as gpd
 
-from spatial_temp_cgf import paths
-from spatial_temp_cgf.training_data_prep import income_funcs
-from spatial_temp_cgf.training_data_prep.location_mapping import load_fhs_lsae_mapping
+from spatial_temp_cgf import utils
 from spatial_temp_cgf import cli_options as clio
-from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
+
+from spatial_temp_cgf.model_specification import PredictorSpecification, ModelSpecification
 
 
-def xarray_to_raster(ds: xr.DataArray, nodata: float | int) -> rt.RasterArray:
-    from affine import Affine
-    """Convert an xarray DataArray to a RasterArray."""
-    lat, lon = ds["latitude"].data, ds["longitude"].data
+def get_intercept_raster(
+    pred_spec: PredictorSpecification,
+    coefs: pd.DataFrame,
+    ranefs: pd.DataFrame,
+    fhs_shapes: gpd.GeoDataFrame,
+    raster_template: rt.RasterArray,
+) -> rt.RasterArray:
+    icept = coefs.loc['(Intercept)']
+    if pred_spec.random_effect == 'ihme_loc_id':
+        shapes = list(
+            ranefs['X.Intercept.'].reset_index()
+            .merge(fhs_shapes, left_on='index', right_on='ihme_lc_id', how='left')
+            .loc[:, ['geometry', 'X.Intercept.']]
+            .itertuples(index=False, name=None)
+        )
+        icept_arr = rasterize(
+            shapes,
+            out=icept*np.ones_like(raster_template),
+            transform=raster_template.transform,
+        )
+        icept_raster = rt.RasterArray(
+            icept_arr,
+            transform=raster_template.transform,
+            crs=raster_template.crs,
+            no_data_value=np.nan
+        )
+    elif not pred_spec.random_effect:
+        icept_raster = raster_template + icept
+    else:
+        msg = 'Only location random intercepts are supported'
+        raise NotImplementedError(msg)
+    return icept_raster
 
-    dlat = (lat[1:] - lat[:-1]).mean()
-    dlon = (lon[1:] - lon[:-1]).mean()
 
-    transform = Affine(
-        a=dlon,
-        b=0.0,
-        c=lon[0],
-        d=0.0,
-        e=-dlat,
-        f=lat[-1],
+def get_model_prevalence(
+    model,
+    spec: ModelSpecification,
+    cmip6_scenario: str,
+    year: int,
+    cm_data: ClimateMalnutritionData,
+    fhs_shapes: gpd.GeoDataFrame,
+    raster_template: rt.RasterArray,
+) -> rt.RasterArray:
+    coefs = model.coefs['Estimate']
+    ranefs = model.ranef
+
+    partial_estimates = {}
+    for predictor in spec.predictors:
+        if predictor.name == 'ldi_pc_pd':
+            continue  # deal with after
+        elif predictor.name == 'intercept':
+            partial_estimates[predictor.name] = get_intercept_raster(
+                predictor, coefs, ranefs, fhs_shapes, raster_template,
+            )
+        else:
+            if predictor.random_effect:
+                msg = 'Random slopes not implemented'
+                raise NotImplementedError(msg)
+
+            if predictor.name == 'elevation':
+                v = cm_data.load_elevation()
+            else:
+                transform = predictor.transform
+                variable = (
+                    transform.from_column
+                    if hasattr(transform, 'from_column') else predictor.name
+                )
+                ds = cm_data.load_climate_raster(variable, cmip6_scenario, year)
+                v = utils.xarray_to_raster(ds, nodata=np.nan).resample_to(raster_template)
+
+            beta = coefs.loc[predictor.name]
+            partial_estimates[predictor.name] = rt.RasterArray(
+                beta * np.array(model.var_info[predictor.name]['transformer'](v)),
+                transform=v.transform,
+                crs=v.crs,
+                no_data_value=np.nan,
+            )
+
+    assert spec.extra_terms == ['any_days_over_30C * ldi_pc_pd']
+
+    beta_interaction = (
+        coefs.loc['ldi_pc_pd:any_days_over_30C'] / coefs.loc['any_days_over_30C']
     )
-    raster = rt.RasterArray(
-        data=ds.data[::-1],
-        transform=transform,
-        crs="EPSG:4326",
-        no_data_value=nodata,
+    beta_ldi = (
+        beta_interaction * partial_estimates['any_days_over_30C']
+        + coefs.loc['ldi_pc_pd']
     )
-    return raster
+    z_partial = sum(partial_estimates.values())
 
+    prevalence = 0
+    for i in range(1, 11):
+        print(i)
+        ldi = cm_data.load_ldi(year, f"{i / 10.:.1f}")
+        prevalence += 0.1 * 1 / (1 + np.exp(-z_partial - beta_ldi * ldi))
 
-def get_climate_variable_dataset(scenario, year, climate_var):
-    import xarray as xr
-    climate_variables = {'temp': 'mean_temperature',
-                         'precip': 'total_precipitation'}
-    for threshold in range(30, 31):
-        climate_variables[f'over_{threshold}'] = f'days_over_{threshold}C'
-
-    if climate_var not in climate_variables.keys():
-        raise ValueError(f"Climate variable {climate_var} not recognized")
-
-    subfolder = scenario if year >= 2024 else 'historical'
-
-    filepath = paths.CLIMATE_PROJECTIONS_ROOT / subfolder / climate_variables[
-        climate_var] / (str(year) + ".nc")
-
-    projection_ds = xr.open_dataset(filepath)
-    projection_ds = projection_ds.loc[dict(year=year)]
-    return projection_ds
-
-
-def get_climate_variable_raster(scenario, year, climate_var, shapefile,
-                                reference_raster, nodata=np.nan, untreated=False):
-    projection_da = get_climate_variable_dataset(scenario, year, climate_var).value
-    result_raster = xarray_to_raster(projection_da, nodata)
-    if untreated:
-        return result_raster
-    result_raster = result_raster.to_crs(reference_raster.crs) \
-        .clip(shapefile) \
-        .mask(shapefile) \
-        .resample_to(reference_raster)
-    return result_raster
-
-
-def scale_like_input_data(to_scale, input_min, input_max):
-    return (to_scale - input_min) / (input_max - input_min)
-
-
-def reverse_scaling(X_scaled, original_min, original_max, scaled_min, scaled_max):
-    X_std = (X_scaled - scaled_min) / (scaled_max - scaled_min)
-    X_original = X_std * (original_max - original_min) + original_min
-    return X_original
+    return prevalence.astype(np.float32)
 
 
 def model_inference_main(
-    output_dir: Path,
-    model_id: str,
+    output_dir: Path,    
     measure: str,
-    fhs_location_id: int,
+    results_version: str,
+    model_version: str,
     cmip6_scenario: str,
     year: int,
 ) -> None:
-    cm_data = ClimateMalnutritionData(output_dir)
+    cm_data = ClimateMalnutritionData(output_dir / measure)
+    spec = cm_data.load_model_specification(model_version)
+    print('loading raster template and shapes')
+    raster_template = cm_data.load_raster_template()
+    fhs_shapes = cm_data.load_fhs_shapes()
+    shape_map = fhs_shapes.set_index('loc_id').geometry.to_dict()
+    print("loading population")
+    fhs_pop_raster = cm_data.load_population_raster().set_no_data_value(np.nan)
+    print('loading models')
+    models = cm_data.load_model_family(model_version)
 
-    loc_mapping = load_fhs_lsae_mapping(fhs_location_id)
-    fhs_shapefile = loc_mapping.iloc[0].fhs_shape
-    income_df = income_funcs.load_binned_income_distribution_proportions(
-        fhs_location_id=fhs_location_id, measure=measure, year_id=year
-    )
+    for i, model_dict in enumerate(models):
+        print(f'Computing prevalence for model {i} of {len(models)}')
+        model_prevalence = get_model_prevalence(
+            model_dict['model'],
+            spec,
+            cmip6_scenario,
+            year,
+            cm_data,
+            fhs_shapes,
+            raster_template,
+        )
+        cm_data.save_raster_results(
+            model_prevalence,
+            results_version,
+            cmip6_scenario,
+            year,
+            model_dict['age_group_id'],
+            model_dict['sex_id'],
+        )
 
-    models = cm_data.load_model_family(model_id)
-    # getting the first model to base bins and variable info off of
-    model = models[0]['model']
+        model_dict['prediction'] = model_prevalence
 
-    fhs_pop_raster = rt.load_raster(
-        paths.GLOBAL_POPULATION_FILEPATH, fhs_shapefile.bounds
-    ).set_no_data_value(np.nan)
-    fhs_pop_raster = fhs_pop_raster.clip(fhs_shapefile)
+    print('Computing zonal statistics')
+    out = []
+    for model_dict in models:
+        count = model_dict['prediction'] * fhs_pop_raster
+        for shape_id, shape in shape_map.items():
+            numerator = np.nansum(count.clip(shape).mask(shape))
+            denominator = np.nansum(fhs_pop_raster.clip(shape).mask(shape))
+            out.append((
+                shape_id,
+                model_dict['age_group_id'],
+                model_dict['sex_id'],
+                numerator / denominator,
+            ))
 
-    possible_climate_variables = ['temp', 'precip', 'over_30']
-    climate_vars_to_match_bins = [v for v in model.vars_to_bin if v in possible_climate_variables]
-    continuous_climate_vars = [v for v in ['temp', 'over_30'] if (v in possible_climate_variables) and (v not in climate_vars_to_match_bins) and (v in model.model_vars)]
-    climate_vars = [x for x in possible_climate_variables if x in set(model.model_vars + model.vars_to_bin)]
-
-    climate_rasters = {}
-    for var in climate_vars:
-        climate_rasters[var] = get_climate_variable_raster(cmip6_scenario, year, var, None, None, untreated=True)
-        climate_rasters[var] = climate_rasters[var].resample_to(fhs_pop_raster).clip(fhs_shapefile)
-
-    admin_dfs = []
-    for _, admin2_row in loc_mapping.iterrows():
-        lsae_location_id = admin2_row.lsae_location_id
-        lsae_shapefile = admin2_row.lsae_shape
-
-        pop_raster = fhs_pop_raster.clip(lsae_shapefile).mask(lsae_shapefile)
-        pop_array = pop_raster.set_no_data_value(np.nan).to_numpy()
-
-        rasters = {'population': pop_array.flatten()}
-
-        for var in climate_vars_to_match_bins:
-            climate_raster = climate_rasters[var].clip(lsae_shapefile).mask(lsae_shapefile)
-            climate_array = climate_raster.to_numpy()
-            assert pop_array.shape == climate_array.shape
-            binned_climate_array = np.digitize(climate_array, model.var_info[var]['bin_edges'], right=False) - 1
-            rasters[var+'_bin_idx'] = binned_climate_array.flatten()
-
-        for var in continuous_climate_vars:
-            climate_raster = climate_rasters[var].clip(lsae_shapefile).mask(lsae_shapefile)
-            climate_array = climate_raster.to_numpy()
-            assert pop_array.shape == climate_array.shape
-            if var in model.scaled_vars:
-                varmin, varmax = model.scaling_bounds[var]
-                climate_array = scale_like_input_data(climate_array, varmin, varmax)
-            rasters[var] = climate_array.flatten()
-
-        # Alternative approach is to group pixels to lsae
-        # Keeping it as pixels
-        pixels_df = pd.DataFrame(rasters)
-        pixels_df = pixels_df.dropna(subset=['population'])  # TODO: Reconsider this, pretty sure it's right
-        pixels_df['lsae_pop'] = np.nansum(pop_array)
-        pixels_df['lsae_location_id'] = lsae_location_id
-        pixels_df['worldpop_iso3'] = admin2_row.worldpop_iso3
-
-        local_income_df = income_df.query('lsae_location_id == @lsae_location_id')
-        for var in climate_vars_to_match_bins:
-            pixels_df = pixels_df.merge(model.var_info[var]['bins'], left_on=var + '_bin_idx', right_index=True, how='inner')
-        pixels_df = pixels_df.merge(local_income_df, on='lsae_location_id', how='left')
-
-        # The lines from now on have coefficients and so are age_group and sex_id - specific
-        # So model-specific. Parallelizing by them
-        for m in models:
-            model = m['model']
-            px_for_model_df = pixels_df.copy()
-            model.var_info['ihme_loc_id']['coefs'].rename(columns={'ihme_loc_id': 'worldpop_iso3'}, inplace=True)
-
-            if model.has_grid:
-                px_for_model_df = px_for_model_df.merge(model.grid_spec['grid_definition'], how='left')
-                px_for_model_df = px_for_model_df.merge(model.var_info['grid_cell']['coefs'], how='left')
-
-            for var in continuous_climate_vars:
-                assert(len(model.var_info[var]['coefs'].columns) == 1)
-                colname = model.var_info[var]['coefs'].columns[0]
-                px_for_model_df[colname] = model.var_info[var]['coefs'][colname].item()
-
-            px_for_model_df = px_for_model_df.merge(model.var_info['ihme_loc_id']['coefs'], how='left', on='worldpop_iso3')
-            px_for_model_df.ihme_loc_id_coef = px_for_model_df.ihme_loc_id_coef.fillna(0)
-        
-            # build the logistic input one variable at a time
-            px_for_model_df['logistic_input'] = model.var_info['intercept']['coef']
-            px_for_model_df['logistic_input'] += px_for_model_df['ihme_loc_id_coef']
-            for var in climate_vars_to_match_bins:
-                if var in model.grid_spec['grid_order']:
-                    continue
-                px_for_model_df['logistic_input'] += px_for_model_df[var+'_bin_coef']
-            for var in continuous_climate_vars:
-                px_for_model_df['logistic_input'] += px_for_model_df[var+'_coef']
-            if model.has_grid:
-                px_for_model_df['logistic_input'] += px_for_model_df['grid_cell_coef']
-            px_for_model_df['prediction'] = expit(px_for_model_df['logistic_input'])
-            px_for_model_df['age_group_id'] = m['age_group_id']
-            px_for_model_df['sex_id'] = m['sex_id']
-            admin_dfs.append(px_for_model_df)
-
-    fhs_df = pd.concat(admin_dfs)
-    #24s to 92s
-    #2:27 to
-    #24s to 92s
-
-    fhs_df['population_at_income'] = fhs_df['population'] * fhs_df['proportion_at_income']
-    fhs_df['population_proportion_at_income'] = fhs_df['population_at_income'] / fhs_df['lsae_pop'] / len(loc_mapping)
-    fhs_df['affected_proportion'] = fhs_df['population_proportion_at_income'] * fhs_df['prediction']
-
-    result_df = fhs_df.groupby(['fhs_location_id', 'age_group_id', 'sex_id']).agg(
-        #susceptible_proportion = ('population_proportion_at_income', 'sum'),  #For testing, HAS to be == 1
-        affected_proportion = ('affected_proportion', 'sum'))
-    result_df['year_id'] = year
-    result_df['scenario'] = cmip6_scenario
-    result_df['measure'] = measure
-
-    cm_data.save_results(
-        result_df,
-        model_id=model_id,
-        location_id=fhs_location_id,
-        measure=measure,
-        scenario=cmip6_scenario,
-        year=year,
-    )
+    print('saving results table')
+    df = pd.DataFrame(out, columns=['location_id', 'age_group_id', 'sex_id', 'value'])
+    cm_data.save_results_table(df, results_version, cmip6_scenario, year)
 
 
 @click.command()
 @clio.with_output_root(DEFAULT_ROOT)
-@clio.with_model_id()
 @clio.with_measure()
-@clio.with_location_id()
+@clio.with_results_version()
+@clio.with_model_version()
 @clio.with_cmip6_scenario()
 @clio.with_year()
 def model_inference_task(
-    output_dir: str,
-    model_id: str,
+    output_root: str,
     measure: str,
-    location_id: str,
+    results_version: str,
+    model_version: str,
     cmip6_scenario: str,
     year: str,
 ):
     """Run model inference."""
-    logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
     model_inference_main(
-        Path(output_dir),
-        model_id,
+        Path(output_root),
         measure,
-        int(location_id),
+        results_version,
+        model_version,
         cmip6_scenario,
         int(year),
     )
@@ -251,60 +200,43 @@ def model_inference_task(
 
 @click.command()
 @clio.with_output_root(DEFAULT_ROOT)
-@clio.with_model_id()
-@clio.with_measure(allow_all=True)
-@clio.with_location_id(allow_all=True)
+@clio.with_model_version()
+@clio.with_measure()
 @clio.with_cmip6_scenario(allow_all=True)
 @clio.with_year(allow_all=True)
 @clio.with_queue()
-@clio.with_overwrite()
 def model_inference(
-    output_dir: str,
-    model_id: str,
-    measure: list[str],
-    location_id: list[str],
+    output_root: str,
+    model_version: str,
+    measure: str,
     cmip6_scenario: list[str],
     year: list[str],
     queue: str,
-    overwrite: bool,
 ) -> None:
     """Run model inference."""
-    logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
-    cm_data = ClimateMalnutritionData(output_dir)
-
-    complete = []
-    to_run = []
-    if not overwrite:
-        for m, l, s, y in tqdm.tqdm(list(itertools.product(measure, location_id, cmip6_scenario, year))):
-            if cm_data.results_path(model_id, l, m, s, y).exists():
-                complete.append((m, l, s, y))
-            else:
-                to_run.append((m, l, s, y))
-
-    print(
-        f"Run configuration has {len(complete)} jobs complete "
-        f"and {len(to_run)} jobs to run."
-    )
+    cm_data = ClimateMalnutritionData(Path(output_root) / measure)
+    results_version = cm_data.new_results_version()
 
     jobmon.run_parallel(
         runner="sttask",
         task_name="inference",
-        flat_node_args=(
-            ("measure", "location-id", "cmip6-scenario", "year"),
-            to_run,
-        ),
+        node_args={
+            "measure": [measure],
+            "cmip6-scenario": cmip6_scenario,
+            "year": year,
+        },
         task_args={
-            "output-dir": output_dir,
-            "model-id": model_id,
+            "output-root": output_root,
+            "model-version": model_version,
+            "results-version": results_version,
         },
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "45Gb",
-            "runtime": "60m",
+            "memory": "90Gb",
+            "runtime": "240m",
             "project": "proj_rapidresponse",
-            "constraints": "archive",
-
         },
         max_attempts=1,
+        log_root=str(cm_data.results / results_version),
     )

@@ -1,6 +1,6 @@
 import click
 
-from spatial_temp_cgf import training_data_prep, training, inference
+from spatial_temp_cgf import data_prep, training, inference
 
 
 @click.group()
@@ -13,7 +13,7 @@ def sttask() -> None:
     """Entry point for running spatial-temporal CGF pipeline tasks."""
 
 
-for module in [training_data_prep, training, inference]:
+for module in [data_prep, training, inference]:
     runners = getattr(module, "RUNNERS", {})
     task_runners = getattr(module, "TASK_RUNNERS", {})
 

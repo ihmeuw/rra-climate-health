@@ -5,6 +5,10 @@ import itertools
 import pickle
 
 import pandas as pd
+import rasterra as rt
+import geopandas as gpd
+import xarray as xr
+import numpy as np
 from rra_tools.shell_tools import mkdir, touch
 
 from spatial_temp_cgf.model_specification import ModelSpecification
@@ -78,7 +82,7 @@ class ClimateMalnutritionData:
         model_filepath = model_root / f'{age_group_id}_{sex_id}.pkl'
         touch(model_filepath, exist_ok=True)
         with model_filepath.open("wb") as f:
-            pickle.dump(model, f)
+            pickle.dump(model, f)    
 
     def load_model_family(
         self,
@@ -102,29 +106,107 @@ class ClimateMalnutritionData:
     def results(self) -> Path:
         return self.root / "results"
 
-    def results_path(
+    def new_results_version(self) -> str:
+        run_directory = get_run_directory(self.results)
+        mkdir(run_directory)
+        return run_directory.name
+
+    def raster_results_path(
         self,
-        model_id: str,
-        location_id: str | int,
-        measure: str,
+        results_version: str,
         scenario: str,
         year: str | int,
+        age_group_id: str | int,
+        sex_id: str | int,
     ) -> Path:
-        return self.results / model_id / f"{measure}_{location_id}_{scenario}_{year}.parquet"
+        return self.results / results_version / f"{year}_{scenario}_{age_group_id}_{sex_id}.tif"
 
-    def save_results(
+    def save_raster_results(
+        self,
+        results: rt.RasterArray,
+        results_version: str,
+        scenario: str,
+        year: str | int,
+        age_group_id: str | int,
+        sex_id: str | int,
+    ) -> None:
+        path = self.raster_results_path(results_version, scenario, year, age_group_id, sex_id)
+        mkdir(path.parent, parents=True, exist_ok=True)
+        save_raster(results, path)
+
+    def save_results_table(
         self,
         results: pd.DataFrame,
-        model_id: str,
-        location_id: str | int,
-        measure: str,
+        model_version: str,
         scenario: str,
         year: str | int,
     ) -> None:
-        path = self.results_path(model_id, location_id, measure, scenario, year)
-        mkdir(path.parent, parents=True, exist_ok=True)
+        path = self.results / model_version / f"{year}_{scenario}.parquet"
         touch(path, exist_ok=True)
         results.to_parquet(path)
+
+    @property
+    def shared_inputs(self) -> Path:
+        return self.root.parent / 'input'
+
+    def ldi_path(self, year: int | str, percentile: float | str) -> Path:
+        return self.shared_inputs / "ldi" / f"{year}_{percentile}.tif"
+
+    def load_ldi(self, year: int | str, percentile: float | str) -> rt.RasterArray:
+        return rt.load_raster(self.ldi_path(year, percentile))
+
+    def save_ldi_raster(
+        self,
+        ldi: rt.RasterArray,
+        year: int | str,
+        percentile: float | str,
+    ) -> None:
+        path = self.ldi_path(year, percentile)
+        mkdir(path.parent, parents=True, exist_ok=True)
+        save_raster(ldi, path)
+
+    def load_elevation(self) -> rt.RasterArray:
+        return rt.load_raster(self.shared_inputs / "srtm_elevation.tif")
+
+    #########################
+    # Upstream paths we own #
+    #########################
+
+    _POP_DATA_ROOT = Path('/mnt/team/rapidresponse/pub/population/data')
+    _RAW_DATA_ROOT = _POP_DATA_ROOT / '01-raw-data'
+    _PROCESSED_DATA_ROOT = _POP_DATA_ROOT / '02-processed-data'
+    _CLIMATE_DATA_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
+
+    def save_lbd_admin2_shapes(self, gdf: gpd.GeoDataFrame) -> None:
+        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'lbd_admin2.parquet'
+        touch(path, exist_ok=True)
+        gdf.to_parquet(path)
+
+    def load_lbd_admin2_shapes(self) -> gpd.GeoDataFrame:
+        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'lbd_admin2.parquet'
+        return gpd.read_parquet(path)
+
+    def save_fhs_shapes(self, gdf: gpd.GeoDataFrame) -> None:
+        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs_most_detailed.parquet'
+        touch(path, exist_ok=True)
+        gdf.to_parquet(path)
+
+    def load_fhs_shapes(self) -> gpd.GeoDataFrame:
+        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs_most_detailed.parquet'
+        return gpd.read_parquet(path)
+
+    def load_raster_template(self) -> rt.RasterArray:
+        path = self._RAW_DATA_ROOT / 'other-gridded-pop-projects' / 'global-human-settlement-layer' / '1km_template.tif'
+        return rt.load_raster(path)
+
+    def load_population_raster(self) -> rt.RasterArray:
+        path = self._RAW_DATA_ROOT / 'other-gridded-pop-projects' /  'global-human-settlement-layer' / '1km_population.tif'
+        return rt.load_raster(path).set_no_data_value(np.nan)
+
+    def load_climate_raster(self, variable: str, scenario: str, year: int | str) -> xr.DataArray:
+        scenario_folder = 'historical' if year < 2024 else scenario
+        path = self._CLIMATE_DATA_ROOT / scenario_folder / variable / f"{year}.nc"
+        return xr.open_dataset(path).sel(year=year)['value']
 
 
 def get_run_directory(output_root: str | Path) -> Path:
@@ -146,3 +228,24 @@ def get_run_directory(output_root: str | Path) -> Path:
     run_version = max(today_runs) + 1 if today_runs else 1
     datetime_dir = output_root / f"{launch_time}.{run_version:0>2}"
     return datetime_dir
+
+
+def save_raster(
+    raster: rt.RasterArray,
+    output_path: str | Path,
+    num_cores: int = 1,
+    **kwargs,
+) -> None:
+    """Save a raster to a file with standard parameters."""
+    save_params = {
+        "tiled": True,
+        "blockxsize": 512,
+        "blockysize": 512,
+        "compress": "ZSTD",
+        "predictor": 2,  # horizontal differencing
+        "num_threads": num_cores,
+        "bigtiff": "yes",
+        **kwargs,
+    }
+    touch(output_path, exist_ok=True)
+    raster.to_file(output_path, **save_params)

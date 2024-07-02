@@ -9,6 +9,7 @@ import yaml
 class ScalingStrategy(StrEnum):
     IDENTITY = 'identity'
     MIN_MAX = 'min_max'
+    STANDARDIZE = 'standardize'
 
 
 class ScalingSpecification(BaseModel):
@@ -50,6 +51,17 @@ class BinningSpecification(BaseModel):
         return BINNING_CATEGORY_GROUPBY[self.category]
 
 
+class MaskingSpecification(BaseModel):
+    type: Literal['masking'] = 'masking'
+    from_column: str
+    threshold: float
+
+
+TransformSpecification = (
+    BinningSpecification | ScalingSpecification | MaskingSpecification
+)
+
+
 class OutcomeVariable(StrEnum):
     WASTING = 'wasting'
     STUNTING = 'stunting'
@@ -60,7 +72,7 @@ class OutcomeVariable(StrEnum):
 
 class PredictorSpecification(BaseModel):
     name: str = "intercept"
-    transform: BinningSpecification | ScalingSpecification = Field(
+    transform: TransformSpecification = Field(
         ScalingSpecification(),
         discriminator='type',
     )
@@ -68,7 +80,10 @@ class PredictorSpecification(BaseModel):
 
     @property
     def raw_variables(self) -> list[str]:
-        variables = [self.name]
+        if hasattr(self.transform, 'from_column'):
+            variables = [self.transform.from_column]
+        else:
+            variables = [self.name]
         if self.random_effect:
             variables.append(self.random_effect)
         if self.transform.type == 'binning':
@@ -166,7 +181,7 @@ class ModelSpecification(BaseModel):
         return variables
 
     @property
-    def transform_map(self) -> dict[str, BinningSpecification | ScalingSpecification]:
+    def transform_map(self) -> dict[str, TransformSpecification]:
         transform_map = {
             predictor.name: predictor.transform for predictor in self.predictors
         }

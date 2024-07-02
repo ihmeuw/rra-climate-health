@@ -1,27 +1,12 @@
 version:
-  training_data: "2024_06_27.01"
+  training_data: "2024_07_01.01"
 measure: "stunting"
 holdout:
   type: "no_holdout"  
-# grid_predictors:
-#   x:
-#     name: "temp"
-#     transform:
-#       type: 'binning'
-#       category: "location"
-#       strategy: "quantiles"
-#       nbins: 10
-#   y:
-#     name: "ldi_pc_pd"
-#     transform:
-#       type: 'binning'
-#       category: "household"
-#       strategy: "quantiles"
-#       nbins: 10
 predictors:
   - name: "intercept"
     random_effect: "ihme_loc_id"
-  - name: "temp"
+  - name: "days_over_30C"
     transform:
       type: 'scaling'
       strategy: 'min_max'
@@ -29,5 +14,18 @@ predictors:
     transform:
       type: 'scaling'
       strategy: 'min_max'
+  - name: "elevation"
+    transform:
+      type: 'scaling'
+      strategy: 'min_max'
+  - name: "mean_temperature"
+    transform:
+      type: 'scaling'
+      strategy: 'min_max'
+  - name: "any_days_over_30C"
+    transform:
+      type: 'masking'
+      from_column: 'days_over_30C'
+      threshold: 0
 extra_terms:
-  - "temp * ldi_pc_pd"  
+  - "any_days_over_30C * ldi_pc_pd"
