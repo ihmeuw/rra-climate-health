@@ -7,7 +7,6 @@ import click
 import numpy as np
 import pandas as pd
 import rasterra as rt
-from rasterio.features import rasterize
 from rra_tools import jobmon
 import xarray as xr
 import tqdm
@@ -18,10 +17,6 @@ from spatial_temp_cgf.data_prep.location_mapping import FHS_SHAPE_PATH
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
 
-RASTER_TEMPLATE_PATH = Path('/mnt/team/rapidresponse/pub/population/data/01-raw-data/other-gridded-pop-projects/global-human-settlement-layer/1km_template.tif')
-LDIPC_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/admin2_ldipc_estimates.csv')
-
-
 
 def model_inference_main(
     output_dir: Path,    
@@ -30,10 +25,10 @@ def model_inference_main(
     cmip6_scenario: str,
     year: int,
 ) -> None:
-    cm_data = ClimateMalnutritionData(output_dir/ measure)
+    cm_data = ClimateMalnutritionData(output_dir / measure)
 
     print('loading raster template')
-    raster_template = rt.load_raster(RASTER_TEMPLATE_PATH)
+    raster_template = cm_data.load_raster_template()
     print('loading models')
     models = cm_data.load_model_family(model_version)
 
