@@ -106,12 +106,7 @@ def model_training_main(
 @click.command()
 @clio.with_output_root(DEFAULT_ROOT)
 @clio.with_measure()
-@click.option(
-    '--model-version',
-    '-v',
-    type=str,
-    required=True,
-)
+@clio.with_model_version()
 @clio.with_age_group_id()
 @clio.with_sex_id()
 def model_training_task(
@@ -153,6 +148,8 @@ def model_training(
     model_spec.version.model = model_version
     cm_data.save_model_specification(model_spec, model_version)
 
+    print('Runing model training for model version', model_version)
+
     jobmon.run_parallel(
         runner="sttask",
         task_name="training",
@@ -175,6 +172,8 @@ def model_training(
         max_attempts=1,
         log_root=str(version_root),
     )
+
+    print('Model training complete. Results can be found at', version_root)
 
 
 def extract_coefficients_from_model(model, model_spec):
