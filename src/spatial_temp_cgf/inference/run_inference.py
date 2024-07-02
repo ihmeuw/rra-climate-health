@@ -10,7 +10,7 @@ import geopandas as gpd
 
 from spatial_temp_cgf import utils
 from spatial_temp_cgf import cli_options as clio
-from spatial_temp_cgf.data import DEFAULT_ROOT, ClimateMalnutritionData
+
 from spatial_temp_cgf.model_specification import PredictorSpecification, ModelSpecification
 
 
@@ -169,7 +169,7 @@ def model_inference_main(
 
     print('saving results table')
     df = pd.DataFrame(out, columns=['location_id', 'age_group_id', 'sex_id', 'value'])
-    cm_data.save_results_table(df, model_version, cmip6_scenario, year)
+    cm_data.save_results_table(df, results_version, cmip6_scenario, year)
 
 
 @click.command()
@@ -233,8 +233,8 @@ def model_inference(
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "150Gb",
-            "runtime": "120m",
+            "memory": "90Gb",
+            "runtime": "240m",
             "project": "proj_rapidresponse",
         },
         max_attempts=1,
