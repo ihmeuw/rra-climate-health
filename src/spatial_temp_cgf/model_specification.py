@@ -10,6 +10,7 @@ class ScalingStrategy(StrEnum):
     IDENTITY = 'identity'
     MIN_MAX = 'min_max'
     STANDARDIZE = 'standardize'
+    INNER_NINETY_FIVE = 'inner_ninety_five'
 
 
 class ScalingSpecification(BaseModel):
