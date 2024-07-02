@@ -9,19 +9,19 @@ predictors:
   - name: "days_over_30C"
     transform:
       type: 'scaling'
-      strategy: 'min_max'
+      strategy: 'inner_ninety_five'
   - name: "ldi_pc_pd"
     transform:
       type: 'scaling'
-      strategy: 'min_max'
+      strategy: 'inner_ninety_five'
   - name: "elevation"
     transform:
       type: 'scaling'
-      strategy: 'min_max'
+      strategy: 'inner_ninety_five'
   - name: "mean_temperature"
     transform:
       type: 'scaling'
-      strategy: 'min_max'
+      strategy: 'inner_ninety_five'
   - name: "any_days_over_30C"
     transform:
       type: 'masking'
