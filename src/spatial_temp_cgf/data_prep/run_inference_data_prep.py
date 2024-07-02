@@ -55,6 +55,7 @@ def run_ldi_prep_main(
             (ldi.population_percentile == percentile) & (ldi.year_id == year)
         )
         ldi_pc_pd = ldi.loc[p_year_mask].set_index('location_id').ldi_pc_pd
+        ldi_pc_pd = ldi_pc_pd[~ldi_pc_pd.index.duplicated()]
         shapes = [(shape_map.loc[loc], ldi_pc_pd.loc[loc]) for loc in ldi_pc_pd.index]
         ldi_arr = rasterize(
             shapes,
@@ -96,7 +97,7 @@ def run_ldi_prep(output_root: str, year: list[str], queue: str) -> None:
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "20Gb",
+            "memory": "35Gb",
             "runtime": "1h",
             "project": "proj_rapidresponse",
         },
