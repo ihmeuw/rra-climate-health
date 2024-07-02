@@ -191,9 +191,16 @@ class ClimateMalnutritionData:
         touch(path, exist_ok=True)
         gdf.to_parquet(path)
 
-    def load_fhs_shapes(self) -> gpd.GeoDataFrame:
+    def load_fhs_shapes(self, most_detailed_only: bool = True) -> gpd.GeoDataFrame:
         path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs_most_detailed.parquet'
-        return gpd.read_parquet(path)
+        fhs_shapes = gpd.read_parquet(path)
+
+        if most_detailed_only:
+            hierarchy_path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs_hierarchy.parquet'
+            hierarchy = pd.read_parquet(hierarchy_path)
+            most_detailed_locs = hierarchy.loc[hierarchy.most_detailed == 1, 'location_id'].tolist()
+            fhs_shapes = fhs_shapes.loc[fhs_shapes.loc_id.isin(most_detailed_locs)]
+        return fhs_shapes
 
     def load_raster_template(self) -> rt.RasterArray:
         path = self._RAW_DATA_ROOT / 'other-gridded-pop-projects' / 'global-human-settlement-layer' / '1km_template.tif'
