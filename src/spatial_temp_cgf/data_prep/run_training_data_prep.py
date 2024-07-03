@@ -6,7 +6,8 @@ import numpy as np
 import xarray as xr
 import multiprocessing as mp
 from functools import partial
-
+import rioxarray
+import xarray as xr
 import spatial_temp_cgf.cli_options as clio
 from spatial_temp_cgf.data import ClimateMalnutritionData, DEFAULT_ROOT, get_run_directory
 from spatial_temp_cgf import paths
@@ -289,19 +290,8 @@ def run_training_data_prep_main(
     #climate_df = pd.concat([pd.read_parquet(f'/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi/cgf_climate_years/cgf_{year}.parquet') for year in range(1979, 2017)]).rename(columns={'year':'year_start'})
     cgf_consolidated = cgf_consolidated.merge(climate_df, on=['int_year', 'lat', 'long'], how='left')
 
-
-    # OUT_ROOT = Path("/mnt/team/rapidresponse/pub/population/data/02-processed-data/cgf_bmi")
-
-    # cgf_dfs = dict()
-    # geo_dfs = dict()
-    # cgf_measures = ['stunting', 'wasting']
-
-    # for measure in cgf_measures:
-    #     cgf_dfs[measure] = cgf_consolidated[cgf_consolidated[measure].notna()].copy()
-    #     cgf_dfs[measure]['cgf_measure'] = measure
-    #     cgf_dfs[measure]['cgf_value'] = cgf_dfs[measure][measure]
-    #     cgf_dfs[measure].to_parquet(OUT_ROOT / f"new_{measure}.parquet")
-    # cgf_consolidated.to_parquet(OUT_ROOT / f"cgf_all_measures.parquet")
+    print("Adding elevation data...")
+    cgf_consolidated = get_elevation_for_dataframe(cgf_consolidated)
 
     # Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
@@ -352,6 +342,23 @@ def get_climate_vars_for_dataframe(df:pd.DataFrame, lat_col = 'lat', long_col = 
     p.close()
     p.join()
     return results_df
+
+def get_elevation_for_dataframe(df:pd.DataFrame, lat_col = 'lat', long_col = 'long'):    
+    ELEVATION_FILEPATH = Path('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/srtm_elevation.tif')
+
+    unique_coords = df[[lat_col, long_col]].drop_duplicates()
+    elevation_ds = rioxarray.open_rasterio(ELEVATION_FILEPATH)
+    unique_coords['elevation'] = elevation_ds.sel(x=xr.DataArray(unique_coords.long, dims='z'), 
+        y=xr.DataArray(unique_coords.lat, dims='z'), 
+        band = 1, method='nearest').values
+        
+    unique_coords['elevation'] = unique_coords['elevation'].astype(int)
+    unique_coords.loc[unique_coords.elevation == -32768, 'elevation'] = 0
+
+    results_df = df.merge(unique_coords, on=[lat_col, long_col], how='left')
+    assert results_df['elevation'].notna().all()
+    return results_df
+
 
 
 def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_index_dhs', year_df_col = 'year_start'):
