@@ -347,8 +347,8 @@ def get_elevation_for_dataframe(df:pd.DataFrame, lat_col = 'lat', long_col = 'lo
 
     unique_coords = df[[lat_col, long_col]].drop_duplicates()
     elevation_ds = rioxarray.open_rasterio(ELEVATION_FILEPATH)
-    unique_coords['elevation'] = elevation.sel(x=xr.DataArray(unique_locs.long, dims='z'), 
-        y=xr.DataArray(unique_locs.lat, dims='z'), 
+    unique_coords['elevation'] = elevation_ds.sel(x=xr.DataArray(unique_coords.long, dims='z'), 
+        y=xr.DataArray(unique_coords.lat, dims='z'), 
         band = 1, method='nearest').values
         
     unique_coords['elevation'] = unique_coords['elevation'].astype(int)
