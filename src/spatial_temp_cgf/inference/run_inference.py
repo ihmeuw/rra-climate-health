@@ -59,9 +59,10 @@ def get_model_prevalence(
 ) -> rt.RasterArray:
     coefs = model.coefs['Estimate']
     ranefs = model.ranef
-
+    
     partial_estimates = {}
     for predictor in spec.predictors:
+        print(predictor.name)
         if predictor.name == 'ldi_pc_pd':
             continue  # deal with after
         elif predictor.name == 'intercept':
@@ -72,7 +73,7 @@ def get_model_prevalence(
             if predictor.random_effect:
                 msg = 'Random slopes not implemented'
                 raise NotImplementedError(msg)
-
+    
             if predictor.name == 'elevation':
                 v = cm_data.load_elevation()
             else:
@@ -83,7 +84,7 @@ def get_model_prevalence(
                 )
                 ds = cm_data.load_climate_raster(variable, cmip6_scenario, year)
                 v = utils.xarray_to_raster(ds, nodata=np.nan).resample_to(raster_template)
-
+    
             beta = coefs.loc[predictor.name]
             partial_estimates[predictor.name] = rt.RasterArray(
                 beta * np.array(model.var_info[predictor.name]['transformer'](v)),
@@ -91,32 +92,32 @@ def get_model_prevalence(
                 crs=v.crs,
                 no_data_value=np.nan,
             )
-
+    
     assert spec.extra_terms == ['any_days_over_30C * ldi_pc_pd']
-
+    
     beta_interaction = (
         coefs.loc['ldi_pc_pd:any_days_over_30C'] / coefs.loc['any_days_over_30C']
     )
     beta_ldi = (
         beta_interaction * partial_estimates['any_days_over_30C']
         + coefs.loc['ldi_pc_pd']
-    )
+    ).to_numpy()
     z_partial = sum(partial_estimates.values())
-
+    
     prevalence = 0
     for i in range(1, 11):
         print(i)
         ldi = cm_data.load_ldi(year, f"{i / 10.:.1f}")
-        ldi = rt.RasterArray(
-            model.var_info['ldi_pc_pd']['transformer'](ldi),
+        
+        z_ldi = rt.RasterArray(
+            beta_ldi * np.array(model.var_info['ldi_pc_pd']['transformer'](ldi)),
             transform=ldi.transform,
             crs=ldi.crs,
             no_data_value=np.nan,
         )
-        prevalence += 0.1 * 1 / (1 + np.exp(-z_partial - beta_ldi * ldi))
-
+        prevalence += 0.1 * 1 / (1 + np.exp(-(z_partial + z_ldi)))
+    
     return prevalence.astype(np.float32)
-
 
 def model_inference_main(
     output_dir: Path,    
@@ -130,8 +131,7 @@ def model_inference_main(
     spec = cm_data.load_model_specification(model_version)
     print('loading raster template and shapes')
     raster_template = cm_data.load_raster_template()
-    fhs_shapes = cm_data.load_fhs_shapes()
-    shape_map = fhs_shapes.set_index('loc_id').geometry.to_dict()
+    fhs_shapes = cm_data.load_fhs_shapes(most_detailed_only=False)        
     print("loading population")
     fhs_pop_raster = cm_data.load_population_raster().set_no_data_value(np.nan)
     print('loading models')
@@ -160,6 +160,7 @@ def model_inference_main(
         model_dict['prediction'] = model_prevalence
 
     print('Computing zonal statistics')
+    shape_map = fhs_shapes[fhs_shapes.most_detailed == 1].set_index('loc_id').geometry.to_dict()
     out = []
     for model_dict in models:
         count = model_dict['prediction'] * fhs_pop_raster
@@ -222,6 +223,7 @@ def model_inference(
     """Run model inference."""
     cm_data = ClimateMalnutritionData(Path(output_root) / measure)
     results_version = cm_data.new_results_version()
+    print(f"Running inference for {measure} using {model_version}. Results version: {results_version}")
 
     jobmon.run_parallel(
         runner="sttask",
@@ -246,3 +248,5 @@ def model_inference(
         max_attempts=1,
         log_root=str(cm_data.results / results_version),
     )
+
+    print(f"Inference complete, results can be found at {cm_data.results / results_version}")

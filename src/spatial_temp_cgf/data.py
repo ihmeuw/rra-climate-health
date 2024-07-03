@@ -194,12 +194,16 @@ class ClimateMalnutritionData:
     def load_fhs_shapes(self, most_detailed_only: bool = True) -> gpd.GeoDataFrame:
         path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs_most_detailed.parquet'
         fhs_shapes = gpd.read_parquet(path)
+        
+        hierarchy_path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs_hierarchy.parquet'
+        hierarchy = pd.read_parquet(hierarchy_path)
+        most_detailed_locs = hierarchy.loc[hierarchy.most_detailed == 1, 'location_id'].tolist()
+
+        fhs_shapes['most_detailed'] = 0
+        fhs_shapes.loc[fhs_shapes.loc_id.isin(most_detailed_locs), 'most_detailed'] = 1
 
         if most_detailed_only:
-            hierarchy_path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs_hierarchy.parquet'
-            hierarchy = pd.read_parquet(hierarchy_path)
-            most_detailed_locs = hierarchy.loc[hierarchy.most_detailed == 1, 'location_id'].tolist()
-            fhs_shapes = fhs_shapes.loc[fhs_shapes.loc_id.isin(most_detailed_locs)]
+            return fhs_shapes[fhs_shapes.most_detailed == 1].reset_index()
         return fhs_shapes
 
     def load_raster_template(self) -> rt.RasterArray:
