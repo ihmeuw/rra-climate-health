@@ -31,11 +31,11 @@ def get_intercept_raster(
         )
         icept_arr = rasterize(
             shapes,
-            out=icept*np.ones_like(raster_template),
+            out=np.zeros_like(raster_template),
             transform=raster_template.transform,
         )
         icept_raster = rt.RasterArray(
-            icept_arr,
+            icept + icept_arr,
             transform=raster_template.transform,
             crs=raster_template.crs,
             no_data_value=np.nan
