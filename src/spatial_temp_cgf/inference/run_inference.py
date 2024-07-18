@@ -47,6 +47,39 @@ def get_intercept_raster(
         raise NotImplementedError(msg)
     return icept_raster
 
+def get_nonspatial_predictor_raster(
+    pred_spec: PredictorSpecification,
+    pred_value: float,
+    coefs: pd.DataFrame,
+    ranefs: pd.DataFrame,
+    fhs_shapes: gpd.GeoDataFrame,
+    raster_template: rt.RasterArray,
+) -> rt.RasterArray:
+    var_fixef = coefs.loc[pred_spec.name]
+    if pred_spec.random_effect == 'ihme_loc_id':
+        shapes = list(
+            ranefs[pred_spec.name].reset_index()
+            .merge(fhs_shapes, left_on='index', right_on='ihme_lc_id', how='left')
+            .loc[:, ['geometry', pred_spec.name]]
+            .itertuples(index=False, name=None)
+        )
+        var_arr = rasterize(
+            shapes,
+            out=np.zeros_like(raster_template),
+            transform=raster_template.transform,
+        )
+        var_raster = rt.RasterArray(
+            var_fixef + var_arr,
+            transform=raster_template.transform,
+            crs=raster_template.crs,
+            no_data_value=np.nan
+        )
+    elif not pred_spec.random_effect:
+        var_raster = raster_template + var_fixef
+    else:
+        msg = 'Only location random intercepts are supported'
+        raise NotImplementedError(msg)
+    return var_raster * pred_value
 
 def get_model_prevalence(
     model,
@@ -68,6 +101,21 @@ def get_model_prevalence(
         elif predictor.name == 'intercept':
             partial_estimates[predictor.name] = get_intercept_raster(
                 predictor, coefs, ranefs, fhs_shapes, raster_template,
+            )
+        elif predictor.name == 'year_start': 
+            #For now. Gotta think of a way for this not to become a long list of if-elses
+            transformed_value = model.var_info[predictor.name]['transformer'](np.array([[year]]))[0][0]
+            partial_estimates[predictor.name] = get_nonspatial_predictor_raster(
+                predictor, transformed_value, 
+                coefs, ranefs, fhs_shapes, raster_template,
+            )
+        elif predictor.name == 'sdi':
+            sdi = cm_data.load_rasterized_variable(predictor.name, year)
+            partial_estimates[predictor.name] = rt.RasterArray(
+                coefs.loc['sdi'] * np.array(model.var_info['sdi']['transformer'](sdi)),
+                transform=sdi.transform,
+                crs=sdi.crs,
+                no_data_value=np.nan,
             )
         else:
             if predictor.random_effect:

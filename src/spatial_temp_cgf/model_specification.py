@@ -196,12 +196,20 @@ class ModelSpecification(BaseModel):
 
         predictors = [self.grid_predictors] if self.grid_predictors else []
         predictors += self.predictors
+        random_effects = dict()
         for predictor in predictors:
             if predictor.random_effect:
                 var_name = "1" if predictor.name == "intercept" else predictor.name
-                formula += f" ({var_name} | {predictor.random_effect}) +"
+                if predictor.random_effect in random_effects.keys():
+                    random_effects[predictor.random_effect].append(var_name)
+                else:
+                    random_effects[predictor.random_effect] = [var_name]
+                formula += f" {var_name}  +"
+                #formula += f" ({var_name} | {predictor.random_effect}) +"
             else:
                 formula += f" {predictor.name} +"
+        for random_effect, variables in random_effects.items():
+            formula += f" ({' + '.join(variables)} | {random_effect}) +"
         for term in self.extra_terms:
             formula += f" {term} +"
         formula = formula.rstrip(" +")
