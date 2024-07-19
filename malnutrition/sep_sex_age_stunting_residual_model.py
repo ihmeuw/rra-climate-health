@@ -108,6 +108,11 @@ prediction_results_sdi_re = []
 prediction_results_haq_fe = []
 prediction_results_haq_re = []
 
+in_sample_prediction_results_sdi_fe = []
+in_sample_prediction_results_sdi_re = []
+in_sample_prediction_results_haq_fe = []
+in_sample_prediction_results_haq_re = []
+
 for _, row in unique_combinations.iterrows():
     # Filtering the DataFrame for each unique combination
     temp_df = modeling_df[(modeling_df['age_group_id'] == row['age_group_id']) & 
@@ -118,6 +123,8 @@ for _, row in unique_combinations.iterrows():
     future_sdi_modeling_fe['predicted_residual_value_sdi'] = fe_sdi_model.predict(future_sdi_modeling_fe['sdi'])
     future_sdi_modeling_fe['age_group_id'] = row['age_group_id']
     future_sdi_modeling_fe['sex_id'] = row['sex_id']
+    future_sdi_modeling_fe_temp_df=temp_df.copy()
+    future_sdi_modeling_fe_temp_df['sdi_fe_predictions'] = fe_sdi_model.predict(future_sdi_modeling_fe_temp_df)
     ## MIXED LINEAR REGRESSION - RE on SDI AND RE (slope) on YEAR BY LOCATION
     sdi_year_model_formula = smf.mixedlm("residual_value ~ sdi", temp_df, groups=temp_df["location_id"], re_formula="~1 + year_id")
     fe_sdi_re_year_model = sdi_year_model_formula.fit()
@@ -125,12 +132,16 @@ for _, row in unique_combinations.iterrows():
     future_sdi_modeling_re['predicted_residual_value_sdi_year'] = fe_sdi_re_year_model.predict(future_sdi_modeling_re)
     future_sdi_modeling_re['age_group_id'] = row['age_group_id']
     future_sdi_modeling_re['sex_id'] = row['sex_id']
+    future_sdi_modeling_re_temp_df=temp_df.copy()
+    future_sdi_modeling_re_temp_df['sdi_re_predictions'] = fe_sdi_re_year_model.predict(future_sdi_modeling_re_temp_df)
     ## REGRESSION - RE on HAQI 
     fe_haq_model = smf.ols("residual_value ~ haq_value", data=temp_df).fit()
     print(fe_haq_model.summary())
     future_haq_modeling_fe['predicted_residual_value_haq'] = fe_haq_model.predict(future_haq_modeling_fe['haq_value'])
     future_haq_modeling_fe['age_group_id'] = row['age_group_id']
     future_haq_modeling_fe['sex_id'] = row['sex_id']
+    future_haq_modeling_fe_temp_df=temp_df.copy()
+    future_haq_modeling_fe_temp_df['haq_fe_predictions'] = fe_haq_model.predict(future_haq_modeling_fe_temp_df)
     ## MIXED LINEAR REGRESSION - RE on HAQI AND RE (slope) on YEAR BY LOCATION
     haq_year_model_formula = smf.mixedlm("residual_value ~ haq_value", temp_df, groups=temp_df["location_id"], re_formula="~1 + year_id")
     fe_haq_re_year_model = haq_year_model_formula.fit()
@@ -138,24 +149,44 @@ for _, row in unique_combinations.iterrows():
     future_haq_modeling_re['predicted_residual_value_haq_year'] = fe_haq_re_year_model.predict(future_haq_modeling_re)
     future_haq_modeling_re['age_group_id'] = row['age_group_id']
     future_haq_modeling_re['sex_id'] = row['sex_id']
-    
+    future_haq_modeling_re_temp_df=temp_df.copy()
+    future_haq_modeling_re_temp_df['haq_re_predictions'] = fe_haq_re_year_model.predict(future_haq_modeling_re_temp_df)
+
     # Store the predictions for both SDI and HAQI
     prediction_results_sdi_fe.append(future_sdi_modeling_fe[['location_id', 'year_id', 'age_group_id', 'sex_id', 'sdi', 'predicted_residual_value_sdi']])
     prediction_results_sdi_re.append(future_sdi_modeling_re[['location_id', 'year_id', 'age_group_id', 'sex_id', 'sdi', 'predicted_residual_value_sdi_year']])
     prediction_results_haq_fe.append(future_haq_modeling_fe[['location_id', 'year_id', 'age_group_id', 'sex_id', 'haq_value', 'predicted_residual_value_haq']])
     prediction_results_haq_re.append(future_haq_modeling_re[['location_id', 'year_id', 'age_group_id', 'sex_id', 'haq_value', 'predicted_residual_value_haq_year']])
+
+    in_sample_prediction_results_sdi_fe.append(future_sdi_modeling_fe_temp_df[['location_id', 'year_id', 'age_group_id', 'sex_id', 'sdi', 'sdi_fe_predictions']])
+    in_sample_prediction_results_sdi_re.append(future_sdi_modeling_re_temp_df[['location_id', 'year_id', 'age_group_id', 'sex_id', 'sdi', 'sdi_re_predictions']])
+    in_sample_prediction_results_haq_fe.append(future_haq_modeling_fe_temp_df[['location_id', 'year_id', 'age_group_id', 'sex_id', 'haq_value', 'haq_fe_predictions']])
+    in_sample_prediction_results_haq_re.append(future_haq_modeling_re_temp_df[['location_id', 'year_id', 'age_group_id', 'sex_id', 'haq_value', 'haq_re_predictions']])
+
 prediction_results_sdi_fe = pd.concat(prediction_results_sdi_fe, ignore_index=True)
 prediction_results_sdi_re = pd.concat(prediction_results_sdi_re, ignore_index=True)
 prediction_results_haq_fe = pd.concat(prediction_results_haq_fe, ignore_index=True)
 prediction_results_haq_re = pd.concat(prediction_results_haq_re, ignore_index=True)
+
+in_sample_prediction_results_sdi_fe = pd.concat(in_sample_prediction_results_sdi_fe, ignore_index=True)
+in_sample_prediction_results_sdi_re = pd.concat(in_sample_prediction_results_sdi_re, ignore_index=True)
+in_sample_prediction_results_haq_fe = pd.concat(in_sample_prediction_results_haq_fe, ignore_index=True)
+in_sample_prediction_results_haq_re = pd.concat(in_sample_prediction_results_haq_re, ignore_index=True)
+
 full_predictions_sdi = pd.merge(prediction_results_sdi_fe, prediction_results_sdi_re, on=['location_id', 'year_id', 'age_group_id', 'sex_id', 'sdi'], how='inner')
 full_predictions_haq = pd.merge(prediction_results_haq_fe, prediction_results_haq_re, on=['location_id', 'year_id', 'age_group_id', 'sex_id', 'haq_value'], how='inner')
+
+in_sample_full_predictions_sdi = pd.merge(in_sample_prediction_results_sdi_fe, in_sample_prediction_results_sdi_re, on=['location_id', 'year_id', 'age_group_id', 'sex_id', 'sdi'], how='inner')
+in_sample_full_predictions_haq = pd.merge(in_sample_prediction_results_haq_fe, in_sample_prediction_results_haq_re, on=['location_id', 'year_id', 'age_group_id', 'sex_id', 'haq_value'], how='inner')
 
 future_sdi_modeling = pd.merge(full_predictions_sdi, model_df, on=['location_id', 'year_id', 'sex_id', 'age_group_id'], how='inner')
 future_haq_modeling = pd.merge(full_predictions_haq, model_df, on=['location_id', 'year_id', 'sex_id', 'age_group_id'], how='inner')
 
+past_sdi_modeling = pd.merge(in_sample_full_predictions_sdi, gbd_model_df, on=['location_id', 'year_id', 'sex_id', 'age_group_id'], how='inner')
+past_haq_modeling = pd.merge(in_sample_full_predictions_haq, gbd_model_df, on=['location_id', 'year_id', 'sex_id', 'age_group_id'], how='inner')
+
 ## PLOTTING 
-plot_df=pd.concat([future_sdi_modeling, gbd_model_df])
+plot_df=pd.concat([future_sdi_modeling, past_sdi_modeling])
 plot_df=pd.merge(plot_df, locs_meta[['location_id', 'location_name']], on='location_id', how='inner')
 plot_path=f'/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/plot/diagnostic_plots/stunting_wasting_model_gbd_comparison/model_predictions/stunting/stunting_sdi_{PLOT_VERSION}.pdf'
 # Timeseries plotting
@@ -167,8 +198,8 @@ with PdfPages(plot_path) as pdf:
         df_location = df_location.sort_values(by='year_id')
 
         # Calculate local min and max values for setting the y-axis scale for all subplots on this page
-        local_min = df_location[['gbd_value', 'model_value', 'residual_value', 'predicted_residual_value_sdi', 'predicted_residual_value_sdi_year']].min().min()
-        local_max = df_location[['gbd_value', 'model_value', 'residual_value', 'predicted_residual_value_sdi', 'predicted_residual_value_sdi_year']].max().max()
+        local_min = df_location[['gbd_value', 'model_value', 'residual_value', 'sdi', 'predicted_residual_value_sdi_year']].min().min()
+        local_max = df_location[['gbd_value', 'model_value', 'residual_value',  'sdi', 'predicted_residual_value_sdi_year']].max().max()
 
         # Add a padding to ensure lines aren't cut off
         padding = (local_max - local_min) * 0.05  # 5% padding
@@ -196,13 +227,14 @@ with PdfPages(plot_path) as pdf:
 
                 # Plot model_value, gbd_value, residual_value, and predicted values
                 ax.plot(df_plot['year_id'], df_plot['model_value'], color='green', label='Model Value')
-                #ax.plot(df_plot['year_id'], df_plot['sdi'], color='black', label='SDI')
+                ax.plot(df_plot['year_id'], df_plot['sdi'], color='black', label='SDI')
                 ax.plot(df_plot['year_id'], df_plot['gbd_value'], color='blue', label='GBD Value')
                 filtered_df_plot = df_plot[df_plot['year_id'] <= 2023]
                 ax.plot(filtered_df_plot['year_id'], filtered_df_plot['residual_value'], color='red', label='Residual Value')
+                ax.plot(filtered_df_plot['year_id'], filtered_df_plot['sdi_re_predictions'], 'r--', label='Predicted (in-sample) Residual : FE SDI & RE Year per loc (intercept+slope)')
                 future_df_plot = df_plot[df_plot['year_id'] >= 2024]
                 if not future_df_plot.empty:
-                    ax.plot(future_df_plot['year_id'], future_df_plot['predicted_residual_value_sdi'], 'r:', label='Predicted Residual : FE SDI')
+                    #ax.plot(future_df_plot['year_id'], future_df_plot['predicted_residual_value_sdi'], 'r:', label='Predicted Residual : FE SDI')
                     ax.plot(future_df_plot['year_id'], future_df_plot['predicted_residual_value_sdi_year'], 'r--', label='Predicted Residual : FE SDI & RE Year per loc (intercept+slope)')
                     #ax.plot(future_df_plot['year_id'], future_df_plot['sdi'], color='black')
                 ax.axvline(x=2023, color='black', linestyle='-', linewidth=1)
@@ -216,7 +248,7 @@ with PdfPages(plot_path) as pdf:
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
         handles, labels = [], []
-        for value_column, color, linestyle in zip(['gbd_value', 'model_value', 'residual_value', 'predicted_residual_value_sdi', 'predicted_residual_value_sdi_year'], ['blue', 'green', 'red', 'red', 'red'], ['-', '-', '-', ':', '--']):
+        for value_column, color, linestyle in zip(['GBD Estimate', 'Victor Model Estimate', 'Residual Value',  'FE on SDI + Random intercept/slope on year per location', 'sdi'], ['blue', 'green', 'red',  'red', 'black'], ['-', '-', '-', '--', '-']):
             handles.append(plt.Line2D([0], [0], color=color, linestyle=linestyle, linewidth=2))
             labels.append(value_column)
 
@@ -224,7 +256,7 @@ with PdfPages(plot_path) as pdf:
         pdf.savefig(fig)
         plt.close(fig)
 
-plot_df=pd.concat([future_haq_modeling, gbd_model_df])
+plot_df=pd.concat([future_haq_modeling, past_haq_modeling])
 plot_df=pd.merge(plot_df, locs_meta[['location_id', 'location_name']], on='location_id', how='inner')
 plot_path=f'/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/plot/diagnostic_plots/stunting_wasting_model_gbd_comparison/model_predictions/stunting/stunting_haqi_{PLOT_VERSION}.pdf'
 # Timeseries plotting
@@ -236,8 +268,8 @@ with PdfPages(plot_path) as pdf:
         df_location = df_location.sort_values(by='year_id')
 
         # Calculate local min and max values for setting the y-axis scale for all subplots on this page
-        local_min = df_location[['gbd_value', 'model_value', 'residual_value', 'predicted_residual_value_haq', 'predicted_residual_value_haq_year']].min().min()
-        local_max = df_location[['gbd_value', 'model_value', 'residual_value', 'predicted_residual_value_haq', 'predicted_residual_value_haq_year']].max().max()
+        local_min = df_location[['gbd_value', 'model_value', 'residual_value', 'haq_value', 'predicted_residual_value_haq_year']].min().min()
+        local_max = df_location[['gbd_value', 'model_value', 'residual_value', 'haq_value', 'predicted_residual_value_haq_year']].max().max()
 
         # Add a padding to ensure lines aren't cut off
         padding = (local_max - local_min) * 0.05  # 5% padding
@@ -264,15 +296,16 @@ with PdfPages(plot_path) as pdf:
 
                 # Plot model_value, gbd_value, residual_value, and predicted values
                 ax.plot(df_plot['year_id'], df_plot['model_value'], color='green', label='Model Value')
-                #ax.plot(df_plot['year_id'], df_plot['haq_value'], color='black', label='HAQI')
+                ax.plot(df_plot['year_id'], df_plot['haq_value'], color='black', label='HAQI')
                 ax.plot(df_plot['year_id'], df_plot['gbd_value'], color='blue', label='GBD Value')
                 filtered_df_plot = df_plot[df_plot['year_id'] <= 2023]
                 ax.plot(filtered_df_plot['year_id'], filtered_df_plot['residual_value'], color='red', label='Residual Value')
+                ax.plot(filtered_df_plot['year_id'], filtered_df_plot['haq_re_predictions'], 'r--', label='Predicted (in-sample) Residual : FE HAQI & RE Year per loc (intercept+slope)')
                 future_df_plot = df_plot[df_plot['year_id'] >= 2024]
                 if not future_df_plot.empty:
-                    ax.plot(future_df_plot['year_id'], future_df_plot['predicted_residual_value_haq'], 'r:', label='Predicted Residual : FE HAQI')
+                    #ax.plot(future_df_plot['year_id'], future_df_plot['predicted_residual_value_sdi'], 'r:', label='Predicted Residual : FE SDI')
                     ax.plot(future_df_plot['year_id'], future_df_plot['predicted_residual_value_haq_year'], 'r--', label='Predicted Residual : FE HAQI & RE Year per loc (intercept+slope)')
-                    #ax.plot(future_df_plot['year_id'], future_df_plot['haq_value'], color='black')
+                    #ax.plot(future_df_plot['year_id'], future_df_plot['sdi'], color='black')
                 ax.axvline(x=2023, color='black', linestyle='-', linewidth=1)
                 ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='lightgrey')
                 ax.set_ylim(local_min, local_max)
@@ -284,39 +317,10 @@ with PdfPages(plot_path) as pdf:
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
         handles, labels = [], []
-        for value_column, color, linestyle in zip(['gbd_value', 'model_value', 'residual_value', 'predicted_residual_value_haq', 'predicted_residual_value_haq_year'], ['blue', 'green', 'red', 'red', 'red'], ['-', '-', '-', ':', '--']):
+        for value_column, color, linestyle in zip(['GBD Estimate', 'Victor Model Estimate', 'Residual Value',  'FE on HAQI + Random intercept/slope on year per location', 'haqi'], ['blue', 'green', 'red',  'red', 'black'], ['-', '-', '-', '--', '-']):
             handles.append(plt.Line2D([0], [0], color=color, linestyle=linestyle, linewidth=2))
             labels.append(value_column)
 
         fig.legend(handles, labels, loc='lower center', ncol=5, frameon=False)
         pdf.savefig(fig)
         plt.close(fig)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
