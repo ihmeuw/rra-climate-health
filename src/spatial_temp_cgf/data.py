@@ -236,13 +236,13 @@ class ClimateMalnutritionData:
         return rt.load_raster(path).set_no_data_value(np.nan)
 
     def load_climate_raster(self, variable: str, scenario: str, year: int | str) -> xr.DataArray:
-        filename = f"{year}.nc"
-        if scenario == 'constant_climate' and year >= 2024:
-            filename = '2024.nc'
-            scenario_folder = 'ssp245'
+        year_selected = year
         scenario_folder = 'historical' if year < 2024 else scenario
-        path = self._CLIMATE_DATA_ROOT / scenario_folder / variable / filename
-        return xr.open_dataset(path).sel(year=year)['value']
+        if scenario == 'constant_climate' and year >= 2024:
+            year_selected = 2024
+            scenario_folder = 'ssp245'
+        path = self._CLIMATE_DATA_ROOT / scenario_folder / variable / f"{year_selected}.nc"
+        return xr.open_dataset(path).sel(year=year_selected)['value']
 
 
 def get_run_directory(output_root: str | Path) -> Path:
