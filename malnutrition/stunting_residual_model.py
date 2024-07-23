@@ -20,7 +20,8 @@ locs_meta=get_location_metadata(
     location_set_id=35, 
     release_id=GBD_RELEASE_ID
 )
-PLOT_VERSION="20240722_attentuated"
+RESID_PLOT_VERSION="20240722_attentuated"
+RESID_PLUS_MODEL_PLOT_VERSION="20240722_combined"
 
 ## POPULATION - Goalkeepers ETL'd
 gbd_pop_da = xr.open_dataset('/mnt/share/forecasting/data/9/past/population/20240517_etl_gbd_9/population.nc')
@@ -113,7 +114,6 @@ def calculate_year_scale(year):
 
 # Apply this function to your DataFrame
 modeling_df['year_scale'] = modeling_df['year_id'].apply(calculate_year_scale)
-#future_sdi_modeling_nte['year_scale'] = future_sdi_modeling_nte['year_id'].apply(calculate_year_scale)
 future_sdi_modeling_te['year_scale'] = future_sdi_modeling_te['year_id'].apply(calculate_year_scale)
 
 ##MODELING
@@ -124,22 +124,24 @@ predicted_values = no_time_effect_model.predict(future_sdi_modeling_nte)
 future_sdi_modeling_nte['predicted_residual_no_time_effect'] = predicted_values
 
 ## REGRESSION - RE on SDI + Interaction on location + location*year (without main effect of year by itself) + location*age*sex (TIME EFFECT)
-time_effect_model = smf.ols("residual_value ~ sdi + C(location_id) + (C(location_id):year_id) * year_scale + C(location_id)*C(age_group_id)*C(sex_id)", data=modeling_df).fit()
+modeling_df['time_id'] = (modeling_df['year_id'] - 2100)/100
+time_effect_model = smf.ols("residual_value ~ sdi + C(location_id) + C(location_id):time_id + C(location_id)*C(age_group_id)*C(sex_id)", data=modeling_df).fit()
 print(time_effect_model.summary())
+#future_sdi_modeling_te['year_backup'] = future_sdi_modeling_te['year_id']
+future_sdi_modeling_te['time_id'] = ((future_sdi_modeling_te['year_id'] - 2100)/100 ) * future_sdi_modeling_te['year_scale']
 predicted_values = time_effect_model.predict(future_sdi_modeling_te)
+#future_sdi_modeling_te = future_sdi_modeling_te.rename(columns={"year_backup": "year_id"})
 future_sdi_modeling_te['predicted_residual_time_effect'] = predicted_values
 
 ## combine predicted datasets
-future_sdi_modeling_df=pd.merge(future_sdi_modeling_nte, future_sdi_modeling_te, on=['location_id', 'year_id', 'sdi', 'sex_id','age_group_id'], how='inner')
-
-#add in model_value to future_sdi_modeling and future_haq_modeling
-future_sdi_modeling=pd.merge(future_sdi_modeling_df, model_df, on=['location_id', 'year_id', 'sex_id','age_group_id'], how='inner')
+future_sdi_modeling=pd.merge(future_sdi_modeling_nte, future_sdi_modeling_te, on=['location_id',  'sdi', 'sex_id', 'age_group_id',  'year_id'], how='inner')
+future_sdi_modeling_df=pd.merge(future_sdi_modeling, model_df, on=['location_id',  'sex_id', 'age_group_id',  'year_id'], how='inner')
 
 
 ## PLOTTING 
-plot_df=pd.concat([future_sdi_modeling, modeling_df])
+plot_df=pd.concat([future_sdi_modeling_df, modeling_df])
 plot_df=pd.merge(plot_df, locs_meta[['location_id', 'location_name']], on='location_id', how='inner')
-plot_path=f'/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/plot/diagnostic_plots/stunting_wasting_model_gbd_comparison/model_predictions/stunting/stunting_sdi_{PLOT_VERSION}.pdf'
+plot_path=f'/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/plot/diagnostic_plots/stunting_wasting_model_gbd_comparison/model_predictions/stunting/stunting_sdi_{RESID_PLOT_VERSION}.pdf'
 # Timeseries plotting
 with PdfPages(plot_path) as pdf:
     for location in plot_df['location_id'].unique():
@@ -182,6 +184,8 @@ with PdfPages(plot_path) as pdf:
                 ax.plot(df_plot['year_id'], df_plot['gbd_value'], color='blue', label='GBD Value')
                 filtered_df_plot = df_plot[df_plot['year_id'] <= 2023]
                 ax.plot(filtered_df_plot['year_id'], filtered_df_plot['residual_value'], color='red', label='Residual Value')
+                #ax.plot(filtered_df_plot['year_id'], filtered_df_plot['predicted_residual_no_time_effect_in_sample'],  color='red', linestyle=':')
+                #ax.plot(filtered_df_plot['year_id'], filtered_df_plot['predicted_residual_time_effect_in_sample'],  color='red', linestyle='-.')
                 #ax.plot(filtered_df_plot['year_id'], filtered_df_plot['sdi_re_predictions'], 'r--', label='Predicted (in-sample) Residual : FE SDI & RE Year per loc (intercept+slope)')
                 future_df_plot = df_plot[df_plot['year_id'] >= 2024]
                 if not future_df_plot.empty:
@@ -199,10 +203,89 @@ with PdfPages(plot_path) as pdf:
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
         handles, labels = [], []
-        for value_column, color, linestyle in zip(['GBD Estimate', 'Victor Model Estimate', 'Residual Value', 'FE on SDI + IE on location*sdi and location*age*sex', 'FE on SDI + IE on location + location:year*year_scale + location*age*sex'], ['blue', 'green', 'red', 'red', 'red'], ['-', '-', '-',  ':', '-.']):
+        for value_column, color, linestyle in zip(['GBD Estimate', 'Victor Model Estimate', 'Residual Value', 'FE on SDI + IE on location*sdi and location*age*sex', 'FE on SDI + IE on location and location:year and location*age*sex (attenuated)'], ['blue', 'green', 'red', 'red', 'red'], ['-', '-', '-',  ':', '-.']):
             handles.append(plt.Line2D([0], [0], color=color, linestyle=linestyle, linewidth=2))
             labels.append(value_column)
 
         fig.legend(handles, labels, loc='lower center', ncol=3, frameon=False)
         pdf.savefig(fig)
         plt.close(fig)
+
+plot_df['residual_val_nte'] = plot_df['residual_value'].combine_first(plot_df['predicted_residual_no_time_effect'])
+plot_df['residual_val_te'] = plot_df['residual_value'].combine_first(plot_df['predicted_residual_time_effect'])
+plot_df=plot_df[['location_id', 'year_id', 'sdi', 'sex_id','age_group_id', 'model_value', 'gbd_value', 'location_name', 'residual_val_nte', 'residual_val_te' ]]
+plot_df['model_val_plus_resid_te'] = plot_df['model_value'] + plot_df['residual_val_te']
+plot_df['model_val_plus_resid_nte'] = plot_df['model_value'] + plot_df['residual_val_nte']
+
+#file_path = '/mnt/share/scratch/users/victorvt/for/ncorto/20240722_stunting_residuals.csv'
+#plot_df.to_csv(file_path, index=False) 
+
+# Plot residual + victor model value 
+plot_path=f'/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/plot/diagnostic_plots/stunting_wasting_model_gbd_comparison/model_predictions/stunting/stunting_sdi_{RESID_PLUS_MODEL_PLOT_VERSION}.pdf'
+# Timeseries plotting
+with PdfPages(plot_path) as pdf:
+    for location in plot_df['location_id'].unique():
+        df_location = plot_df[plot_df['location_id'] == location]
+
+        # Ensure df_location is sorted by year_id
+        df_location = df_location.sort_values(by='year_id')
+
+        # Calculate local min and max values for setting the y-axis scale for all subplots on this page
+        local_min = df_location[['gbd_value', 'model_value', 'residual_val_te', 'residual_val_nte', 'model_val_plus_resid_te', 'model_val_plus_resid_nte']].min().min()
+        local_max = df_location[['gbd_value', 'model_value', 'residual_val_te', 'residual_val_nte', 'model_val_plus_resid_te', 'model_val_plus_resid_nte']].max().max()
+
+        # Add a padding to ensure lines aren't cut off
+        padding = (local_max - local_min) * 0.05  # 5% padding
+        local_min -= padding
+        local_max += padding
+
+        # Setup a figure for the current location
+        fig, axs = plt.subplots(2, 2, figsize=(15, 10))
+        location_name = df_location.get('location_name', 'Unknown Location').iloc[0]
+        fig.suptitle(f'Stunting Joint Model : Residual Models + Stunting Model\nLocation : {location_name}', fontsize=16)
+
+        # Counter for subplot index
+        plot_count = 0
+
+        for sex_id in [1, 2]:
+            for age_group_id in [4, 5]:
+                ax = axs[plot_count // 2, plot_count % 2]
+                plot_count += 1
+
+                # Sort df_plot by year_id
+                df_plot = df_location[(df_location['sex_id'] == sex_id) & (df_location['age_group_id'] == age_group_id)].sort_values(by='year_id')
+
+                sex_label = "Male" if sex_id == 1 else "Female"
+                age_group_label = "Post Neonatal" if age_group_id == 4 else "1 to 4"
+
+                # Plot model_value, gbd_value, residual_value, and predicted values
+                ax.plot(df_plot['year_id'], df_plot['model_value'], color='green', label='Model Value')
+                ax.plot(df_plot['year_id'], df_plot['gbd_value'], color='blue', label='GBD Value')
+                ax.plot(df_plot['year_id'], df_plot['model_val_plus_resid_nte'], 'k:', label='Model Value + Residual Value (no time effect)')
+                ax.plot(df_plot['year_id'], df_plot['model_val_plus_resid_te'], 'k-.', label='Model Value + Residual Value (time effect)')
+                filtered_df_plot = df_plot[df_plot['year_id'] <= 2023]
+                ax.plot(filtered_df_plot['year_id'], filtered_df_plot['residual_val_nte'], color='red', label='Residual Value (no time effect)')
+                ax.plot(filtered_df_plot['year_id'], filtered_df_plot['residual_val_te'], color='red', label='Residual Value (time effect)')
+                future_df_plot = df_plot[df_plot['year_id'] >= 2024]
+                if not future_df_plot.empty:
+                    ax.plot(future_df_plot['year_id'], future_df_plot['residual_val_nte'], 'r:', label='Residual Value (no time effect)')
+                    ax.plot(future_df_plot['year_id'], future_df_plot['residual_val_te'], 'r-.', label='Residual Value (time effect)')
+                ax.axvline(x=2023, color='black', linestyle='-', linewidth=1)
+                ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='lightgrey')
+                ax.set_ylim(local_min, local_max)
+                ax.set_title(f'Sex: {sex_label}, Age Group: {age_group_label}')
+                ax.set_xlabel('Year')
+                ax.set_ylabel('Value')
+                #ax.legend()
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+        handles, labels = [], []
+        for value_column, color, linestyle in zip(['Model Value', 'GBD Value', 'Model Value + Residual Value (no time effect)', 'Model Value + Residual Value (time effect)', 'Residual Value (no time effect)', 'Residual Value (time effect)'], ['green', 'blue', 'black', 'black', 'red', 'red'], ['-', '-', ':', '-.', ':', '-.']):
+            handles.append(plt.Line2D([0], [0], color=color, linestyle=linestyle, linewidth=2))
+            labels.append(value_column)
+
+        fig.legend(handles, labels, loc='lower center', ncol=3, frameon=False)
+        pdf.savefig(fig)
+        plt.close(fig)
+
