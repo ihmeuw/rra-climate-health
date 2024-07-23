@@ -193,6 +193,7 @@ plot_df['residual_val_te'] = plot_df['residual_value'].combine_first(plot_df['pr
 plot_df=plot_df[['location_id', 'year_id', 'sdi', 'sex_id','age_group_id', 'model_value', 'gbd_value', 'location_name', 'residual_val_nte', 'residual_val_te' ]]
 plot_df['model_val_plus_resid_te'] = plot_df['model_value'] + plot_df['residual_val_te']
 plot_df['model_val_plus_resid_nte'] = plot_df['model_value'] + plot_df['residual_val_nte']
+plot_df.to_csv('/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/child_malnutrition/stunting_residual_victor_combined/stunting_residual_model_combined.csv', index=False)
 '''
 # SIGN FLIP CHECK FOR TREND SWITCH 
 def calculate_trends(group):
