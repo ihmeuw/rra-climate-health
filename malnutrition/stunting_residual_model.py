@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
-from db_queries import get_model_results, get_location_metadata, get_population, get_covariate_estimates
+from db_queries import get_model_results, get_location_metadata, get_population, get_covariate_estimates, get_age_metadata
 from get_draws.api import get_draws
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -14,17 +14,34 @@ from patsy import dmatrix
 ## CONSTANTS 
 GBD_RELEASE_ID=16
 SDG_RELEASE_ID=27
+POP_RUN_ID=374
 NONFORECASTED_YEARS=list(range(1950, 2024, 1))
 locs_meta=get_location_metadata(
     location_set_id=35, 
-    release_id=GBD_RELEASE_ID
+    release_id=SDG_RELEASE_ID
 )
-RESID_PLOT_VERSION="20240722_attentuated_V2"
-RESID_PLUS_MODEL_PLOT_VERSION="20240722_combined"
+locs_meta=locs_meta[['location_id', 'location_name']]
+new_row = pd.DataFrame({
+    'location_id': [44858],
+    'location_name': ["Southern Nations, Nationalities, and Peoples with Sidama and South West Regions"]
+})
+locs_meta = locs_meta.append(new_row, ignore_index=True)
+RESID_PLOT_VERSION="20240724_attentuated_V2"
+RESID_PLUS_MODEL_PLOT_VERSION="20240724_combined"
 
 ## POPULATION - Goalkeepers ETL'd
+'''
 gbd_pop_da = xr.open_dataset('/mnt/share/forecasting/data/9/past/population/20240517_etl_gbd_9/population.nc')
 gbd_pop = gbd_pop_da.to_dataframe().reset_index()
+'''
+gbd_pop = get_population(
+    age_group_id=[34, 238, 388, 389], 
+    year_id=NONFORECASTED_YEARS, 
+    release_id=SDG_RELEASE_ID, 
+    sex_id=[1,2], 
+    location_id="all", 
+    run_id=POP_RUN_ID
+)
 
 ## MODEL RESULTS - Victor's Wasting 
 file_name='stunting_2024_07_12.08'
@@ -51,7 +68,18 @@ sdgs_df = pd.melt(
     var_name="draw",
 )
 stunting = sdgs_df.groupby(["location_id", "year_id", "age_group_id", "sex_id"]).agg({"value":"mean"}).reset_index()
-stunting_df=pd.merge(stunting, gbd_pop, on=["location_id", "year_id", "sex_id", "age_group_id"], how="inner")
+stunting_data=pd.merge(stunting, gbd_pop, on=["location_id", "year_id", "sex_id", "age_group_id"], how="inner")
+#create 44858 location aggregate from 60908, 95069, and 94364
+gbd_pop_df_44858=stunting_data[stunting_data["location_id"].isin([60908, 95069, 94364])]
+gbd_pop_df_44858["value_count"]=gbd_pop_df_44858["value"]*gbd_pop_df_44858["population"]
+gbd_pop_df_44858=gbd_pop_df_44858.groupby(["age_group_id","year_id", "sex_id", "run_id"]).agg({"value_count":"sum", "population":"sum"}).reset_index() 
+gbd_pop_df_44858["value"]=gbd_pop_df_44858["value_count"]/gbd_pop_df_44858["population"]
+#drop column value
+gbd_pop_df_44858=gbd_pop_df_44858.drop(columns=["value_count"])
+gbd_pop_df_44858["location_id"]=44858
+gbd_pop_df_not_44858=stunting_data[~stunting_data["location_id"].isin([60908, 95069, 94364])]
+stunting_df=pd.concat([gbd_pop_df_44858, gbd_pop_df_not_44858])
+
 #age_group_4
 stunting_age_group_4 = stunting_df[stunting_df["age_group_id"].isin([388, 389])]
 stunting_age_group_4["value_count"] = stunting_age_group_4["value"] * stunting_age_group_4["population"]
@@ -85,7 +113,6 @@ gbd_model_df['residual_value'] = gbd_model_df['gbd_value'] - gbd_model_df['model
 effects_df=sdi_df[sdi_df["location_id"].isin(gbd_model_df["location_id"].unique())]
 modeling_df=pd.merge(gbd_model_df, effects_df, on=['location_id', 'year_id'], how='inner')
 # DROP LOCATION_ID = 44585 BECAUSE WE DO NOT HAVE A GBD Estimate for it
-modeling_df=modeling_df[modeling_df["location_id"]!=44858]
 modeling_locs=list(modeling_df["location_id"].unique())
 combinations_df = pd.DataFrame({
     'sex_id': [1, 1, 2, 2],
@@ -130,7 +157,7 @@ future_sdi_modeling_df=pd.merge(future_sdi_modeling, model_df, on=['location_id'
 
 ## PLOTTING 
 plot_df=pd.concat([future_sdi_modeling_df, modeling_df])
-plot_df=pd.merge(plot_df, locs_meta[['location_id', 'location_name']], on='location_id', how='inner')
+plot_df=pd.merge(plot_df, locs_meta, on='location_id', how='inner')
 plot_path=f'/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/plot/diagnostic_plots/stunting_wasting_model_gbd_comparison/model_predictions/stunting/stunting_sdi_{RESID_PLOT_VERSION}.pdf'
 # Timeseries plotting
 with PdfPages(plot_path) as pdf:
@@ -193,6 +220,11 @@ plot_df['residual_val_te'] = plot_df['residual_value'].combine_first(plot_df['pr
 plot_df=plot_df[['location_id', 'year_id', 'sdi', 'sex_id','age_group_id', 'model_value', 'gbd_value', 'location_name', 'residual_val_nte', 'residual_val_te' ]]
 plot_df['model_val_plus_resid_te'] = plot_df['model_value'] + plot_df['residual_val_te']
 plot_df['model_val_plus_resid_nte'] = plot_df['model_value'] + plot_df['residual_val_nte']
+plot_df.to_csv('/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/child_malnutrition/stunting_residual_victor_combined/stunting_residual_model_combined_with_44858.csv', index=False)
+
+#convert to datarray and save as an .nc file 
+
+
 '''
 # SIGN FLIP CHECK FOR TREND SWITCH 
 def calculate_trends(group):
