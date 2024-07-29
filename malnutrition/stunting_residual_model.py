@@ -26,8 +26,9 @@ new_row = pd.DataFrame({
     'location_name': ["Southern Nations, Nationalities, and Peoples with Sidama and South West Regions"]
 })
 locs_meta = locs_meta.append(new_row, ignore_index=True)
-RESID_PLOT_VERSION="20240724_attentuated_V2"
-RESID_PLUS_MODEL_PLOT_VERSION="20240724_combined"
+RESID_PLOT_VERSION="20240725_attentuated_V2"
+RESID_PLUS_MODEL_PLOT_VERSION="20240725_combined"
+MODEL_RESULT_OUTPUT_CSV="20240725_stunting_residual_model"
 
 ## POPULATION - Goalkeepers ETL'd
 '''
@@ -123,6 +124,7 @@ combinations_df['key'] = 1
 effects_df = pd.merge(effects_df, combinations_df, on='key')
 effects_df.drop('key', axis=1, inplace=True)
 future_sdi_modeling_nte=effects_df[effects_df["year_id"]>2023]
+future_sdi_modeling_nte_nsdi=effects_df[effects_df["year_id"]>2023]
 future_sdi_modeling_te=effects_df[effects_df["year_id"]>2023]
 # apply linear time scale on year 
 def calculate_year_scale(year):
@@ -142,6 +144,12 @@ print(no_time_effect_model.summary())
 predicted_values = no_time_effect_model.predict(future_sdi_modeling_nte)
 future_sdi_modeling_nte['predicted_residual_no_time_effect'] = predicted_values
 
+## REGRESSION - RE on SDI + global interation with sdi and interactions with location + location*age*sex (NO TIME EFFECT)
+no_time_effect_no_sdi_int_model = smf.ols("residual_value ~ sdi + C(location_id) + C(location_id)*C(age_group_id)*C(sex_id)" , data=modeling_df).fit()
+print(no_time_effect_no_sdi_int_model.summary())
+predicted_values = no_time_effect_no_sdi_int_model.predict(future_sdi_modeling_nte_nsdi)
+future_sdi_modeling_nte_nsdi['predicted_residual_no_time_effect_no_sdi_inter'] = predicted_values
+
 ## REGRESSION - RE on SDI + Interaction on location + location*year (without main effect of year by itself) + location*age*sex (TIME EFFECT)
 modeling_df['time_id'] = (modeling_df['year_id'] - 2100)/100
 time_effect_model = smf.ols("residual_value ~ sdi + C(location_id) + C(location_id):time_id + C(location_id)*C(age_group_id)*C(sex_id)", data=modeling_df).fit()
@@ -151,25 +159,26 @@ predicted_values = time_effect_model.predict(future_sdi_modeling_te)
 future_sdi_modeling_te['predicted_residual_time_effect'] = predicted_values
 
 ## combine predicted datasets
-future_sdi_modeling=pd.merge(future_sdi_modeling_nte, future_sdi_modeling_te, on=['location_id',  'sdi', 'sex_id', 'age_group_id',  'year_id'], how='inner')
+future_sdi_modeling_data=pd.merge(future_sdi_modeling_nte, future_sdi_modeling_te, on=['location_id',  'sdi', 'sex_id', 'age_group_id',  'year_id'], how='inner')
+future_sdi_modeling=pd.merge(future_sdi_modeling_data, future_sdi_modeling_nte_nsdi, on=['location_id',  'sdi', 'sex_id', 'age_group_id',  'year_id'], how='inner')
 future_sdi_modeling_df=pd.merge(future_sdi_modeling, model_df, on=['location_id',  'sex_id', 'age_group_id',  'year_id'], how='inner')
 
 
 ## PLOTTING 
 plot_df=pd.concat([future_sdi_modeling_df, modeling_df])
 plot_df=pd.merge(plot_df, locs_meta, on='location_id', how='inner')
+# Plot residual model values alongside gbd and victor's estimates
 plot_path=f'/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/plot/diagnostic_plots/stunting_wasting_model_gbd_comparison/model_predictions/stunting/stunting_sdi_{RESID_PLOT_VERSION}.pdf'
-# Timeseries plotting
 with PdfPages(plot_path) as pdf:
     for location in plot_df['location_id'].unique():
         df_location = plot_df[plot_df['location_id'] == location]
 
         df_location = df_location.sort_values(by='year_id')
 
-        local_min = df_location[['gbd_value', 'model_value', 'residual_value',  'predicted_residual_no_time_effect', 'predicted_residual_time_effect']].min().min()
-        local_max = df_location[['gbd_value', 'model_value', 'residual_value',  'predicted_residual_no_time_effect', 'predicted_residual_time_effect']].max().max()
+        local_min = df_location[['gbd_value', 'model_value', 'residual_value',  'predicted_residual_no_time_effect', 'predicted_residual_time_effect', 'predicted_residual_no_time_effect_no_sdi_inter']].min().min()
+        local_max = df_location[['gbd_value', 'model_value', 'residual_value',  'predicted_residual_no_time_effect', 'predicted_residual_time_effect', 'predicted_residual_no_time_effect_no_sdi_inter']].max().max()
 
-        padding = (local_max - local_min) * 0.05  # 5% padding
+        padding = (local_max - local_min) * 0.05  
         local_min -= padding
         local_max += padding
 
@@ -196,6 +205,7 @@ with PdfPages(plot_path) as pdf:
                 future_df_plot = df_plot[df_plot['year_id'] >= 2024]
                 if not future_df_plot.empty:
                     ax.plot(future_df_plot['year_id'], future_df_plot['predicted_residual_no_time_effect'], 'r:', label='FE on SDI + IE on location*sdi and location*age*sex')
+                    ax.plot(future_df_plot['year_id'], future_df_plot['predicted_residual_no_time_effect_no_sdi_inter'], 'r--', label='FE on SDI + IE on location and location*age*sex')
                     ax.plot(future_df_plot['year_id'], future_df_plot['predicted_residual_time_effect'], 'r-.', label='FE on SDI + IE on location*year')
                 ax.axvline(x=2023, color='black', linestyle='-', linewidth=1)
                 ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='lightgrey')
@@ -207,7 +217,7 @@ with PdfPages(plot_path) as pdf:
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
         handles, labels = [], []
-        for value_column, color, linestyle in zip(['GBD Estimate', 'Victor Model Estimate', 'Residual Value', 'FE on SDI + IE on location*sdi and location*age*sex', 'FE on SDI + IE on location and location:year and location*age*sex (attenuated)'], ['blue', 'green', 'red', 'red', 'red'], ['-', '-', '-',  ':', '-.']):
+        for value_column, color, linestyle in zip(['GBD Estimate', 'Victor Model Estimate', 'Residual Value', 'FE on SDI + IE on location*sdi and location*age*sex', 'FE on SDI + IE on location and location*age*sex', 'FE on SDI + IE on location and location:year and location*age*sex (attenuated)'], ['blue', 'green', 'red', 'red', 'red', 'red'], ['-', '-', '-',  ':','--', '-.']):
             handles.append(plt.Line2D([0], [0], color=color, linestyle=linestyle, linewidth=2))
             labels.append(value_column)
 
@@ -216,78 +226,26 @@ with PdfPages(plot_path) as pdf:
         plt.close(fig)
 
 plot_df['residual_val_nte'] = plot_df['residual_value'].combine_first(plot_df['predicted_residual_no_time_effect'])
+plot_df['residual_val_nte_no_loc_spec_sdi'] = plot_df['residual_value'].combine_first(plot_df['predicted_residual_no_time_effect_no_sdi_inter'])
 plot_df['residual_val_te'] = plot_df['residual_value'].combine_first(plot_df['predicted_residual_time_effect'])
-plot_df=plot_df[['location_id', 'year_id', 'sdi', 'sex_id','age_group_id', 'model_value', 'gbd_value', 'location_name', 'residual_val_nte', 'residual_val_te' ]]
+plot_df=plot_df[['location_id', 'year_id', 'sdi', 'sex_id','age_group_id', 'model_value', 'gbd_value', 'location_name', 'residual_val_nte', 'residual_val_te', 'residual_val_nte_no_loc_spec_sdi' ]]
 plot_df['model_val_plus_resid_te'] = plot_df['model_value'] + plot_df['residual_val_te']
 plot_df['model_val_plus_resid_nte'] = plot_df['model_value'] + plot_df['residual_val_nte']
-plot_df.to_csv('/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/child_malnutrition/stunting_residual_victor_combined/stunting_residual_model_combined_with_44858.csv', index=False)
+plot_df['model_val_plus_resid_nte_no_loc_spec_sdi'] = plot_df['model_value'] + plot_df['residual_val_nte_no_loc_spec_sdi']
+plot_df.to_csv(f'/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/child_malnutrition/stunting_residual_victor_combined/{MODEL_RESULT_OUTPUT_CSV}.csv', index=False)
 
-#convert to datarray and save as an .nc file 
-
-
-'''
-# SIGN FLIP CHECK FOR TREND SWITCH 
-def calculate_trends(group):
-    # Calculate past trends
-    past_data = group[group['year_id'].isin([2000, 2023])]
-    past_trends = past_data.groupby('year_id').agg({'residual_val_nte': 'mean', 'residual_val_te': 'mean'}).diff().dropna()
-    past_trend_nte = past_trends['residual_val_nte'].iloc[-1]
-    past_trend_te = past_trends['residual_val_te'].iloc[-1]
-    
-    # Calculate future trends
-    future_data = group[group['year_id'].isin([2024, 2100])]
-    future_trends = future_data.groupby('year_id').agg({'residual_val_nte': 'mean', 'residual_val_te': 'mean'}).diff().dropna()
-    future_trend_nte = future_trends['residual_val_nte'].iloc[-1]
-    future_trend_te = future_trends['residual_val_te'].iloc[-1]
-    
-    # Prepare a DataFrame with calculated trends
-    return pd.DataFrame({
-        'past_trend_nte': [past_trend_nte],
-        'past_trend_te': [past_trend_te],
-        'future_trend_nte': [future_trend_nte],
-        'future_trend_te': [future_trend_te]
-    })
-check_df = plot_df.groupby(['location_id', 'location_name', 'age_group_id', 'sex_id']).apply(calculate_trends).reset_index()
-check_df = check_df.drop(columns=[column for column in check_df.columns if 'level_' in column])
-filtered_df = check_df[
-    #(np.sign(check_df['past_trend_nte']) != np.sign(check_df['future_trend_nte'])) |
-    (np.sign(check_df['past_trend_te']) != np.sign(check_df['future_trend_te']))
-]
-conditions_age = [
-    filtered_df['age_group_id'] == 4, 
-    filtered_df['age_group_id'] == 5
-]
-choices_age = [
-    "Post Neonatal", 
-    "1 to 4"
-]
-filtered_df['age_group_name'] = np.select(conditions_age, choices_age, default='Other')
-
-# Define conditions and choices for sex
-conditions_sex = [
-    filtered_df['sex_id'] == 1,
-    filtered_df['sex_id'] == 2
-]
-choices_sex = [
-    "Male", 
-    "Female"
-]
-filtered_df['sex'] = np.select(conditions_sex, choices_sex, default='Other')
-filtered_df = filtered_df[['location_id', 'location_name', 'age_group_name', 'sex']]
-'''
 # Plot residual + victor model value 
 plot_path=f'/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/plot/diagnostic_plots/stunting_wasting_model_gbd_comparison/model_predictions/stunting/stunting_sdi_{RESID_PLUS_MODEL_PLOT_VERSION}.pdf'
-# Timeseries plotting
 with PdfPages(plot_path) as pdf:
     for location in plot_df['location_id'].unique():
         df_location = plot_df[plot_df['location_id'] == location]
 
         df_location = df_location.sort_values(by='year_id')
 
-        local_min = df_location[['gbd_value', 'model_value', 'residual_val_te', 'residual_val_nte', 'model_val_plus_resid_te', 'model_val_plus_resid_nte']].min().min()
-        local_max = df_location[['gbd_value', 'model_value', 'residual_val_te', 'residual_val_nte', 'model_val_plus_resid_te', 'model_val_plus_resid_nte']].max().max()
+        local_min = df_location[['gbd_value', 'model_value', 'residual_val_te', 'residual_val_nte', 'residual_val_nte_no_loc_spec_sdi', 'model_val_plus_resid_te', 'model_val_plus_resid_nte', 'model_val_plus_resid_nte_no_loc_spec_sdi']].min().min()
+        local_max = df_location[['gbd_value', 'model_value', 'residual_val_te', 'residual_val_nte', 'residual_val_nte_no_loc_spec_sdi', 'model_val_plus_resid_te', 'model_val_plus_resid_nte', 'model_val_plus_resid_nte_no_loc_spec_sdi']].max().max()
 
-        padding = (local_max - local_min) * 0.05  # 5% padding
+        padding = (local_max - local_min) * 0.05 
         local_min -= padding
         local_max += padding
 
@@ -309,15 +267,18 @@ with PdfPages(plot_path) as pdf:
 
                 ax.plot(df_plot['year_id'], df_plot['model_value'], color='green', label='Model Value')
                 ax.plot(df_plot['year_id'], df_plot['gbd_value'], color='blue', label='GBD Value')
-                ax.plot(df_plot['year_id'], df_plot['model_val_plus_resid_nte'], 'k:', label='Model Value + Residual Value (no time effect)')
+                ax.plot(df_plot['year_id'], df_plot['model_val_plus_resid_nte'], 'k:', label='Model Value + Residual Value (no time effect WITH location specific sdi interaction)')
                 ax.plot(df_plot['year_id'], df_plot['model_val_plus_resid_te'], 'k-.', label='Model Value + Residual Value (time effect)')
+                ax.plot(df_plot['year_id'], df_plot['model_val_plus_resid_nte_no_loc_spec_sdi'], 'k--', label='Model Value + Residual Value (no time effect + global SDI)')
                 filtered_df_plot = df_plot[df_plot['year_id'] <= 2023]
-                ax.plot(filtered_df_plot['year_id'], filtered_df_plot['residual_val_nte'], color='red', label='Residual Value (no time effect)')
+                ax.plot(filtered_df_plot['year_id'], filtered_df_plot['residual_val_nte'], color='red', label='Residual Value (no time effect WITH location specific sdi interaction)')
                 ax.plot(filtered_df_plot['year_id'], filtered_df_plot['residual_val_te'], color='red', label='Residual Value (time effect)')
+                ax.plot(filtered_df_plot['year_id'], filtered_df_plot['residual_val_nte_no_loc_spec_sdi'], color='red', label='Residual Value (no time effect + global SDI)')
                 future_df_plot = df_plot[df_plot['year_id'] >= 2024]
                 if not future_df_plot.empty:
-                    ax.plot(future_df_plot['year_id'], future_df_plot['residual_val_nte'], 'r:', label='Residual Value (no time effect)')
+                    ax.plot(future_df_plot['year_id'], future_df_plot['residual_val_nte'], 'r:', label='Residual Value (no time effect WITH location specific sdi interaction)')
                     ax.plot(future_df_plot['year_id'], future_df_plot['residual_val_te'], 'r-.', label='Residual Value (time effect)')
+                    ax.plot(future_df_plot['year_id'], future_df_plot['residual_val_nte_no_loc_spec_sdi'], 'r--', label='Residual Value (no time effect + global SDI)')
                 ax.axvline(x=2023, color='black', linestyle='-', linewidth=1)
                 ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='lightgrey')
                 ax.set_ylim(local_min, local_max)
@@ -325,15 +286,29 @@ with PdfPages(plot_path) as pdf:
                 ax.set_xlabel('Year')
                 ax.set_ylabel('Value')
 
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.tight_layout(rect=[0, 0.1, 1, 0.95]) 
 
         handles, labels = [], []
-        for value_column, color, linestyle in zip(['Model Value', 'GBD Value', 'Model Value + Residual Value (no time effect)', 'Model Value + Residual Value (time effect)', 'Residual Value (no time effect)', 'Residual Value (time effect)'], ['green', 'blue', 'black', 'black', 'red', 'red'], ['-', '-', ':', '-.', ':', '-.']):
+        for value_column, color, linestyle in zip(
+            [
+                'Model Value', 
+                'GBD Value', 
+                'Model Value + Residual Value (no time effect WITH location specific sdi interaction)', 
+                'Model Value + Residual Value (time effect)', 
+                'Model Value + Residual Value (no time effect + global SDI)', 
+                'Residual Value (no time effect WITH location specific sdi interaction)', 
+                'Residual Value (time effect)',
+                'Residual Value (no time effect + global SDI)'
+                ], 
+                ['green', 'blue', 'black', 'black', 'black', 'red', 'red', 'red'], 
+                ['-', '-', ':', '-.', '--',  ':', '-.', '--']):
             handles.append(plt.Line2D([0], [0], color=color, linestyle=linestyle, linewidth=2))
             labels.append(value_column)
 
-        fig.legend(handles, labels, loc='lower center', ncol=3, frameon=False)
-        pdf.savefig(fig)
+        fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4, frameon=False)
+        pdf.savefig(fig, bbox_inches='tight') 
         plt.close(fig)
+
+
 
 
