@@ -164,6 +164,22 @@ class ClimateMalnutritionData:
         path = self.ldi_path(year, percentile)
         mkdir(path.parent, parents=True, exist_ok=True)
         save_raster(ldi, path)
+    
+    def rasterized_variable_path(self, variable: str, year: int | str) -> Path:
+        return self.shared_inputs / variable / f"{year}.tif"
+
+    def load_rasterized_variable(self, variable: str, year: int | str) -> rt.RasterArray:
+        return rt.load_raster(self.rasterized_variable_path(variable, year))
+
+    def save_rasterized_variable_raster(
+        self,
+        variable_name: str,
+        variable_raster: rt.RasterArray,
+        year: int | str,
+    ) -> None:
+        path = self.rasterized_variable_path(variable_name, year)
+        mkdir(path.parent, parents=True, exist_ok=True)
+        save_raster(variable_raster, path)
 
     def load_elevation(self) -> rt.RasterArray:
         return rt.load_raster(self.shared_inputs / "srtm_elevation.tif")
@@ -205,6 +221,11 @@ class ClimateMalnutritionData:
         if most_detailed_only:
             return fhs_shapes[fhs_shapes.most_detailed == 1].reset_index()
         return fhs_shapes
+    
+    def load_fhs_hierarchy(self):
+        path = self._PROCESSED_DATA_ROOT / 'ihme' / 'fhs_hierarchy.parquet'
+        hierarchy = pd.read_parquet(path)
+        return hierarchy
 
     def load_raster_template(self) -> rt.RasterArray:
         path = self._RAW_DATA_ROOT / 'other-gridded-pop-projects' / 'global-human-settlement-layer' / '1km_template.tif'
@@ -215,9 +236,13 @@ class ClimateMalnutritionData:
         return rt.load_raster(path).set_no_data_value(np.nan)
 
     def load_climate_raster(self, variable: str, scenario: str, year: int | str) -> xr.DataArray:
+        year_selected = year
         scenario_folder = 'historical' if year < 2024 else scenario
-        path = self._CLIMATE_DATA_ROOT / scenario_folder / variable / f"{year}.nc"
-        return xr.open_dataset(path).sel(year=year)['value']
+        if scenario == 'constant_climate' and year >= 2024:
+            year_selected = 2024
+            scenario_folder = 'ssp245'
+        path = self._CLIMATE_DATA_ROOT / scenario_folder / variable / f"{year_selected}.nc"
+        return xr.open_dataset(path).sel(year=year_selected)['value']
 
 
 def get_run_directory(output_root: str | Path) -> Path:
