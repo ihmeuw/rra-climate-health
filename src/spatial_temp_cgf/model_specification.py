@@ -205,7 +205,6 @@ class ModelSpecification(BaseModel):
                 else:
                     random_effects[predictor.random_effect] = [var_name]
                 formula += f" {var_name}  +"
-                #formula += f" ({var_name} | {predictor.random_effect}) +"
             else:
                 formula += f" {predictor.name} +"
         for random_effect, variables in random_effects.items():
