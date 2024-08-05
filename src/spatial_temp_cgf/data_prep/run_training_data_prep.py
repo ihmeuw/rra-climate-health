@@ -6,7 +6,7 @@ import numpy as np
 import xarray as xr
 import multiprocessing as mp
 from functools import partial
-from scipy.interpolate import CubicSpline, PchipInterpolator, Akima1DInterpolator
+from scipy.interpolate import PchipInterpolator
 import rioxarray
 import xarray as xr
 import spatial_temp_cgf.cli_options as clio

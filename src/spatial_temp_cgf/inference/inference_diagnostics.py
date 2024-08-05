@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from io import BytesIO
 
-from reportlab.lib.pagesizes import letter, landscape, colors
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
-
 
 def plot_forecast_prevalence(merged, model_spec, grouping_col=None):
     grouping_col = [grouping_col] if grouping_col else []
