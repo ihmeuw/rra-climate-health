@@ -12,6 +12,7 @@ import numpy as np
 from rra_tools.shell_tools import mkdir, touch
 
 from spatial_temp_cgf.model_specification import ModelSpecification
+import spatial_temp_cgf.results_specification as ispec
 
 
 if typing.TYPE_CHECKING:
@@ -70,6 +71,16 @@ class ClimateMalnutritionData:
         model_spec_path = self.models / version / "specification.yaml"
         return ModelSpecification.from_yaml(model_spec_path)
 
+    def save_results_specification(self, results_spec: ispec.ResultsSpecification) -> None:
+        model_root = self.results / results_spec.version.results
+        results_spec_path = model_root / f"results_spec.yaml"
+        touch(results_spec_path)
+        results_spec.to_yaml(results_spec_path)
+    
+    def load_results_specification(self, version: str) -> ispec.ResultsSpecification:
+        results_spec_path = self.results / version / "results_spec.yaml"
+        return ispec.ResultsSpecification.from_yaml(results_spec_path)
+
     def save_model(
         self,
         model: "Lmer",
@@ -106,9 +117,13 @@ class ClimateMalnutritionData:
     def results(self) -> Path:
         return self.root / "results"
 
-    def new_results_version(self) -> str:
+    def new_results_version(self, model_version) -> str:
         run_directory = get_run_directory(self.results)
         mkdir(run_directory)
+        # create results specification file
+        save_results_specification(
+            ispec.ResultsSpecification(version=ispec.ResultsVersionSpecification(model=model_version,
+                results=run_directory.name)))
         return run_directory.name
 
     def raster_results_path(
@@ -144,6 +159,22 @@ class ClimateMalnutritionData:
         path = self.results / model_version / f"{year}_{scenario}.parquet"
         touch(path, exist_ok=True)
         results.to_parquet(path)
+
+    def save_forecast(
+        self,
+        forecast: pd.DataFrame,
+        results_version: str,
+    ) -> None:
+        path = self.results / results_version / f"forecast.parquet"
+        touch(path, exist_ok=True)
+        forecast.to_parquet(path)
+    
+    def load_forecast(
+        self,
+        results_version: str,
+    ) -> pd.DataFrame:
+        path = self.results / results_version / f"forecast.parquet"
+        return pd.read_parquet(path)
 
     @property
     def shared_inputs(self) -> Path:

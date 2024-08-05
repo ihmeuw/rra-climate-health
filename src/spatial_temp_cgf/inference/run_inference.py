@@ -12,7 +12,7 @@ from spatial_temp_cgf import utils
 from spatial_temp_cgf import cli_options as clio
 from spatial_temp_cgf.data import ClimateMalnutritionData, DEFAULT_ROOT
 from spatial_temp_cgf.model_specification import PredictorSpecification, ModelSpecification
-
+from spatial_temp_cgf.inference.inference_diagnostics import create_inference_diagnostics_report
 
 def get_intercept_raster(
     pred_spec: PredictorSpecification,
@@ -227,6 +227,95 @@ def model_inference_main(
     cm_data.save_results_table(df, results_version, cmip6_scenario, year)
 
 
+def load_population_timeseries(
+    locs_of_interest: list[int], 
+    age_group_ids:list[int] = [4,5]):
+    #TODO consider moving this to the data module, though I guess we don't own this location
+    FORECASTED_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/7/future/population/20240529_500d_2100_lhc_ref_squeeze_hiv_shocks_covid_all_gbd_7_shifted/population.nc'
+    forecast_pop = xr.open_dataset(FORECASTED_POPULATIONS_FILEPATH).mean(dim='draw').sel(age_group_id=age_group_ids, year_id = range(2022,2101), location_id=locs_of_interest).to_dataframe().droplevel('scenario')
+    historical_pop = pd.read_parquet(cm_data._PROCESSED_DATA_ROOT / 'ihme' / 'global_population_by_age_group_and_sex.parquet')
+    historical_pop = historical_pop.loc[historical_pop.year_id < forecast_pop.index.get_level_values('year_id').min()].set_index(forecast_pop.index.names)
+    pop = pd.concat([historical_pop, forecast_pop])
+    return pop
+
+def forecast_scenarios(
+    output_dir: Path, 
+    measure: str, 
+    results_version: str, 
+    scenarios: list[str],):
+    cm_data = ClimateMalnutritionData(output_dir / measure)
+    REFERENCE_SCENARIO = 'ssp245'
+    inference_scenarios = ['ssp119', 'ssp245', 'ssp585', 'constant_climate']
+
+    locs_of_interest = cm_data.load_fhs_hierarchy().query("most_detailed == 1").location_id.unique()
+
+    pop = load_population_timeseries(locs_of_interest)
+    loc_region_map = cm_data.load_fhs_hierarchy()[['location_id', 'location_name', 'region_name', 'super_region_name']]
+
+    results_path = Path(DEFAULT_ROOT) / measure / 'results' / results_version
+
+    scenarios_present = []
+    for scenario in (inference_scenarios):
+        dfs = []
+        for fp in tqdm.tqdm(list(results_path.glob(f"*_{scenario}.parquet"))):
+            df = pd.read_parquet(fp)
+            df['year_id'] = int(fp.name.split('_')[0])
+            df['scenario'] = scenario
+            dfs.append(df)
+        if dfs:
+            scenarios_present.append(scenario)
+            pd.concat(dfs).to_parquet(results_path / f'{scenario}.parquet')
+
+    idx_cols = ['location_id', 'age_group_id', 'sex_id', 'year_id', 'scenario']
+
+    combined = pd.concat([pd.read_parquet(results_path / f'{scenario}.parquet').set_index(idx_cols).value.rename("prevalence") for scenario in scenarios_present]).sort_index()
+    combined = combined.reset_index().assign(location_id = lambda x: x.location_id.astype(int))
+    combined = combined.set_index(['location_id', 'age_group_id', 'sex_id', 'year_id']).sort_index()
+    merged = combined.merge(pop, left_index=True, right_index=True, how='left')
+    merged['affected'] = merged['prevalence'] * merged['population']
+
+    if REFERENCE_SCENARIO in inference_scenarios:
+        reference = pd.read_parquet(results_path / f'{REFERENCE_SCENARIO}.parquet').set_index(['location_id', 'age_group_id', 'sex_id', 'year_id']).value.rename(f'ref_prev').drop(columns='scenario')
+        merged = merged.join(reference, how='left')
+
+        merged['delta'] = (merged['ref_prev'] * merged['population']) - merged['affected']
+    else:
+        merged['delta'] = np.nan
+
+    model_spec = cm_data.load_model_specification(model_version)
+    merged = merged.merge(loc_region_map.set_index('location_id'), left_index=True, right_index=True)
+    cm_data.save_forecast(merged, results_version)
+
+
+@click.command()
+@clio.with_output_root(DEFAULT_ROOT)
+@clio.with_measure()
+@clio.with_results_version()
+@clio.with_model_version()
+@clio.with_cmip6_scenario(allow_all=True)
+def forecast_scenarios_task(
+    output_root: str,
+    measure: str,
+    results_version: str,
+    model_version: str,
+    cmip6_scenarios: list[str],
+    year: str,
+):
+    """Run forecasting applying the inference results, and output diagnostics."""
+    forecast_scenarios(
+        Path(output_root),
+        measure,
+        results_version,
+        model_version,
+        cmip6_scenarios,
+    )
+    create_inference_diagnostics_report(
+        Path(output_root),
+        measure,
+        results_version)
+
+
+
 @click.command()
 @clio.with_output_root(DEFAULT_ROOT)
 @clio.with_measure()
@@ -270,7 +359,7 @@ def model_inference(
 ) -> None:
     """Run model inference."""
     cm_data = ClimateMalnutritionData(Path(output_root) / measure)
-    results_version = cm_data.new_results_version()
+    results_version = cm_data.new_results_version(model_version)
     print(f"Running inference for {measure} using {model_version}. Results version: {results_version}")
 
     jobmon.run_parallel(
@@ -297,4 +386,27 @@ def model_inference(
         log_root=str(cm_data.results / results_version),
     )
 
+    jobmon.run_parallel(
+        runner="sttask",
+        task_name="forecast",
+        node_args={
+            "measure": [measure],
+            "cmip6-scenario": [" --cmip6-scenario ".join(cmip6_scenario)],
+            "year": year,
+        },
+        task_args={
+            "output-root": output_root,
+            "model-version": model_version,
+            "results-version": results_version,
+        },
+        task_resources={
+            "queue": queue,
+            "cores": 1,
+            "memory": "10Gb",
+            "runtime": "30m",
+            "project": "proj_rapidresponse",
+        },
+        max_attempts=1,
+        log_root=str(cm_data.results / results_version),
+    )
     print(f"Inference complete, results can be found at {cm_data.results / results_version}")
