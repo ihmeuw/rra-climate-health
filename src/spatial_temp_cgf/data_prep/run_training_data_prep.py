@@ -188,7 +188,7 @@ def run_training_data_prep_main(
 
     # We get wealth data to be merged with GBD CGF data and merge
     print("Processing wealth data...")
-    gbd_data_wealth_distribution = gbd_cgf_data.groupby(['nid', 'ihme_loc_id', 'year_start', 'psu', 'hh_id']).agg(wealth_index_dhs = ('wealth_index_dhs', 'first'), check = ('wealth_index_dhs', 'nunique')).reset_index()
+    gbd_data_wealth_distribution = gbd_cgf_data.groupby(['nid', 'ihme_loc_id', 'year_start', 'psu', 'hh_id']).agg(wealth_index_dhs = ('wealth_index_dhs', 'first'), pweight = ('pweight', 'first'), check = ('wealth_index_dhs', 'nunique')).reset_index()
     assert((gbd_data_wealth_distribution.check == 1).all())
     gbd_data_wealth_distribution = gbd_data_wealth_distribution.merge(loc_meta, how='left', on='ihme_loc_id')
 
@@ -260,10 +260,10 @@ def run_training_data_prep_main(
 
     # For the GBD NIDs that need wealth information, attempt to get it
     gbd_nids_need_wealth = [x for x in nids_without_wealth if x in wealth_df.nid.unique() and x not in lsae_cgf_data.nid.unique()]
-    extra_nids = new_cgf_data_raw.query("nid in @gbd_nids_need_wealth")[['nid', 'ihme_loc_id', 'year_start', 'year_end',  'geospatial_id', 'psu_id', 'pweight', 'strata_id', 'hh_id', 'urban', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WAZ_b2', 'WHZ_b2','latnum', 'longnum', 'wealth_index_dhs']]
+    extra_nids = new_cgf_data_raw.query("nid in @gbd_nids_need_wealth")[['nid', 'ihme_loc_id', 'year_start', 'year_end',  'geospatial_id', 'psu_id', 'pweight', 'strata_id', 'hh_id', 'urban', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WAZ_b2', 'WHZ_b2','latnum', 'longnum']]
     extra_nids = extra_nids.rename(columns=COLUMN_NAME_TRANSLATOR)
     extra_nids['hh_id'] = extra_nids['hh_id'].str.split(r'[_ ]').str[-1]
-    extra_nids = extra_nids.merge(wealth_df[['ihme_loc_id', 'location_id', 'nid', 'psu', 'hh_id', 'year_start', 'ldipc']], on=['nid', 'ihme_loc_id', 'year_start', 'psu', 'hh_id'], how='left')
+    extra_nids = extra_nids.merge(wealth_df[['ihme_loc_id', 'location_id', 'nid', 'psu', 'hh_id', 'year_start', 'wealth_index_dhs', 'ldipc']], on=['nid', 'ihme_loc_id', 'year_start', 'psu', 'hh_id'], how='left')
     extra_nids = extra_nids.dropna(subset=['ldipc'])
 
     # Bring the two datasets (LSAE and GBD) together, giving preference to the new extractions
@@ -299,6 +299,7 @@ def run_training_data_prep_main(
     cgf_consolidated = get_elevation_for_dataframe(cgf_consolidated)
 
     cgf_consolidated = assign_lbd_admin2_location_id(cgf_consolidated)
+    cgf_consolidated = assign_sdi(cgf_consolidated)
 
     # Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
@@ -308,6 +309,8 @@ def run_training_data_prep_main(
         measure_root = Path(output_root) / measure
         cm_data = ClimateMalnutritionData(measure_root)
         version = cm_data.new_training_version()
+        print(f"Saving data for {measure} to version {version}...")
+
         cm_data.save_training_data(measure_df, version)
 
 
@@ -411,11 +414,13 @@ def get_ldipc_from_asset_score_old(asset_df:pd.DataFrame,  asset_score_col= 'wea
     assert(len(wdf) == len(asset_df))
     return wdf
 
-def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_index_dhs', year_df_col = 'year_start', threshold_quantile=0.95):
+
+def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_index_dhs', 
+    year_df_col = 'year_start', use_weights = False, match_distributions = False):
     from scipy.interpolate import CubicSpline, PchipInterpolator, Akima1DInterpolator
     LDIPC_NATIONAL_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/national_ldipc_estimates.csv')
     ldi = pd.read_csv(LDIPC_NATIONAL_FILEPATH)
-
+    print(f"Converting income from asset score {'not' if not use_weights else ''} using weights, {'not' if not match_distributions else ''} matching distributions")
     dfs = []
     for nid in asset_df.nid.unique():
         nid_df = asset_df.loc[asset_df.nid == nid].copy().sort_values(['nid', 'ihme_loc_id', year_df_col, asset_score_col])
@@ -427,8 +432,14 @@ def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_
         if nid_df.ihme_loc_id.nunique() > 1:
             raise ValueError(f"Multiple locations for NID {nid}")
         ihme_loc_id = nid_df.ihme_loc_id.iloc[0]
-        nid_df['population_percentile'] = nid_df[asset_score_col].rank(pct=True)
+        nid_df['unweighted_population_percentile'] = nid_df[asset_score_col].rank(pct=True)
+        
 
+        #wealth = wealth.sort_values('wealth_index_dhs')
+        nid_df['cum_weight'] = nid_df['pweight'].cumsum()
+        total_weight = nid_df['pweight'].sum()
+        nid_df['weighted_population_percentile'] = nid_df['cum_weight'] / total_weight 
+        nid_df['population_percentile'] = nid_df.weighted_population_percentile if use_weights else nid_df.unweighted_population_percentile        
 
         ldi_df = ldi.loc[(ldi.ihme_loc_id == ihme_loc_id) & (ldi.year_id == year)].sort_values(['population_percentile'])
         if ldi_df.empty:
@@ -437,17 +448,28 @@ def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_
         population_percentiles = np.linspace(0, 1, 1000001)
         interpolator = PchipInterpolator(ldi_df["population_percentile"], ldi_df["ldipc"])
 
-        if threshold_quantile == 1:
+        if not match_distributions:
             nid_df['ldipc'] = interpolator(nid_df['population_percentile'])
-        else:
-            # Take away values below threshold
-            # Get the distribution of incomes, subset to below threshold and create new interpolator from them
-            interpolated_incomes = interpolator(population_percentiles)
-            threshold_value = np.quantile(interpolated_incomes, threshold_quantile)
-            interpolated_incomes_clipped = interpolated_incomes[interpolated_incomes <= threshold_value]
+            dfs.append(nid_df)
+            continue
+        # Take away values below threshold
+        # Get the distribution of incomes, subset to below threshold and create new interpolator from them
+        interpolated_income_distrib = interpolator(population_percentiles)
+        minimum_difference = np.inf
+        for threshold_quantile in np.linspace(0.25, 1, 76):
+            threshold_value = np.quantile(interpolated_income_distrib, threshold_quantile)
+            interpolated_incomes_clipped = interpolated_income_distrib[interpolated_income_distrib <= threshold_value]
 
             clipped_interpolator = PchipInterpolator(np.linspace(0, 1, len(interpolated_incomes_clipped)), interpolated_incomes_clipped)
-            nid_df['ldipc'] = clipped_interpolator(nid_df['population_percentile'])
+            interp_survey_income = clipped_interpolator(nid_df['population_percentile'])
+            scaled_interp_survey_income = (interp_survey_income - interp_survey_income.min()) / (interp_survey_income.max() -interp_survey_income.min())
+            #wealth['scaled_unclipped_interpolated_ldi'] = (wealth['unclipped_interpolated_ldi'] - wealth['unclipped_interpolated_ldi'].min()) / (wealth['unclipped_interpolated_ldi'].max() - wealth['unclipped_interpolated_ldi'].min())
+            scaled_wealth_index = (nid_df['wealth_index_dhs'] - nid_df['wealth_index_dhs'].min()) / (nid_df['wealth_index_dhs'].max() - nid_df['wealth_index_dhs'].min())
+            diff = np.abs((scaled_interp_survey_income - scaled_wealth_index).sum())
+
+            if diff < minimum_difference:
+                minimum_difference = diff
+                nid_df['ldipc'] = interp_survey_income
         dfs.append(nid_df)
 
     asset_df_ldipc = pd.concat(dfs)
@@ -460,10 +482,10 @@ def get_wealth_dataset():
     loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
     wealth_raw = pd.read_parquet(SURVEY_DATA_PATHS['wealth']['lsae'])
     wealth_df = wealth_raw[wealth_raw['point'] == 1]
-    wealth_df = wealth_df.rename(columns = {'wealth_score':'wealth_index_dhs', 'iso3':'ihme_loc_id'})
+    wealth_df = wealth_df.rename(columns = {'wealth_score':'wealth_index_dhs', 'iso3':'ihme_loc_id', 'weight':'pweight'})
     wealth_df = wealth_df.rename(columns = COLUMN_NAME_TRANSLATOR)
-    wealth_df = wealth_df[['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu', 'strata', 'hh_id', 'wealth_index_dhs', 'lat', 'long']]
-    wealth_df = wealth_df[['ihme_loc_id', 'nid', 'psu', 'hh_id', 'lat', 'long', 'year_start', 'wealth_index_dhs', 'geospatial_id']].drop_duplicates()
+    wealth_df = wealth_df[['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu', 'strata', 'hh_id', 'pweight', 'wealth_index_dhs', 'lat', 'long']]
+    wealth_df = wealth_df[['ihme_loc_id', 'nid', 'psu', 'hh_id', 'pweight', 'lat', 'long', 'year_start', 'wealth_index_dhs', 'geospatial_id']].drop_duplicates()
 
     # In the wealth team's dataset, sometimes there are multiple asset scores for a given household id.
     # Take away those NIDs
@@ -526,8 +548,14 @@ def assign_lbd_admin2_location_id(data:pd.DataFrame, lat_col:str = 'lat', long_c
     
     lencheck = len(data)
     result = data.merge(cgf_coords[[lat_col, long_col, 'lbd_admin2_id']], on=[lat_col, long_col], how='left')
-    assert(len(test) == lencheck)
+    assert(len(result) == lencheck)
     return result
+
+def assign_sdi(df:pd.DataFrame, year_col:str = 'year_start'):    
+    SDI_PATH = Path('/mnt/share/forecasting/data/7/past/sdi/20240531_gk24/sdi.nc')
+    sdi = xr.open_dataset(SDI_PATH)
+    sdi = sdi.mean(dim='draw')
+    return df.merge(sdi.to_dataframe(), left_on=['location_id', year_col], right_index=True, how='left')
 
 @click.command()
 @clio.with_output_root(DEFAULT_ROOT)
