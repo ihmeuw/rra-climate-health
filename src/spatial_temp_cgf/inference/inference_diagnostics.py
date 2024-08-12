@@ -198,7 +198,6 @@ def plot_gbd_comparison(measure, version_label, model_version, results_version, 
     predictions = pd.concat(predictions).sort_index().rename('pred')
     random_effects = pd.concat(random_effects).sort_index().rename('ranef')
 
-    # age_metadata = db_queries.get_age_metadata(release_id=9)
     age_metadata = pd.read_parquet(ROOT / 'input' / 'gbd_prevalence' / 'age_metadata.parquet')
     age_metadata = age_metadata.loc[age_metadata['age_group_days_start'] >= 28]
     age_metadata = age_metadata.loc[age_metadata['age_group_years_end'] <= 5]
@@ -219,7 +218,6 @@ def plot_gbd_comparison(measure, version_label, model_version, results_version, 
 
     plot_data = predictions.to_frame().join(gbd).dropna().join(random_effects, how='left').reorder_levels(predictions.index.names)
     plot_data['has_raneff'] = plot_data['ranef'].notnull()
-    #plot_data = plot_data.loc[:, :, :, :, [4], [1]]
     plot_data['pred'] *= plot_data['population']
     plot_data['gbd'] *= plot_data['population']
     plot_data = plot_data.groupby(['version_label', 'measure', 'has_raneff', 'location_id', 'year_id'])['pred', 'gbd', 'population'].sum()
@@ -231,7 +229,6 @@ def plot_gbd_comparison(measure, version_label, model_version, results_version, 
     sns.set_style('whitegrid')
 
     marker = 'o'
-    # Only one figure, no subplots
     fig, ax = plt.subplots(figsize=(7, 5))
     
     label = f"{version_label}"
@@ -293,10 +290,9 @@ def plot_model_heatmaps(model_version, measure, fig_title):
     df['fits'] = pd.concat([model['model'].data for model in models]).reset_index(drop=True).fits
     df['over_30'], o30_bins = pd.cut(df.days_over_30C, [0, 1, 2, 7, 15, 30, 60, 90, 180, 367], right=False, retbins=True)
     df['ldi'], ldi_bins  = pd.qcut(df.ldi_pc_pd, 10, retbins=True)
-#    df['pred'] = m.predict(m.design_matrix, use_rfx=False, verify_predictions=False)
+
     x_ticks = range(len(o30_bins) )
-    x_labs =  [f"{x:.1f}" for x in o30_bins] #+ [f"{df[temp_value_col].max():.1f}"]
-    #x_labs = [x for x in x_labs if x != 'nan']
+    x_labs =  [f"{x:.1f}" for x in o30_bins]
 
     y_ticks = range(len(ldi_bins) )
     y_labs =  [f"{x:.1f}" for x in ldi_bins]
@@ -316,12 +312,12 @@ def plot_model_heatmaps(model_version, measure, fig_title):
     axes[0].set_title('Data')
 
     sns.heatmap(df.groupby(['ldi', 'over_30']).fits.mean().unstack(), ax=axes[1],
-            annot=True, fmt=".2f", #annot_kws={"size": 14, "weight":'regular'}, 
+            annot=True, fmt=".2f", annot_kws={"size": 10, "weight":'regular'}, 
             cmap=cmap, norm=norm, vmin=vmin, vmax=vmax, cbar_kws={"ticks": boundaries})
     axes[1].set_title('With location random effects')
 
     sns.heatmap(df.groupby(['ldi', 'over_30']).pred.mean().unstack(),  ax=axes[2],
-            annot=True, fmt=".2f", annot_kws={"size": 10, "weight":'regular'}, #cmap='RdYlBu_r',
+            annot=True, fmt=".2f", annot_kws={"size": 10, "weight":'regular'}, 
             cmap=cmap, norm=norm, vmin=vmin, vmax=vmax, cbar_kws={"ticks": boundaries})
     axes[2].set_title('Without location random effects')
     for ax in axes:
@@ -332,12 +328,7 @@ def plot_model_heatmaps(model_version, measure, fig_title):
         ax.set_xlabel('Days over 30C', fontsize=12)
         ax.set_ylabel('Income', fontsize=12)
         ax.collections[0].colorbar.set_label(f'{measure.capitalize()} Prevalence', size=12)
-        #ax.collections[0].colorbar.ax.tick_params(labelsize=14)
-        #ax.tick_params(axis='both', which='major', labelsize=14)
 
-    #fig.suptitle(fig_title, fontsize=18)
     fig.tight_layout()
-    #plt.show()
     return fig
-    #return df
     
