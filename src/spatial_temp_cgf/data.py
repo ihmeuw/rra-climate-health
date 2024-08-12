@@ -121,7 +121,7 @@ class ClimateMalnutritionData:
         run_directory = get_run_directory(self.results)
         mkdir(run_directory)
         # create results specification file
-        save_results_specification(
+        self.save_results_specification(
             ispec.ResultsSpecification(version=ispec.ResultsVersionSpecification(model=model_version,
                 results=run_directory.name)))
         return run_directory.name
