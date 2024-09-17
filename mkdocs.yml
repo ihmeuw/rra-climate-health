@@ -1,5 +1,5 @@
 site_name: "rra-climate-health"
-repo_url: https://github.com/moloq/rra-climate-health
+repo_url: https://github.com/ihmeuw/rra-climate-health
 
 theme:
   name: material
@@ -17,6 +17,11 @@ nav:
   - Introduction: 'index.md'
   - api_docs.md
   - changelog.md
+  - It's fun: 'new_page.md'
+  - thing_a: 'stuff/thing_a.md'
+  - stuff:
+    - thing_b: 'stuff/thing_b.md'
+    - thing_c: 'index.md'
 
 watch:
   - src/rra_climate_health
