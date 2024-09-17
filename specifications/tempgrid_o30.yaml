@@ -8,7 +8,7 @@ holdout:
 grid_predictors:
   x:
     name: "temp"
-    binning:    
+    binning:
       category: "location"
       strategy: "quantiles"
       nbins: 10

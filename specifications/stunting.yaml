@@ -2,7 +2,7 @@ version:
   training_data: "2024_07_01.01"
 measure: "stunting"
 holdout:
-  type: "no_holdout"  
+  type: "no_holdout"
 predictors:
   - name: "intercept"
     random_effect: "ihme_loc_id"
