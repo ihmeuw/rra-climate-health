@@ -1,0 +1,18 @@
+{
+  "template": "https://github.com/collijk/python-package-cookiecutter",
+  "commit": "95fd6aca779b65fbd42c6eb8bb6cc798c8657d60",
+  "checkout": null,
+  "context": {
+    "cookiecutter": {
+      "author_name": "Victor Vilchis Tella",
+      "author_email": "victorvt@uw.edu",
+      "github_username": "moloq",
+      "project_name": "rra-climate-health",
+      "project_slug": "rra-climate-health",
+      "package_name": "rra_climate_health",
+      "project_short_description": "A collection of geospatial models examining the relationship between climate variables, socio-demographic indicators, and health outcomes.",
+      "_template": "https://github.com/collijk/python-package-cookiecutter"
+    }
+  },
+  "directory": null
+}

@@ -1,14 +1,17 @@
-# Spatial Temp CGF
+# RRA Climate Health
+
+A collection of geospatial models examining the relationship between climate variables,
+socio-demographic indicators, and health outcomes.
 
 ## Setting up a development environment
 
 * Clone this repository
 * Create a conda environment with python and the R dependencies for the model.
-    
+
     ```sh
     conda create -n cgf -c conda-forge python=3.12 r r-base r-lmertest r-emmeans
     ```
-  
+
 * Activate the conda environment
 
     ```sh
@@ -20,7 +23,7 @@
     ```sh
     pip install poetry
     ```
-  
+
 * Install the dependencies
 
     ```sh
