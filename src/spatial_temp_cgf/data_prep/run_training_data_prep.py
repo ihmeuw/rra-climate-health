@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import xarray as xr
 import multiprocessing as mp
+import geopandas as gpd
 from functools import partial
 import rioxarray
 import xarray as xr
@@ -22,6 +23,10 @@ CGF_FILEPATH_LSAE = Path('/mnt/share/limited_use/LIMITED_USE/LU_GEOSPATIAL/geo_m
 # TODO: Carve out the piece of the R script that makes this file,
 #  move output someplace better
 WEALTH_FILEPATH = Path('/mnt/share/scratch/users/victorvt/cgfwealth_spatial/dhs_wealth_uncollapsed_again.parquet')
+
+LDIPC_NATIONAL_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/national_ldipc_estimates.csv')
+LDIPC_SUBNATIONAL_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/admin2_ldipc_estimates.csv')
+
 
 SURVEY_DATA_PATHS = {
     "bmi": {'gbd': SURVEY_DATA_ROOT / "bmi" / "bmi_data_outliered_wealth_rex.csv"},
@@ -150,11 +155,11 @@ COLUMN_NAME_TRANSLATOR = {
     'longitude': 'long',
 }
 
+
 def run_training_data_prep_main(
     output_root: str | Path,
     data_source_type: str,
 ) -> None:
-    
     if data_source_type != 'cgf':
         raise NotImplementedError(f"Data source {data_source_type} not implemented yet.")
 
@@ -169,15 +174,8 @@ def run_training_data_prep_main(
     lsae_cgf_data_raw = pd.read_csv(survey_data_path['lsae'], dtype={'hh_id': str, 'year_start': int, 'int_year':int, 'year_end': int})
     new_cgf_data_raw = pd.read_csv(survey_data_path['gbd'], dtype={'hh_id': str, 'year_start': int, 'int_year':int, 'year_end': int})
 
-    # Translator to harmonize column names between both sets
-    #gbd_columns = ['nid', 'ihme_loc_id', 'year_start', 'year_end', 'int_year', 'geospatial_id', 'psu_id', 'strata_id', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WHZ_b2', 'WAZ_b2', 'latnum', 'longnum']
-    #lsae_columns = ['nid', 'country', 'year_start', 'end_year','int_year', 'geospatial_id', 'psu', 'strata', 'hh_id', 'sex', 'age_year', 'age_mo', 'int_year', 'int_month', 'stunting_mod_b', 'wasting_mod_b', 'underweight_mod_b']
-    #desired_columns = ['nid', 'ihme_loc_id', 'year_start', 'year_end', 'int_year', 'geospatial_id', 'psu', 'strata', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month', 'stunting', 'wasting', 'underweight', 'lat', 'long']
-    #gbd_column_translator = dict(zip(gbd_columns, desired_columns))
-    #lsae_column_translator = dict(zip(lsae_columns, desired_columns))
-
     # subset to columns of interest
-    gbd_cgf_data = new_cgf_data_raw[['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu_id', 'strata_id', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WHZ_b2', 'WAZ_b2', 'wealth_index_dhs','latnum', 'longnum']]
+    gbd_cgf_data = new_cgf_data_raw[['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu_id', 'pweight', 'strata_id', 'hh_id', 'urban', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WHZ_b2', 'WAZ_b2', 'wealth_index_dhs','latnum', 'longnum']]
     gbd_cgf_data = gbd_cgf_data.rename(columns=COLUMN_NAME_TRANSLATOR)
 
     # Take away NIDs without wealth information, to see later if we can add it from second source
@@ -187,9 +185,10 @@ def run_training_data_prep_main(
     gbd_cgf_data = gbd_cgf_data[~gbd_cgf_data.nid.isin(nids_without_wealth)]
     print(len(gbd_cgf_data))
 
+
     # We get wealth data to be merged with GBD CGF data and merge
     print("Processing wealth data...")
-    gbd_data_wealth_distribution = gbd_cgf_data.groupby(['nid', 'ihme_loc_id', 'year_start', 'psu', 'hh_id']).agg(wealth_index_dhs = ('wealth_index_dhs', 'first'), check = ('wealth_index_dhs', 'nunique')).reset_index()
+    gbd_data_wealth_distribution = gbd_cgf_data.groupby(['nid', 'ihme_loc_id', 'year_start', 'psu', 'hh_id']).agg(wealth_index_dhs = ('wealth_index_dhs', 'first'), pweight = ('pweight', 'first'), check = ('wealth_index_dhs', 'nunique')).reset_index()
     assert((gbd_data_wealth_distribution.check == 1).all())
     gbd_data_wealth_distribution = gbd_data_wealth_distribution.merge(loc_meta, how='left', on='ihme_loc_id')
 
@@ -201,8 +200,10 @@ def run_training_data_prep_main(
 
     # Now the old LSAE data
     # We get wealth data to be merged with CGF data and the lsae cgf data with standard column names
-    wealth_df = get_ldipc_from_asset_score(get_wealth_dataset(), asset_score_col = 'wealth_index_dhs')
-    lsae_cgf_data = lsae_cgf_data_raw[['nid', 'country', 'year_start', 'end_year',  'geospatial_id', 'psu', 'strata', 'hh_id', 'sex', 'age_year', 'age_mo', 'int_year', 'int_month', 'stunting_mod_b', 'wasting_mod_b', 'underweight_mod_b']]
+    raw_wealth_df = get_wealth_dataset()
+
+    wealth_df = get_ldipc_from_asset_score(raw_wealth_df, asset_score_col = 'wealth_index_dhs')
+    lsae_cgf_data = lsae_cgf_data_raw[['nid', 'country', 'year_start', 'end_year',  'geospatial_id', 'psu', 'pweight', 'strata', 'hh_id', 'sex', 'age_year', 'age_mo', 'int_year', 'int_month', 'stunting_mod_b', 'wasting_mod_b', 'underweight_mod_b']]
     lsae_cgf_data = lsae_cgf_data.rename(columns=COLUMN_NAME_TRANSLATOR)
 
     print("Processing LSAE data...")
@@ -259,10 +260,10 @@ def run_training_data_prep_main(
 
     # For the GBD NIDs that need wealth information, attempt to get it
     gbd_nids_need_wealth = [x for x in nids_without_wealth if x in wealth_df.nid.unique() and x not in lsae_cgf_data.nid.unique()]
-    extra_nids = new_cgf_data_raw.query("nid in @gbd_nids_need_wealth")[['nid', 'ihme_loc_id', 'year_start', 'year_end',  'geospatial_id', 'psu_id', 'strata_id', 'hh_id', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WAZ_b2', 'WHZ_b2','latnum', 'longnum', 'wealth_index_dhs']]
+    extra_nids = new_cgf_data_raw.query("nid in @gbd_nids_need_wealth")[['nid', 'ihme_loc_id', 'year_start', 'year_end',  'geospatial_id', 'psu_id', 'pweight', 'strata_id', 'hh_id', 'urban', 'sex_id', 'age_year', 'age_month', 'int_year', 'int_month','HAZ_b2', 'WAZ_b2', 'WHZ_b2','latnum', 'longnum']]
     extra_nids = extra_nids.rename(columns=COLUMN_NAME_TRANSLATOR)
     extra_nids['hh_id'] = extra_nids['hh_id'].str.split(r'[_ ]').str[-1]
-    extra_nids = extra_nids.merge(wealth_df[['ihme_loc_id', 'location_id', 'nid', 'psu', 'hh_id', 'year_start', 'ldipc']], on=['nid', 'ihme_loc_id', 'year_start', 'psu', 'hh_id'], how='left')
+    extra_nids = extra_nids.merge(wealth_df[['ihme_loc_id', 'location_id', 'nid', 'psu', 'hh_id', 'year_start', 'wealth_index_dhs', 'ldipc']], on=['nid', 'ihme_loc_id', 'year_start', 'psu', 'hh_id'], how='left')
     extra_nids = extra_nids.dropna(subset=['ldipc'])
 
     # Bring the two datasets (LSAE and GBD) together, giving preference to the new extractions
@@ -279,10 +280,14 @@ def run_training_data_prep_main(
 
     cgf_consolidated = cgf_consolidated.drop(columns = ['strata', 'geospatial_id'])
     cgf_consolidated['ldi_pc_pd'] = cgf_consolidated['ldipc'] / 365
-    
+
     # Assign age group
     cgf_consolidated = assign_age_group(cgf_consolidated)
     cgf_consolidated = cgf_consolidated.dropna(subset=['age_group_id'])
+
+    #Take out data with invalid lat and long
+    cgf_consolidated = cgf_consolidated.dropna(subset=['lat', 'long'])
+    cgf_consolidated = cgf_consolidated.query('lat != 0 and long != 0')
 
     #Merge with climate data
     print("Processing climate data...")
@@ -293,6 +298,9 @@ def run_training_data_prep_main(
     print("Adding elevation data...")
     cgf_consolidated = get_elevation_for_dataframe(cgf_consolidated)
 
+    cgf_consolidated = assign_lbd_admin2_location_id(cgf_consolidated)
+    cgf_consolidated = assign_sdi(cgf_consolidated)
+
     # Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
         measure_df = cgf_consolidated[cgf_consolidated[measure].notna()].copy()
@@ -301,8 +309,10 @@ def run_training_data_prep_main(
         measure_root = Path(output_root) / measure
         cm_data = ClimateMalnutritionData(measure_root)
         version = cm_data.new_training_version()
+        print(f"Saving data for {measure} to version {version}...")
+
         cm_data.save_training_data(measure_df, version)
-    print("Done!")
+
 
 def get_climate_vars_for_year(year_df:pd.DataFrame, climate_variables, 
         lat_col = 'lat', long_col = 'long', year_col = 'int_year'):
@@ -336,7 +346,7 @@ def get_climate_vars_for_dataframe(df:pd.DataFrame, lat_col = 'lat', long_col = 
     unique_coords = df[[lat_col, long_col, year_col]].drop_duplicates()
 
     df_splits = [year_df for _, year_df in  unique_coords.groupby(year_col)]
-    p = mp.Pool(processes=5)
+    p = mp.Pool(processes=25)
     results_df = pd.concat(p.map(partial(get_climate_vars_for_year,climate_variables=var_names), df_splits))
     #results_df = pd.concat(p.map(find_peaks_and_troughs_in_df, df_splits))
     p.close()
@@ -360,11 +370,10 @@ def get_elevation_for_dataframe(df:pd.DataFrame, lat_col = 'lat', long_col = 'lo
     return results_df
 
 
-
-def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_index_dhs', year_df_col = 'year_start'):
+def get_ldipc_from_asset_score_old(asset_df:pd.DataFrame,  asset_score_col= 'wealth_index_dhs', year_df_col = 'year_start'):
 #    INCOME_FILEPATH = '/mnt/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_fixGUY/gdppc_estimates.csv'
 
-    income_raw = pd.read_csv(LDIPC_FILEPATH)
+    income_raw = pd.read_csv(LDIPC_NATIONAL_FILEPATH)
     income_raw = income_raw[['population_percentile', 'ldipc', 'location_id', 'year_id']]
     #income_raw['ihme_loc_id'] = income_raw.location_id.astype(int)
     income_raw['year_id'] = income_raw.year_id.astype(int)
@@ -405,14 +414,78 @@ def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_
     assert(len(wdf) == len(asset_df))
     return wdf
 
+
+def get_ldipc_from_asset_score(asset_df:pd.DataFrame,  asset_score_col= 'wealth_index_dhs', 
+    year_df_col = 'year_start', use_weights = False, match_distributions = False):
+    from scipy.interpolate import CubicSpline, PchipInterpolator, Akima1DInterpolator
+    LDIPC_NATIONAL_FILEPATH = Path('/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/national_ldipc_estimates.csv')
+    ldi = pd.read_csv(LDIPC_NATIONAL_FILEPATH)
+    print(f"Converting income from asset score {'not' if not use_weights else ''} using weights, {'not' if not match_distributions else ''} matching distributions")
+    dfs = []
+    for nid in asset_df.nid.unique():
+        nid_df = asset_df.loc[asset_df.nid == nid].copy().sort_values(['nid', 'ihme_loc_id', year_df_col, asset_score_col])
+        if nid_df.year_start.nunique() > 1:
+            print(f"Multiple years for NID {nid}: {nid_df.year_start.unique()}")
+            year = nid_df.year_start.min()
+        else:
+            year = nid_df.year_start.iloc[0]
+        if nid_df.ihme_loc_id.nunique() > 1:
+            raise ValueError(f"Multiple locations for NID {nid}")
+        ihme_loc_id = nid_df.ihme_loc_id.iloc[0]
+        nid_df['unweighted_population_percentile'] = nid_df[asset_score_col].rank(pct=True)
+        
+
+        #wealth = wealth.sort_values('wealth_index_dhs')
+        nid_df['cum_weight'] = nid_df['pweight'].cumsum()
+        total_weight = nid_df['pweight'].sum()
+        nid_df['weighted_population_percentile'] = nid_df['cum_weight'] / total_weight 
+        nid_df['population_percentile'] = nid_df.weighted_population_percentile if use_weights else nid_df.unweighted_population_percentile        
+
+        ldi_df = ldi.loc[(ldi.ihme_loc_id == ihme_loc_id) & (ldi.year_id == year)].sort_values(['population_percentile'])
+        if ldi_df.empty:
+            print(f"No LDI data for NID {nid} in year {year}")
+            raise ValueError
+        population_percentiles = np.linspace(0, 1, 1000001)
+        interpolator = PchipInterpolator(ldi_df["population_percentile"], ldi_df["ldipc"])
+
+        if not match_distributions:
+            nid_df['ldipc'] = interpolator(nid_df['population_percentile'])
+            dfs.append(nid_df)
+            continue
+        # Take away values below threshold
+        # Get the distribution of incomes, subset to below threshold and create new interpolator from them
+        interpolated_income_distrib = interpolator(population_percentiles)
+        minimum_difference = np.inf
+        for threshold_quantile in np.linspace(0.25, 1, 76):
+            threshold_value = np.quantile(interpolated_income_distrib, threshold_quantile)
+            interpolated_incomes_clipped = interpolated_income_distrib[interpolated_income_distrib <= threshold_value]
+
+            clipped_interpolator = PchipInterpolator(np.linspace(0, 1, len(interpolated_incomes_clipped)), interpolated_incomes_clipped)
+            interp_survey_income = clipped_interpolator(nid_df['population_percentile'])
+            scaled_interp_survey_income = (interp_survey_income - interp_survey_income.min()) / (interp_survey_income.max() -interp_survey_income.min())
+            #wealth['scaled_unclipped_interpolated_ldi'] = (wealth['unclipped_interpolated_ldi'] - wealth['unclipped_interpolated_ldi'].min()) / (wealth['unclipped_interpolated_ldi'].max() - wealth['unclipped_interpolated_ldi'].min())
+            scaled_wealth_index = (nid_df['wealth_index_dhs'] - nid_df['wealth_index_dhs'].min()) / (nid_df['wealth_index_dhs'].max() - nid_df['wealth_index_dhs'].min())
+            diff = np.abs((scaled_interp_survey_income - scaled_wealth_index).sum())
+
+            if diff < minimum_difference:
+                minimum_difference = diff
+                nid_df['ldipc'] = interp_survey_income
+        dfs.append(nid_df)
+
+    asset_df_ldipc = pd.concat(dfs)
+    #asset_df_ldipc['ldi_pc_pd'] = asset_df_ldipc['ldipc'] / 365.25
+    assert asset_df_ldipc['ldipc'].isna().sum() == 0
+    assert len(asset_df_ldipc) == len(asset_df)
+    return asset_df_ldipc
+
 def get_wealth_dataset():
     loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
     wealth_raw = pd.read_parquet(SURVEY_DATA_PATHS['wealth']['lsae'])
     wealth_df = wealth_raw[wealth_raw['point'] == 1]
-    wealth_df = wealth_df.rename(columns = {'wealth_score':'wealth_index_dhs', 'iso3':'ihme_loc_id'})
+    wealth_df = wealth_df.rename(columns = {'wealth_score':'wealth_index_dhs', 'iso3':'ihme_loc_id', 'weight':'pweight'})
     wealth_df = wealth_df.rename(columns = COLUMN_NAME_TRANSLATOR)
-    wealth_df = wealth_df[['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu', 'strata', 'hh_id', 'wealth_index_dhs', 'lat', 'long']]
-    wealth_df = wealth_df[['ihme_loc_id', 'nid', 'psu', 'hh_id', 'lat', 'long', 'year_start', 'wealth_index_dhs', 'geospatial_id']].drop_duplicates()
+    wealth_df = wealth_df[['nid', 'ihme_loc_id', 'year_start', 'year_end', 'geospatial_id', 'psu', 'strata', 'hh_id', 'pweight', 'wealth_index_dhs', 'lat', 'long']]
+    wealth_df = wealth_df[['ihme_loc_id', 'nid', 'psu', 'hh_id', 'pweight', 'lat', 'long', 'year_start', 'wealth_index_dhs', 'geospatial_id']].drop_duplicates()
 
     # In the wealth team's dataset, sometimes there are multiple asset scores for a given household id.
     # Take away those NIDs
@@ -458,6 +531,31 @@ def assign_age_group(df:pd.DataFrame):
     df.loc[df.age_group_id == 34, 'age_group_id'] = 5
     return df
 
+def assign_lbd_admin2_location_id(data:pd.DataFrame, lat_col:str = 'lat', long_col:str = 'long'):
+    LBD_ADMIN2_METADATA_FILEPATH = ClimateMalnutritionData._PROCESSED_DATA_ROOT / 'ihme' / 'lbd_admin2.parquet'
+    admin2_shapes = gpd.read_parquet(LBD_ADMIN2_METADATA_FILEPATH)[['loc_id', 'geometry']].rename(columns={'loc_id':'lbd_admin2_id'}).to_crs("ESRI:54009") 
+    assert('lbd_admin2_id' not in data.columns)
+
+    cgf_coords = data[[lat_col, long_col]].drop_duplicates()
+    cgf_coords = gpd.GeoDataFrame(cgf_coords, geometry=gpd.points_from_xy(cgf_coords.long, cgf_coords.lat))
+    cgf_coords = cgf_coords.set_crs("WGS84").to_crs("ESRI:54009") 
+
+    lencheck = len(cgf_coords)
+    cgf_coords = cgf_coords.sjoin_nearest(admin2_shapes, how='left', distance_col='distance')
+    # There's a point in Colombia that is included in two different admin2s so it gets duplicated; dropping the wrong location for it
+    cgf_coords = cgf_coords.query(f"not({lat_col} == 10.935365 and {long_col} == -74.764815 and lbd_admin2_id == 55124)")
+    assert(len(cgf_coords) == lencheck)
+    
+    lencheck = len(data)
+    result = data.merge(cgf_coords[[lat_col, long_col, 'lbd_admin2_id']], on=[lat_col, long_col], how='left')
+    assert(len(result) == lencheck)
+    return result
+
+def assign_sdi(df:pd.DataFrame, year_col:str = 'year_start'):    
+    SDI_PATH = Path('/mnt/share/forecasting/data/7/past/sdi/20240531_gk24/sdi.nc')
+    sdi = xr.open_dataset(SDI_PATH)
+    sdi = sdi.mean(dim='draw')
+    return df.merge(sdi.to_dataframe(), left_on=['location_id', year_col], right_index=True, how='left')
 
 @click.command()
 @clio.with_output_root(DEFAULT_ROOT)
@@ -467,3 +565,4 @@ def run_training_data_prep(output_root: str, source_type: str):
     print(f"Running training data prep for {source_type}...")
     #for src in source_type:
     run_training_data_prep_main(output_root, source_type)
+
