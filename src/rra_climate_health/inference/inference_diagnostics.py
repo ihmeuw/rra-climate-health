@@ -464,7 +464,7 @@ def get_coefficients_table(
 ) -> pd.DataFrame:
     models = cm_data.load_model_family(model_version)
     if len(models) == 1:
-        return models[0]['model'].coefs[['Estimate']]
+        return models[0]["model"].coefs[["Estimate"]]  # type: ignore[no-any-return]
     return pd.concat(  # type: ignore[no-any-return]
         [
             model["model"]
@@ -479,14 +479,14 @@ def get_coefficients_table(
 def get_re_table(cm_data: ClimateMalnutritionData, model_version: str) -> pd.DataFrame:
     models = cm_data.load_model_family(model_version)
     if len(models) == 1:
-        res =  models[0]['model'].ranef.rename(
-            columns = {'X.Intercept.': 'Random Effect'}
-        )
+        res = models[0]["model"].ranef.rename(columns={"X.Intercept.": "Random Effect"})
     else:
-        res = pd.concat(  # type: ignore[no-any-return]
+        res = pd.concat(
             [
                 model["model"].ranef.rename(
-                    columns={"X.Intercept.": f"{model['age_group_id']} {model['sex_id']}"}
+                    columns={
+                        "X.Intercept.": f"{model['age_group_id']} {model['sex_id']}"
+                    }
                 )
                 for model in models
             ],
@@ -495,14 +495,17 @@ def get_re_table(cm_data: ClimateMalnutritionData, model_version: str) -> pd.Dat
     max_re_table_length = 100
     if len(res) > max_re_table_length:
         res = res.head(max_re_table_length)
-    return res
+    return res  # type: ignore[no-any-return]
 
 
 def plot_model_heatmaps(model_version: str, measure: str) -> plt.Figure:  # type: ignore[name-defined]
     cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT) / measure)
     models = cm_data.load_model_family(model_version)
     df = pd.concat([model["model"].raw_data for model in models]).reset_index(drop=True)
-    threshold_varname = [x for x in df.columns if x.startswith('days_over')][0]
+    threshold_varname = next((x for x in df.columns if x.startswith("days_over")), None)
+    if not threshold_varname:
+        error_message = "No threshold variable found"
+        raise ValueError(error_message)
 
     df["pred"] = pd.concat(
         [
@@ -588,7 +591,7 @@ def plot_model_heatmaps(model_version: str, measure: str) -> plt.Figure:  # type
         ax.set_xticklabels(x_labs, rotation=45, fontsize=12)
         ax.set_yticks(y_ticks)
         ax.set_yticklabels(y_labs, fontsize=12)
-        ax.set_xlabel(threshold_varname.replace('_', ' '), fontsize=12)
+        ax.set_xlabel(threshold_varname.replace("_", " "), fontsize=12)
         ax.set_ylabel("Income", fontsize=12)
         ax.collections[0].colorbar.set_label(
             f"{measure.capitalize()} Prevalence", size=12
