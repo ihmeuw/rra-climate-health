@@ -15,7 +15,7 @@ theme:
 
 nav:
   - Introduction: 'index.md'
-  - Input Data: 'data.md'
+  - Input Data: 'inputs.md'
   - Training Methodology: 'model.md'
   - Inference and Forecasting: 'inference.md'
   - api_docs.md
