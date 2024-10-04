@@ -10,12 +10,12 @@ The tool allows for the following:
 - Income
 - Other variables: SDI, year
 - Interaction between a threshold climate variable and income
-Other rasterized variables can be added with a few code changes. Non-rasterized variables need to be rasterized first if they vary geographically (such as country-specific variables). 
+Other rasterized variables can be added with a few code changes. Non-rasterized variables need to be rasterized first if they vary geographically (such as country-specific variables).
 
 Model covariates can be expressed to undergo transformations from the raw state. These can be:
 - Scaling
   - Min Max
-  - Standardizing 
+  - Standardizing
   - Inner 95: Scale but setting the top and bottom values at the 0.25 and 0.975 percentile of the covariate values' distribution
 - Binning
 - Masking
