@@ -18,7 +18,7 @@ class ResultsSpecification(BaseModel):
     def from_yaml(cls, yaml_path: str | Path) -> "ModelSpecification":
         with Path(yaml_path).open("r") as f:
             yaml_dict = yaml.safe_load(f)
-        return ModelSpecification.parse_obj(yaml_dict)
+        return ResultsSpecification.parse_obj(yaml_dict)
 
     def to_yaml(self, yaml_path: str | Path) -> None:
         with Path(yaml_path).open("w") as f:

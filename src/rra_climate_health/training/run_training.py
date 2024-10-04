@@ -2,8 +2,13 @@ from pathlib import Path
 from typing import Any
 
 import click
+import itertools
+import numpy as np
 import pandas as pd
 from pymer4.models.Lmer import Lmer
+from sklearn.model_selection import GroupShuffleSplit,StratifiedGroupKFold
+from sklearn.calibration import calibration_curve
+from sklearn.metrics import mean_absolute_error, brier_score_loss, log_loss, mean_squared_error, precision_recall_curve, auc
 from rra_tools import jobmon
 
 from rra_climate_health import cli_options as clio
@@ -57,8 +62,7 @@ def model_training_main(
     output_root: Path,
     measure: str,
     model_version: str,
-    age_group_id: int,
-    sex_id: int,
+    submodel: list[tuple[str, str]] = [],   
 ) -> None:
     cm_data = ClimateMalnutritionData(output_root / measure)
     model_spec = cm_data.load_model_specification(model_version)
@@ -87,7 +91,8 @@ def model_training_main(
     # TODO: Test/train split
     print(
         f"Training {model_spec.lmer_formula} for {measure} {model_version} "
-        f"age {age_group_id} sex {sex_id} cols {df.columns}"
+        f"submodel {submodel} cols {df.columns}"
+        f" with {len(df)} rows"
     )
     model = Lmer(model_spec.lmer_formula, data=df, family="binomial")
     model.fit()
@@ -98,30 +103,34 @@ def model_training_main(
         raise ValueError(msg)
     model.var_info = var_info
     model.raw_data = raw_df
+    model.submodel = submodel
 
-    cm_data.save_model(model, model_version, age_group_id, sex_id)
+    cm_data.save_model(model, model_version, submodel)
 
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
 @clio.with_measure()
 @clio.with_model_version()
-@clio.with_age_group_id()
-@clio.with_sex_id()
+@click.option(
+    "--submodel",
+    "-s",
+    multiple=True,
+    type = (str, str),
+    help="Submodel specification.",
+)
 def model_training_task(
     output_root: str,
     measure: str,
     model_version: str,
-    age_group_id: str,
-    sex_id: str,
+    submodel: list[tuple[str, str]],
 ) -> None:
     """Run model training."""
     model_training_main(
         Path(output_root),
         measure,
         model_version,
-        int(age_group_id),
-        int(sex_id),
+        submodel,
     )
 
 
@@ -146,30 +155,38 @@ def model_training(
     version_root = cm_data.models / model_version
     model_spec.version.model = model_version
     cm_data.save_model_specification(model_spec, model_version)
+    training_data = cm_data.load_training_data(model_spec.version.training_data)
 
-    print("Runing model training for model version", model_version)
+    # Deal with submodels
+    submodel_vars = model_spec.submodel_vars or []
+    submodel_vars = [var.name for var in submodel_vars]
+    print('Training submodels by:', ", ".join([var for var in submodel_vars]))
+    submodel_var_values = [training_data[var].unique() for var in submodel_vars]
+    #cross product of all submodel_var_values lists
+    submodel_specs = [list(zip(submodel_vars, values)) for values in itertools.product(*submodel_var_values)]
+    submodel_specs = [' --submodel '.join([f'{var} {val}' for var, val in spec]) for spec in submodel_specs]
+    node_args = {"submodel": submodel_specs} if submodel_vars else dict()
+    node_args['measure'] = [measure]
+
+    print("Running model training for model version", model_version)
 
     jobmon.run_parallel(
         runner="sttask",
         task_name="training",
-        node_args={
-            "age-group-id": clio.VALID_AGE_GROUP_IDS,
-            "sex-id": clio.VALID_SEX_IDS,
-        },
+        node_args=node_args,
         task_args={
             "output-root": output_root,
-            "measure": measure,
             "model-version": model_version,
         },
         task_resources={
             "queue": queue,
             "cores": 1,
             "memory": "20Gb",
-            "runtime": "1h",
+            "runtime": "4h",
             "project": "proj_rapidresponse",
         },
         max_attempts=1,
         log_root=str(version_root),
     )
 
-    print("Model training complete. Results can be found at", version_root)
+    print('Model training complete. Results can be found at', version_root)
