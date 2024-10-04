@@ -613,8 +613,8 @@ def get_ldipc_from_asset_score(
     asset_score_col: str = "wealth_index_dhs",
     year_df_col: str = "year_start",
     *,
-    use_weights: bool = False,
-    match_distributions: bool = False,
+    use_weights: bool = True,
+    match_distributions: bool = True,
 ) -> pd.DataFrame:
     from scipy.interpolate import PchipInterpolator
 
@@ -835,7 +835,6 @@ def assign_age_group(df: pd.DataFrame) -> pd.DataFrame:
         "age_group_id",
     ] = age_id_one_month
 
-    # TODO: Delete when (or if) we get population at the more granular age group level
     age_id_map = {
         388: 4,
         389: 4,

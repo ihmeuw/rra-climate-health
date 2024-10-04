@@ -84,16 +84,22 @@ class ClimateMalnutritionData:
         results_spec_path = self.results / version / "results_spec.yaml"
         return ResultsSpecification.from_yaml(results_spec_path)
 
+    SUBMODEL_VARIABLE_SEPARATOR = '___'
+    SUBMODEL_VALUE_SEPARATOR = '__'
+
     def save_model(
         self,
         model: "Lmer",
         version: str,
-        age_group_id: str | int,
-        sex_id: str | int,
+        submodel: list[tuple[str, str]] = [],
     ) -> None:
         model_root = self.models / version
         mkdir(model_root, exist_ok=True)
-        model_filepath = model_root / f"{age_group_id}_{sex_id}.pkl"
+        if submodel:
+            submodel_str = self.SUBMODEL_VARIABLE_SEPARATOR.join([f"{name}{self.SUBMODEL_VALUE_SEPARATOR}{value}" for name, value in submodel])
+            model_filepath = model_root / f'{submodel_str}.pkl'
+        else:
+            model_filepath = model_root / 'base_model.pkl'
         touch(model_filepath, exist_ok=True)
         with model_filepath.open("wb") as f:
             pickle.dump(model, f)
@@ -104,17 +110,51 @@ class ClimateMalnutritionData:
     ) -> list[dict[str, typing.Any]]:
         models = []
         model_id_dir = self.models / version
-        for age_group_id, sex_id in itertools.product([4, 5], [1, 2]):
-            model_filepath = model_id_dir / f"{age_group_id}_{sex_id}.pkl"
-            with model_filepath.open("rb") as f:
-                models.append(
-                    {
-                        "model": pickle.load(f),  # noqa: S301
-                        "age_group_id": age_group_id,
-                        "sex_id": sex_id,
-                    }
-                )
+        model_spec = self.load_model_specification(version)
+        
+        filepaths = model_id_dir.glob('*.pkl')
+        for filepath in filepaths:
+            model_dict = dict()
+            
+            if filepath.stem == 'base_model':
+                # No submodels
+                submodel_def = []
+            else:
+                submodel_def = [tuple(var_str.split(self.SUBMODEL_VALUE_SEPARATOR)) for var_str in filepath.stem.split(self.SUBMODEL_VARIABLE_SEPARATOR)]
+            print(submodel_def)
+            for var_name, var_value in submodel_def:
+                model_dict[var_name] = var_value
+            
+            with filepath.open("rb") as f:
+                model_dict['model'] = pickle.load(f)
+            
+            models.append(model_dict)
+        
         return models
+    
+    def load_submodel(
+        self,
+        version: str,
+        submodel: list[tuple[str, any]] = []
+    ) -> "Lmer":
+        model_id_dir = self.models / version
+        submodel = [(name, str(value)) for name, value in submodel]     
+        possible_submodel_strs = ['base_model']
+        # We don't require submodel variables to be in a specific order, so we need to check all permutations
+        if submodel:
+            possible_submodel_strs += [
+                self.SUBMODEL_VARIABLE_SEPARATOR.join(
+                    [f"{name}{self.SUBMODEL_VALUE_SEPARATOR}{value}" for name, value in perm]
+                ) for perm in itertools.permutations(submodel)
+            ]
+        for submodel_str in possible_submodel_strs:
+            model_filepath = model_id_dir / f'{submodel_str}.pkl'
+            if model_filepath.exists():
+                with model_filepath.open("rb") as f:
+                    model = pickle.load(f)
+                return model
+        raise FileNotFoundError(f"Model for submodel {submodel} not found.")
+    
 
     @property
     def results(self) -> Path:

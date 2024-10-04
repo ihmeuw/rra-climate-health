@@ -58,8 +58,12 @@ class MaskingSpecification(BaseModel):
     threshold: float
 
 
+class CategoricalSpecification(ScalingSpecification):
+    type: Literal['categorical'] = 'categorical'
+
+
 TransformSpecification: TypeAlias = (
-    BinningSpecification | ScalingSpecification | MaskingSpecification
+    BinningSpecification | ScalingSpecification | MaskingSpecification | CategoricalSpecification
 )
 
 
@@ -148,6 +152,10 @@ class HoldoutSpecification(BaseModel):
     seed: int = 42
 
 
+class SubmodelSpecification(BaseModel):
+    name: str
+
+
 class VersionSpecification(BaseModel):
     training_data: str
     model: str | None = None
@@ -157,6 +165,7 @@ class ModelSpecification(BaseModel):
     version: VersionSpecification
     measure: OutcomeVariable
     holdout: HoldoutSpecification = HoldoutSpecification()
+    submodel_vars: list[SubmodelSpecification] | None = None
     predictors: list[PredictorSpecification] = Field(default_factory=list)
     grid_predictors: GridSpecification | None = None
     extra_terms: list[str]
@@ -200,13 +209,14 @@ class ModelSpecification(BaseModel):
         predictors += self.predictors
         random_effects: dict[str, list[str]] = {}
         for predictor in predictors:
+            predictor_repr = "1" if predictor.name == "intercept" else predictor.name
+            predictor_repr = f"C({predictor_repr})" if predictor.transform.type == 'categorical' else predictor_repr
             if predictor.random_effect:
-                var_name = "1" if predictor.name == "intercept" else predictor.name
                 if predictor.random_effect in random_effects:
-                    random_effects[predictor.random_effect].append(var_name)
+                    random_effects[predictor.random_effect].append(predictor_repr)
                 else:
-                    random_effects[predictor.random_effect] = [var_name]
-                formula += f" {var_name}  +"
+                    random_effects[predictor.random_effect] = [predictor_repr]
+                formula += f" {predictor_repr}  +"
             else:
                 formula += f" {predictor.name} +"
         for random_effect, variables in random_effects.items():

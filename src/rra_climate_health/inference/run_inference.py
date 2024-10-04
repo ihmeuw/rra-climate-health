@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import re
 import click
 import geopandas as gpd
 import numpy as np
@@ -22,7 +23,40 @@ from rra_climate_health.model_specification import (
     PredictorSpecification,
 )
 
-FORECASTED_POPULATIONS_FILEPATH = "/mnt/share/forecasting/data/7/future/population/20240529_500d_2100_lhc_ref_squeeze_hiv_shocks_covid_all_gbd_7_shifted/population.nc"
+FORECASTED_POPULATIONS_FILEPATH_AGGREGATED_AGEGROUPS = "/mnt/share/forecasting/data/7/future/population/20240529_500d_2100_lhc_ref_squeeze_hiv_shocks_covid_all_gbd_7_shifted/population.nc"
+FORECASTED_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/7/future/population/20240730_GBD2021_500d_hiv_shocks_covid_all_rerun/population.nc'
+
+
+def get_categorical_coefficient(coefs: pd.Series, variable_name: str, variable_value: any, training_col: pd.Series) -> float:
+    expected_value = training_col.dtype.type(variable_value)
+    # Regex to extract the value from the categorical predictor coefficients
+    pattern = re.compile(rf"C\({variable_name}\)(.+)")
+    
+    # Look for match
+    for idx in coefs.index:
+        match = pattern.match(idx)
+        if match:
+            # Extract the value from the matched string and compare
+            extracted_value = match.group(1)
+            extracted_value = training_col.dtype.type(extracted_value)
+            if extracted_value == expected_value:
+                print(f"Variable '{variable_name}' found with value '{variable_value}' in coefficients.")
+                return coefs[idx]
+    
+    # Check if the base variable is in the predictors as a categorical, if so, assume the provided value is the reference
+    base_var_index = f"C({variable_name})"
+    matching_indices = [idx for idx in coefs.index if idx.startswith(base_var_index)]
+    
+    if matching_indices:
+        print(f"Variable '{variable_name}' found, but the value '{variable_value}' is not in coefficients, assuming it's the reference.")
+        return 0.0
+    
+    # If not categorical, just return the coefficient
+    if variable_name in coefs.index:
+        return coefs[variable_name]
+    
+    raise KeyError(f"Variable '{variable_name}' not found in the series.")
+
 
 
 def get_intercept_raster(
@@ -120,9 +154,12 @@ def get_model_prevalence(
     spec: ModelSpecification,
     cmip6_scenario: str,
     year: int,
+    age_group_id: int,
+    sex_id: int,
     cm_data: ClimateMalnutritionData,
     location_effect_shapes: gpd.GeoDataFrame,
     raster_template: rt.RasterArray,
+    training_data: pd.DataFrame,
 ) -> rt.RasterArray:
     coefs = model.coefs["Estimate"]
     ranefs = model.ranef
@@ -162,6 +199,14 @@ def get_model_prevalence(
                 crs=sdi.crs,
                 no_data_value=np.nan,
             )
+        elif predictor.name == 'sex_id' or predictor.name == 'age_group_id':
+            if predictor.transform.type != 'categorical':
+                raise ValueError('Only categorical predictors are allowed for {predictor.name}')
+            category_coef = get_categorical_coefficient(coefs, 
+                predictor.name, 
+                age_group_id if predictor.name == 'age_group_id' else sex_id,
+                training_data[predictor.name])
+            partial_estimates[predictor.name] = category_coef
         else:
             if predictor.random_effect:
                 msg = "Random slopes not implemented"
@@ -189,16 +234,18 @@ def get_model_prevalence(
                 no_data_value=np.nan,
             )
 
-    if spec.extra_terms != ["any_days_over_30C * ldi_pc_pd"]:
-        msg = "Only days over 30C and LDI interaction is supported"
+    threshold_flag_varname = [x.name for x in spec.predictors if x.name.startswith('any')][0]
+
+    if spec.extra_terms != [f'{threshold_flag_varname} * ldi_pc_pd']:
+        msg = "Only threshold variable and LDI interaction is supported"
         raise NotImplementedError(msg)
 
     beta_interaction = (
-        coefs.loc["ldi_pc_pd:any_days_over_30C"] / coefs.loc["any_days_over_30C"]
+        coefs.loc[f'ldi_pc_pd:{threshold_flag_varname}'] / coefs.loc[threshold_flag_varname]
     )
     beta_ldi = (
-        beta_interaction * partial_estimates["any_days_over_30C"]
-        + coefs.loc["ldi_pc_pd"]
+        beta_interaction * partial_estimates[threshold_flag_varname]
+        + coefs.loc['ldi_pc_pd']
     ).to_numpy()
     z_partial = sum(partial_estimates.values())
 
@@ -237,30 +284,40 @@ def model_inference_main(
         model_location_effect_shapes = result_shapes
     print("loading population")
     pop_raster = cm_data.load_population_raster().set_no_data_value(np.nan)
-    print("loading models")
-    models = cm_data.load_model_family(model_version)
 
-    for i, model_dict in enumerate(models):
-        print(f"Computing prevalence for model {i} of {len(models)}")
-        model_prevalence = get_model_prevalence(
-            model_dict["model"],
-            spec,
-            cmip6_scenario,
-            year,
-            cm_data,
-            model_location_effect_shapes,
-            raster_template,
-        )
-        cm_data.save_raster_results(
-            model_prevalence,
-            results_version,
-            cmip6_scenario,
-            year,
-            model_dict["age_group_id"],
-            model_dict["sex_id"],
-        )
+    # We need to produce raster results for each age, sex, year, scenario
+    # Year and scenario are paralellized for, so we deal with age and sex here
+    training_data = cm_data.load_training_data(spec.version.training_data)
+    results = []
+    for age_group_id in training_data.age_group_id.unique():
+        for sex_id in training_data.sex_id.unique():
+            model = cm_data.get_model_by_submodel(model_version, [('age_group_id', age_group_id), ("sex_id", sex_id)])
+            print(f'Computing prevalence for age {age_group_id} and sex {sex_id}')
 
-        model_dict["prediction"] = model_prevalence
+            model_prevalence = get_model_prevalence(
+                model,
+                spec,
+                cmip6_scenario,
+                year,
+                age_group_id,
+                sex_id,
+                cm_data,
+                model_location_effect_shapes,
+                raster_template,
+                training_data,
+            )
+            cm_data.save_raster_results(
+                model_prevalence,
+                results_version,
+                cmip6_scenario,
+                year,
+                age_group_id,
+                sex_id,
+            )
+            results.append({
+                'age_group_id': age_group_id,
+                'sex_id':sex_id,
+                'prediction': model_prevalence,})
 
     print("Computing zonal statistics")
     shape_map = (
@@ -269,7 +326,7 @@ def model_inference_main(
         .geometry.to_dict()
     )
     out = []
-    for model_dict in models:
+    for model_dict in results:
         count = model_dict["prediction"] * pop_raster
         for shape_id, shape in shape_map.items():
             numerator = np.nansum(count.clip(shape).mask(shape))
@@ -296,6 +353,11 @@ def load_population_timeseries(
     locs_of_interest = list(locs_of_interest)
     age_group_ids = list(age_group_ids)
 
+    if 4 in age_group_ids:
+        source_filepath = FORECASTED_POPULATIONS_FILEPATH_AGGREGATED_AGEGROUPS
+    else:
+        source_filepath = FORECASTED_POPULATIONS_FILEPATH
+
     forecast_pop = (
         xr.open_dataset(FORECASTED_POPULATIONS_FILEPATH)
         .mean(dim="draw")
@@ -307,10 +369,13 @@ def load_population_timeseries(
         .to_dataframe()
         .droplevel("scenario")
     )
-    historical_pop = pd.read_parquet(
-        cm_data._PROCESSED_DATA_ROOT  # noqa: SLF001
-        / "ihme"
-        / "global_population_by_age_group_and_sex.parquet"
+    historical_pop = (
+        pd.read_parquet(
+            cm_data._PROCESSED_DATA_ROOT  # noqa: SLF001
+            / "ihme"
+            / "global_population_by_age_group_and_sex.parquet"
+        )
+        .query('location_id in @locs_of_interest and age_group_id in @age_group_ids')
     )
     historical_pop = historical_pop.loc[
         historical_pop.year_id < forecast_pop.index.get_level_values("year_id").min()
@@ -335,7 +400,6 @@ def forecast_scenarios(
         .tolist()
     )
 
-    pop = load_population_timeseries(cm_data, locs_of_interest)
     loc_region_map = cm_data.load_fhs_hierarchy()[
         ["location_id", "location_name", "region_name", "super_region_name"]
     ]
@@ -367,6 +431,8 @@ def forecast_scenarios(
     combined = combined.reset_index().assign(
         location_id=lambda x: x.location_id.astype(int)
     )
+    age_groups = combined['age_group_id'].unique()
+    pop = load_population_timeseries(cm_data, locs_of_interest, age_group_ids=age_groups)
     combined = combined.set_index(
         ["location_id", "age_group_id", "sex_id", "year_id"]
     ).sort_index()
