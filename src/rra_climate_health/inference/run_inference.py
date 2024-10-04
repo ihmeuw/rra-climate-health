@@ -1,8 +1,8 @@
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-import re
 import click
 import geopandas as gpd
 import numpy as np
@@ -24,14 +24,19 @@ from rra_climate_health.model_specification import (
 )
 
 FORECASTED_POPULATIONS_FILEPATH_AGGREGATED_AGEGROUPS = "/mnt/share/forecasting/data/7/future/population/20240529_500d_2100_lhc_ref_squeeze_hiv_shocks_covid_all_gbd_7_shifted/population.nc"
-FORECASTED_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/7/future/population/20240730_GBD2021_500d_hiv_shocks_covid_all_rerun/population.nc'
+FORECASTED_POPULATIONS_FILEPATH = "/mnt/share/forecasting/data/7/future/population/20240730_GBD2021_500d_hiv_shocks_covid_all_rerun/population.nc"
 
 
-def get_categorical_coefficient(coefs: pd.Series, variable_name: str, variable_value: any, training_col: pd.Series) -> float:
+def get_categorical_coefficient(
+    coefs: pd.Series[float],
+    variable_name: str,
+    variable_value: Any,
+    training_col: pd.Series[Any],
+) -> float:
     expected_value = training_col.dtype.type(variable_value)
     # Regex to extract the value from the categorical predictor coefficients
     pattern = re.compile(rf"C\({variable_name}\)(.+)")
-    
+
     # Look for match
     for idx in coefs.index:
         match = pattern.match(idx)
@@ -40,23 +45,27 @@ def get_categorical_coefficient(coefs: pd.Series, variable_name: str, variable_v
             extracted_value = match.group(1)
             extracted_value = training_col.dtype.type(extracted_value)
             if extracted_value == expected_value:
-                print(f"Variable '{variable_name}' found with value '{variable_value}' in coefficients.")
-                return coefs[idx]
-    
+                print(
+                    f"Variable '{variable_name}' found with value '{variable_value}' in coefficients."
+                )
+                return coefs.loc[idx]  # type: ignore[no-any-return]
+
     # Check if the base variable is in the predictors as a categorical, if so, assume the provided value is the reference
     base_var_index = f"C({variable_name})"
     matching_indices = [idx for idx in coefs.index if idx.startswith(base_var_index)]
-    
+
     if matching_indices:
-        print(f"Variable '{variable_name}' found, but the value '{variable_value}' is not in coefficients, assuming it's the reference.")
+        print(
+            f"Variable '{variable_name}' found, but the value '{variable_value}' is not in coefficients, assuming it's the reference."
+        )
         return 0.0
-    
+
     # If not categorical, just return the coefficient
     if variable_name in coefs.index:
         return coefs[variable_name]
-    
-    raise KeyError(f"Variable '{variable_name}' not found in the series.")
 
+    error_message = f"Variable '{variable_name}' not found in the series."
+    raise KeyError(error_message)
 
 
 def get_intercept_raster(
@@ -149,7 +158,7 @@ def get_nonspatial_predictor_raster(
     return var_raster * pred_value  # type: ignore[no-any-return]
 
 
-def get_model_prevalence(
+def get_model_prevalence(  # noqa: C901 PLR0912
     model: Any,
     spec: ModelSpecification,
     cmip6_scenario: str,
@@ -199,14 +208,20 @@ def get_model_prevalence(
                 crs=sdi.crs,
                 no_data_value=np.nan,
             )
-        elif predictor.name == 'sex_id' or predictor.name == 'age_group_id':
-            if predictor.transform.type != 'categorical':
-                raise ValueError('Only categorical predictors are allowed for {predictor.name}')
-            category_coef = get_categorical_coefficient(coefs, 
-                predictor.name, 
-                age_group_id if predictor.name == 'age_group_id' else sex_id,
-                training_data[predictor.name])
-            partial_estimates[predictor.name] = category_coef
+        elif predictor.name in {"sex_id", "age_group_id"}:
+            if predictor.transform.type != "categorical":
+                error_message = (
+                    f"Only categorical predictors are allowed for {predictor.name}"
+                )
+                raise ValueError(error_message)
+            category_coef = get_categorical_coefficient(
+                coefs,
+                predictor.name,
+                age_group_id if predictor.name == "age_group_id" else sex_id,
+                training_data[predictor.name],
+            )
+            # Not a raster, but the coefficient applies to the whole raster and can be added to the sum
+            partial_estimates[predictor.name] = category_coef  # type: ignore[assignment]
         else:
             if predictor.random_effect:
                 msg = "Random slopes not implemented"
@@ -234,18 +249,24 @@ def get_model_prevalence(
                 no_data_value=np.nan,
             )
 
-    threshold_flag_varname = [x.name for x in spec.predictors if x.name.startswith('any')][0]
+    threshold_flag_varname = next(
+        (x.name for x in spec.predictors if x.name.startswith("any")), None
+    )
+    if not threshold_flag_varname:
+        msg = "Support for missing threshold flag variable not implemented yet"
+        raise NotImplementedError(msg)
 
-    if spec.extra_terms != [f'{threshold_flag_varname} * ldi_pc_pd']:
-        msg = "Only threshold variable and LDI interaction is supported"
+    if spec.extra_terms != [f"{threshold_flag_varname} * ldi_pc_pd"]:
+        msg = "Only threshold variable binary flag and LDI interaction is supported"
         raise NotImplementedError(msg)
 
     beta_interaction = (
-        coefs.loc[f'ldi_pc_pd:{threshold_flag_varname}'] / coefs.loc[threshold_flag_varname]
+        coefs.loc[f"ldi_pc_pd:{threshold_flag_varname}"]
+        / coefs.loc[threshold_flag_varname]
     )
     beta_ldi = (
         beta_interaction * partial_estimates[threshold_flag_varname]
-        + coefs.loc['ldi_pc_pd']
+        + coefs.loc["ldi_pc_pd"]
     ).to_numpy()
     z_partial = sum(partial_estimates.values())
 
@@ -291,8 +312,10 @@ def model_inference_main(
     results = []
     for age_group_id in training_data.age_group_id.unique():
         for sex_id in training_data.sex_id.unique():
-            model = cm_data.get_model_by_submodel(model_version, [('age_group_id', age_group_id), ("sex_id", sex_id)])
-            print(f'Computing prevalence for age {age_group_id} and sex {sex_id}')
+            model = cm_data.load_submodel(
+                model_version, [("age_group_id", age_group_id), ("sex_id", sex_id)]
+            )
+            print(f"Computing prevalence for age {age_group_id} and sex {sex_id}")
 
             model_prevalence = get_model_prevalence(
                 model,
@@ -314,10 +337,13 @@ def model_inference_main(
                 age_group_id,
                 sex_id,
             )
-            results.append({
-                'age_group_id': age_group_id,
-                'sex_id':sex_id,
-                'prediction': model_prevalence,})
+            results.append(
+                {
+                    "age_group_id": age_group_id,
+                    "sex_id": sex_id,
+                    "prediction": model_prevalence,
+                }
+            )
 
     print("Computing zonal statistics")
     shape_map = (
@@ -353,13 +379,18 @@ def load_population_timeseries(
     locs_of_interest = list(locs_of_interest)
     age_group_ids = list(age_group_ids)
 
-    if 4 in age_group_ids:
+    age_group_aggregates = {4, 5}
+    age_group_detailed = {388, 389, 238, 34}
+    if set(age_group_ids) == age_group_aggregates:
         source_filepath = FORECASTED_POPULATIONS_FILEPATH_AGGREGATED_AGEGROUPS
-    else:
+    elif set(age_group_ids) == age_group_detailed:
         source_filepath = FORECASTED_POPULATIONS_FILEPATH
+    else:
+        error_message = "Age group ids not recognized"
+        raise ValueError(error_message)
 
     forecast_pop = (
-        xr.open_dataset(FORECASTED_POPULATIONS_FILEPATH)
+        xr.open_dataset(source_filepath)
         .mean(dim="draw")
         .sel(
             age_group_id=age_group_ids,
@@ -369,14 +400,11 @@ def load_population_timeseries(
         .to_dataframe()
         .droplevel("scenario")
     )
-    historical_pop = (
-        pd.read_parquet(
-            cm_data._PROCESSED_DATA_ROOT  # noqa: SLF001
-            / "ihme"
-            / "global_population_by_age_group_and_sex.parquet"
-        )
-        .query('location_id in @locs_of_interest and age_group_id in @age_group_ids')
-    )
+    historical_pop = pd.read_parquet(
+        cm_data._PROCESSED_DATA_ROOT  # noqa: SLF001
+        / "ihme"
+        / "global_population_by_age_group_and_sex.parquet"
+    ).query("location_id in @locs_of_interest and age_group_id in @age_group_ids")
     historical_pop = historical_pop.loc[
         historical_pop.year_id < forecast_pop.index.get_level_values("year_id").min()
     ].set_index(forecast_pop.index.names)
@@ -431,8 +459,10 @@ def forecast_scenarios(
     combined = combined.reset_index().assign(
         location_id=lambda x: x.location_id.astype(int)
     )
-    age_groups = combined['age_group_id'].unique()
-    pop = load_population_timeseries(cm_data, locs_of_interest, age_group_ids=age_groups)
+    age_groups = combined["age_group_id"].unique()
+    pop = load_population_timeseries(
+        cm_data, locs_of_interest, age_group_ids=age_groups
+    )
     combined = combined.set_index(
         ["location_id", "age_group_id", "sex_id", "year_id"]
     ).sort_index()

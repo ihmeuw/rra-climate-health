@@ -80,26 +80,31 @@ class ClimateMalnutritionData:
         touch(results_spec_path)
         results_spec.to_yaml(results_spec_path)
 
-    def load_results_specification(self, version: str) -> ModelSpecification:
+    def load_results_specification(self, version: str) -> ResultsSpecification:
         results_spec_path = self.results / version / "results_spec.yaml"
         return ResultsSpecification.from_yaml(results_spec_path)
 
-    SUBMODEL_VARIABLE_SEPARATOR = '___'
-    SUBMODEL_VALUE_SEPARATOR = '__'
+    SUBMODEL_VARIABLE_SEPARATOR = "___"
+    SUBMODEL_VALUE_SEPARATOR = "__"
 
     def save_model(
         self,
         model: "Lmer",
         version: str,
-        submodel: list[tuple[str, str]] = [],
+        submodel: list[tuple[str, str]] | None = None,
     ) -> None:
         model_root = self.models / version
         mkdir(model_root, exist_ok=True)
         if submodel:
-            submodel_str = self.SUBMODEL_VARIABLE_SEPARATOR.join([f"{name}{self.SUBMODEL_VALUE_SEPARATOR}{value}" for name, value in submodel])
-            model_filepath = model_root / f'{submodel_str}.pkl'
+            submodel_str = self.SUBMODEL_VARIABLE_SEPARATOR.join(
+                [
+                    f"{name}{self.SUBMODEL_VALUE_SEPARATOR}{value}"
+                    for name, value in submodel
+                ]
+            )
+            model_filepath = model_root / f"{submodel_str}.pkl"
         else:
-            model_filepath = model_root / 'base_model.pkl'
+            model_filepath = model_root / "base_model.pkl"
         touch(model_filepath, exist_ok=True)
         with model_filepath.open("wb") as f:
             pickle.dump(model, f)
@@ -110,51 +115,55 @@ class ClimateMalnutritionData:
     ) -> list[dict[str, typing.Any]]:
         models = []
         model_id_dir = self.models / version
-        model_spec = self.load_model_specification(version)
-        
-        filepaths = model_id_dir.glob('*.pkl')
+
+        filepaths = model_id_dir.glob("*.pkl")
         for filepath in filepaths:
-            model_dict = dict()
-            
-            if filepath.stem == 'base_model':
+            model_dict = {}
+
+            if filepath.stem == "base_model":
                 # No submodels
                 submodel_def = []
             else:
-                submodel_def = [tuple(var_str.split(self.SUBMODEL_VALUE_SEPARATOR)) for var_str in filepath.stem.split(self.SUBMODEL_VARIABLE_SEPARATOR)]
+                submodel_def = [
+                    tuple(var_str.split(self.SUBMODEL_VALUE_SEPARATOR))
+                    for var_str in filepath.stem.split(self.SUBMODEL_VARIABLE_SEPARATOR)
+                ]
             print(submodel_def)
             for var_name, var_value in submodel_def:
                 model_dict[var_name] = var_value
-            
+
             with filepath.open("rb") as f:
-                model_dict['model'] = pickle.load(f)
-            
+                model_dict["model"] = pickle.load(f)  # noqa: S301
+
             models.append(model_dict)
-        
+
         return models
-    
+
     def load_submodel(
-        self,
-        version: str,
-        submodel: list[tuple[str, any]] = []
+        self, version: str, submodel: list[tuple[str, typing.Any]] | None = None
     ) -> "Lmer":
         model_id_dir = self.models / version
-        submodel = [(name, str(value)) for name, value in submodel]     
-        possible_submodel_strs = ['base_model']
+        possible_submodel_strs = ["base_model"]
         # We don't require submodel variables to be in a specific order, so we need to check all permutations
         if submodel:
+            submodel = [(name, str(value)) for name, value in submodel]
             possible_submodel_strs += [
                 self.SUBMODEL_VARIABLE_SEPARATOR.join(
-                    [f"{name}{self.SUBMODEL_VALUE_SEPARATOR}{value}" for name, value in perm]
-                ) for perm in itertools.permutations(submodel)
+                    [
+                        f"{name}{self.SUBMODEL_VALUE_SEPARATOR}{value}"
+                        for name, value in perm
+                    ]
+                )
+                for perm in itertools.permutations(submodel)
             ]
         for submodel_str in possible_submodel_strs:
-            model_filepath = model_id_dir / f'{submodel_str}.pkl'
+            model_filepath = model_id_dir / f"{submodel_str}.pkl"
             if model_filepath.exists():
                 with model_filepath.open("rb") as f:
-                    model = pickle.load(f)
+                    model = pickle.load(f)  # noqa: S301
                 return model
-        raise FileNotFoundError(f"Model for submodel {submodel} not found.")
-    
+        message = f"Model for subm  odel {submodel} not found."
+        raise FileNotFoundError(message)
 
     @property
     def results(self) -> Path:

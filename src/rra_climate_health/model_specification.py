@@ -58,12 +58,15 @@ class MaskingSpecification(BaseModel):
     threshold: float
 
 
-class CategoricalSpecification(ScalingSpecification):
-    type: Literal['categorical'] = 'categorical'
+class CategoricalSpecification(BaseModel):
+    type: Literal["categorical"] = "categorical"
 
 
 TransformSpecification: TypeAlias = (
-    BinningSpecification | ScalingSpecification | MaskingSpecification | CategoricalSpecification
+    BinningSpecification
+    | ScalingSpecification
+    | MaskingSpecification
+    | CategoricalSpecification
 )
 
 
@@ -203,14 +206,25 @@ class ModelSpecification(BaseModel):
     def lmer_formula(self) -> str:
         formula = f"{self.measure.value} ~"
 
-        predictors: list[GridSpecification | PredictorSpecification] = (
-            [self.grid_predictors] if self.grid_predictors else []
-        )
+        predictors: list[PredictorSpecification] = []
+
+        if self.grid_predictors:
+            grid_cell_predictor = PredictorSpecification(
+                name=self.grid_predictors.name,
+                transform=CategoricalSpecification(),
+                random_effect=self.grid_predictors.random_effect,
+            )
+            predictors.append(grid_cell_predictor)
+
         predictors += self.predictors
         random_effects: dict[str, list[str]] = {}
         for predictor in predictors:
             predictor_repr = "1" if predictor.name == "intercept" else predictor.name
-            predictor_repr = f"C({predictor_repr})" if predictor.transform.type == 'categorical' else predictor_repr
+            predictor_repr = (
+                f"C({predictor_repr})"
+                if predictor.transform.type == "categorical"
+                else predictor_repr
+            )
             if predictor.random_effect:
                 if predictor.random_effect in random_effects:
                     random_effects[predictor.random_effect].append(predictor_repr)
