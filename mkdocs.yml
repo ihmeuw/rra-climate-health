@@ -15,13 +15,11 @@ theme:
 
 nav:
   - Introduction: 'index.md'
+  - Input Data: 'data.md'
+  - Training Methodology: 'model.md'
+  - Inference and Forecasting: 'inference.md'
   - api_docs.md
   - changelog.md
-  - It's fun: 'new_page.md'
-  - thing_a: 'stuff/thing_a.md'
-  - stuff:
-    - thing_b: 'stuff/thing_b.md'
-    - thing_c: 'index.md'
 
 watch:
   - src/rra_climate_health
