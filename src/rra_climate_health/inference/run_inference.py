@@ -25,7 +25,14 @@ from rra_climate_health.model_specification import (
 
 FORECASTED_POPULATIONS_FILEPATH_AGGREGATED_AGEGROUPS = "/mnt/share/forecasting/data/7/future/population/20240529_500d_2100_lhc_ref_squeeze_hiv_shocks_covid_all_gbd_7_shifted/population.nc"
 FORECASTED_POPULATIONS_FILEPATH = "/mnt/share/forecasting/data/7/future/population/20240730_GBD2021_500d_hiv_shocks_covid_all_rerun/population.nc"
-
+CMIP_LDI_SCENARIO_MAP = {
+    "ssp119": "-1",
+    # "ssp126",
+    "ssp245": "0",
+    # "ssp370",
+    "ssp585": "-1",
+    "constant_climate": "-1",
+}
 
 def get_categorical_coefficient(
     coefs: pd.Series[float],
@@ -270,10 +277,11 @@ def get_model_prevalence(  # noqa: C901 PLR0912
     ).to_numpy()
     z_partial = sum(partial_estimates.values())
 
+    ldi_scenario = CMIP_LDI_SCENARIO_MAP[cmip6_scenario]
     prevalence = 0
     for i in range(1, 11):
         print(i)
-        ldi = cm_data.load_ldi(year, f"{i / 10.:.1f}")
+        ldi = cm_data.load_ldi(ldi_scenario, year, f"{i / 10.:.1f}")
 
         z_ldi = rt.RasterArray(
             beta_ldi * np.array(model.var_info["ldi_pc_pd"]["transformer"](ldi)),
