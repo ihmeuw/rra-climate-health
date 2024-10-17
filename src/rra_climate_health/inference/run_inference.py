@@ -34,11 +34,12 @@ CMIP_LDI_SCENARIO_MAP = {
     "constant_climate": "-1",
 }
 
+
 def get_categorical_coefficient(
-    coefs: pd.Series[float],
+    coefs: "pd.Series[float]",
     variable_name: str,
     variable_value: Any,
-    training_col: pd.Series[Any],
+    training_col: "pd.Series[Any]",
 ) -> float:
     expected_value = training_col.dtype.type(variable_value)
     # Regex to extract the value from the categorical predictor coefficients
