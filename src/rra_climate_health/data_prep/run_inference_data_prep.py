@@ -57,7 +57,9 @@ def run_ldi_prep_main(
             )
             ldi_pc_pd = ldi.loc[p_scenario_year_mask].set_index("location_id").ldi_pc_pd
             ldi_pc_pd = ldi_pc_pd[~ldi_pc_pd.index.duplicated()]
-            shapes = [(shape_map.loc[loc], ldi_pc_pd.loc[loc]) for loc in ldi_pc_pd.index]
+            shapes = [
+                (shape_map.loc[loc], ldi_pc_pd.loc[loc]) for loc in ldi_pc_pd.index
+            ]
             ldi_arr = rasterize(
                 shapes,
                 out=np.zeros_like(raster_template),
@@ -69,7 +71,7 @@ def run_ldi_prep_main(
                 crs=raster_template.crs,
                 no_data_value=np.nan,
             )
-            cm_data.save_ldi_raster(scenario, ldi_raster, year, percentile)
+            cm_data.save_ldi_raster(ldi_raster, scenario, year, percentile)
 
 
 @click.command()  # type: ignore[arg-type]
