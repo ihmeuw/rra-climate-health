@@ -264,7 +264,7 @@ def load_random_effects(
     age_group_id: int,
     sex_id: int,
     fhs_loc_meta: pd.DataFrame,
-) -> pd.Series[float]:
+) -> "pd.Series[float]":
     data = load_model(root, measure, version, age_group_id, sex_id).ranef
     data["version_label"] = version_label
     data["age_group_id"] = age_group_id
@@ -285,7 +285,7 @@ def load_prediction(
     version: str,
     version_label: str,
     scenario: str,
-) -> pd.Series[float]:
+) -> "pd.Series[float]":
     data = pd.read_parquet(
         root / measure / "results" / version / f"{year_id}_{scenario}.parquet"
     )
