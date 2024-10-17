@@ -18,7 +18,7 @@ def mask_column(
     df: pd.DataFrame,
     column: str,
     spec: MaskingSpecification,
-) -> tuple[pd.Series[bool | int | float], Masker]:
+) -> tuple["pd.Series[bool | int | float]", Masker]:
     masker = Masker(spec)
     masked = pd.Series(
         masker(df[spec.from_column].to_numpy().reshape(-1, 1)).flatten(),

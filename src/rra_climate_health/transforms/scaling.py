@@ -69,7 +69,7 @@ def scale_column(
     df: pd.DataFrame,
     column: str,
     spec: ScalingSpecification,
-) -> tuple[pd.Series[Any], Scaler]:
+) -> tuple["pd.Series[Any]", Scaler]:
     scaler = Scaler(spec)
     scaled = pd.Series(
         scaler(df[column].to_numpy().reshape(-1, 1)).flatten(),
