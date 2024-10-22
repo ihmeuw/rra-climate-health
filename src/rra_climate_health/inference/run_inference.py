@@ -26,12 +26,12 @@ from rra_climate_health.model_specification import (
 FORECASTED_POPULATIONS_FILEPATH_AGGREGATED_AGEGROUPS = "/mnt/share/forecasting/data/7/future/population/20240529_500d_2100_lhc_ref_squeeze_hiv_shocks_covid_all_gbd_7_shifted/population.nc"
 FORECASTED_POPULATIONS_FILEPATH = "/mnt/share/forecasting/data/7/future/population/20240730_GBD2021_500d_hiv_shocks_covid_all_rerun/population.nc"
 CMIP_LDI_SCENARIO_MAP = {
-    "ssp119": "-1",
+    "ssp119": "1",
     # "ssp126",
     "ssp245": "0",
     # "ssp370",
     "ssp585": "-1",
-    "constant_climate": "-1",
+    "constant_climate": "1",
 }
 
 
@@ -586,7 +586,7 @@ def model_inference(
             "queue": queue,
             "cores": 1,
             "memory": "90Gb",
-            "runtime": "240m",
+            "runtime": "360m",
             "project": "proj_rapidresponse",
         },
         max_attempts=1,

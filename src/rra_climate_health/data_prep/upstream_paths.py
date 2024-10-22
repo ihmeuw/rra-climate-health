@@ -20,5 +20,5 @@ LDIPC_NATIONAL_FILEPATH = Path(
     "/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift_scenarios_newedu/national_ldipc_estimates_scenarios.csv"
 )
 LDIPC_SUBNATIONAL_FILEPATH = Path(
-    "/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift_scenarios_newedu/admin2_ldipc_estimates_scenarios.csv"
+    "/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift_scenarios_newedu/admin2_ldipc_estimates_scenarios_corrected.csv"
 )
