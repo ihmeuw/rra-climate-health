@@ -56,4 +56,19 @@ Or if you want e.g. want to run all checks manually for all files:
 pre-commit run --all-files
 ```
 
+### Execution
+
+To train a model and then do inference, one first needs a model specification.
+Then, on the environment with this package, execute:
+
+```sh
+strun training /path/to/model_specification.yaml
+```
+
+If the model is successful, one can then run inference:
+```sh
+strun inference --measure <measure> --model-version <model_version>
+```
+where measure is the health outcome, such as stunting or wasting, and the model version is included in the output from the training command.
+
 ---
