@@ -25,7 +25,7 @@ mr <- import("mrtool")
 create_data_processing_folders <- function(data.date){
   
   
-  j.root <- "/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/"
+  j.root <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/raw_extractions/"
   new.microdata.j.path <<- paste0(j.root, "microdata/") 
   suppressWarnings(dir.create(paste0(j.root, "data_", data.date)))
   suppressWarnings(dir.create(paste0(j.root, "data_", data.date, "/2_initial_processing/")))
@@ -706,7 +706,7 @@ save_preprocessed_j_file <- function(file, one.file){
   
   file = paste0(file, "rds")
   
-  saveRDS(one.file, paste0( "/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/data_", data.date, "/2_initial_processing/", file))
+  saveRDS(one.file, paste0( "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/raw_extractions/data_", data.date, "/2_initial_processing/", file))
   
   
 }
@@ -715,7 +715,7 @@ save_preprocessed_j_file <- function(file, one.file){
 
 log_small_or_excluded_j_sources <- function(file, data.date, one.file, issue.type = NULL){
   
-  one.f <- read.csv(paste0("/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/data_",data.date ,"/1_raw_extractions/", file))
+  one.f <- read.csv(paste0("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/raw_extractions/data_",data.date ,"/1_raw_extractions/", file))
   
   i_loc <- unique(one.f$ihme_loc_id)[1]
   
@@ -725,7 +725,7 @@ log_small_or_excluded_j_sources <- function(file, data.date, one.file, issue.typ
   
   print(paste0("NID ", source.nid, " not processed. Reason: ", issue.type))
   
-  write.csv(one.file, paste0("/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/data_", data.date, "/potential_issue_sources/J_nids/", issue.type, "/", i_loc, "_", source.nid, ".csv"), row.names = F)
+  write.csv(one.file, paste0("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/raw_extractions/data_", data.date, "/potential_issue_sources/J_nids/", issue.type, "/", i_loc, "_", source.nid, ".csv"), row.names = F)
   
 }
 
@@ -740,8 +740,8 @@ get_all_cleaned_data_filepaths <- function(all.microdata.data.dates){
   source.df <- lapply(all.microdata.data.dates, function(ddate){
     
     
-    j.cleaned.sources <- list.files(paste0("/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/", ddate, "/2_initial_processing/"))
-    j.cleaned.sources <- paste0("/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/", ddate, "/2_initial_processing/", j.cleaned.sources)
+    j.cleaned.sources <- list.files(paste0("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/raw_extractions/data_", ddate, "/2_initial_processing/"))
+    j.cleaned.sources <- paste0("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/raw_extractions/data_", ddate, "/2_initial_processing/", j.cleaned.sources)
     
     all.sources <- data.table(fp = j.cleaned.sources)
     

@@ -83,3 +83,4 @@ venv.bak/
 *.parquet
 *.nc
 *.hdf
+.Rproj.user

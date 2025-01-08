@@ -30,7 +30,7 @@ mr <- import("mrtool")
 # mr <- reticulate::import("mrtool")
 
 source("/share/code/ubcov/ubcov_central/modules/collapse/launch.r")
-source("~/repos/goal_keepers/yearly_reports/2024/exploratory/CGF_scripts/2_microdata_processing_functions.R")
+source("~/repos/rra-climate-health/src/rra_climate_health/data_prep/extraction_scripts/gbd_cgf/2_microdata_processing_functions.R")
 # library(anthro, lib.loc = "~/repos/cgf") # Had to clone from gbd2022 branch of repo
 library(anthro, lib.loc = "/mnt/team/nch/pub/packages") # changed after referring to .Rprofile script
 library(anthro)
@@ -72,13 +72,14 @@ library(Hmisc)
 
 
 # First assign a "data processing date" name - this is how we'll keep track of which microdata was processed when. This can be a date or a cycle or any label.
-data.date = "10_09_2024"
-data_date = "10_09_2024"
+data.date = "01_06_2025"
+data_date = "01_06_2025"
 re.pre.process.some.sources = TRUE
 
 
 # Creates the 2_initial_processing, 3_after_mrbrt_outliering, 4_collapsed, and potential_issue_sources folders on the J and L drive which are adjacent to the raw_extraction folders
-create_data_processing_folders(data.date)
+# (already done for 01_06_2025)
+# create_data_processing_folders(data.date)
 
 
 ### ### ### ### ### ### ### ### ### ### 
@@ -89,7 +90,7 @@ create_data_processing_folders(data.date)
 # vector of all files that have been extracted and stored on the J drive
 # hard-code below if not rerunning create_data_processing_folders
 # new.microdata.j.path <- "/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/raw_filtered/" 
-new.microdata.j.path <- "/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/data_10_09_2024/1_raw_extractions/"
+new.microdata.j.path <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/"
 all.j.files <- list.files(new.microdata.j.path)
 
 # # vector of all files that have been through first step of processing
@@ -170,10 +171,10 @@ for (file in all.j.files) {
 
 
 # enter all the data.dates you want to contribute towards the MRBRT model to predict HAZ, WAZ, WHZ relationship
-all.microdata.data.dates <- c("data_10_09_2024")
+all.microdata.data.dates <- c("data_01_06_2025")
 
 # enter the data.dates that you want to potentially outlier data points from (potentially do not list data.dates that have already been outliered)
-new.microdata.data.dates <- c("data_10_09_2024")
+new.microdata.data.dates <- c("data_01_06_2025")
 
 
 
