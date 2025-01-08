@@ -1,0 +1,27 @@
+##Winnower Notes on Install and Activation
+Winnower is a Python-based tool that replicates the previous ubcov extraction system.
+
+#Set-up
+
+1.Download the 64-Bit (x86) Installer (581 MB) version of Anaconda and download into H:/:
+https://www.anaconda.com/products/individual#Downloads
+
+2.Add these lines to your .bashrc file:
+ <<< conda initialize <<<
+PATH="/ihme/homes/USERNAME/anaconda3/bin:$PATH"
+export PATH
+
+3. Access an interactive cluster login session with 100GB of memory by running:
+srun -J job_name --mem=100G -c 1 -t 00:90:00 -A proj_fgh -p i.q --pty bash
+
+4.Create an environment, start the environment, and install Winnower:
+https://stash.ihme.washington.edu/projects/WINN/repos/winnower/browse/INSTALL.md
+
+5.Follow instructions under “Using Winnower”:
+https://stash.ihme.washington.edu/projects/WINN/repos/winnower/browse
+
+#Example lines of code for LSMS
+
+1. source activate winnower
+
+2. run_extract --topic econ_indicators 20264 20265 -C /ihme/resource_tracking/LSAE_income/0_preprocessing/WB_LSMS/latest_extract
