@@ -95,7 +95,7 @@ package_list <- readLines(paste0(core_repo, "/mbg_central/share_scripts/common_i
 
 # Load libraries and  MBG project functions.
 source(paste0(core_repo, 'mbg_central/setup.R'))
-mbg_setup(package_list = package_list, repos = core_repo)
+# mbg_setup(package_list = package_list, repos = core_repo)
 
 # Sourcing data coverage plot functions because since it doesn't have "functions" in the file name it isn't included in mbg_setup
 source(paste0(core_repo, 'mbg_central/graph_data_coverage.R'))
@@ -177,86 +177,89 @@ data[psu.r, 'psu'] <- data[psu.r, 'orig.psu']
 # use.hh <- nas$nid[which(nas$nas.h < nas$nas.p)]
 # hh.r <- which(data$nid %in% use.hh)
 # data[hh.r, 'pweight'] <- data[hh.r, 'hhweight']
-
-## set variables to keep and subset
-vars_to_keep <- c("nid", 
-                  "psu", 
-                  "psu_id",
-                  # "source", 
-                  "file_path",
-                  # "country",
-                  "ihme_loc_id",
-                  # "start_year",    ## The adjusted start year, based on int year. It will be changed to its average within each geography at the collapse step
-                  "year_start",    ## The start year of the survey, from ubCov 
-                  # "end_year", 
-                  "year_end",
-                  #"year_svy",
-                  #"year_exp",
-                  "admin_1",
-                  "admin_1_mapped",
-                  "admin_1_id",
-                  "admin_2",
-                  "pweight", 
-                  "strata_id", 
-                  "sex_id", 
-                  "age_wks", 
-                  "age_mo", 
-                  "age_year",
-                  "age_cat_1",
-                  "age_cat_2",
-                  # "height_age_sd",    ## Pulling z-scores through for the one case where it's all we're given--NID 23017
-                  # "weight_age_sd",    ## Pulling z-scores through for the one case where it's all we're given--NID 23017
-                  # "weight_height_sd", ## Pulling z-scores through for the one case where it's all we're given--NID 23017
-                  "birth_weight", 
-                  "birth_weight_unit",
-                  "birth_order",
-                  "metab_weight",
-                  "metab_height_unit",
-                  "metab_weight_unit",
-                  "bmi",
-                  "overweight",
-                  "obese",
-                  "wealth_index_dhs",
-                  "mother_weight",
-                  "mother_height",
-                  "maternal_ed_yrs",
-                  "paternal_ed_yrs",
-                  # "point", 
-                  "latitude",
-                  "longitude",
-                  #"uncertain_point", 
-                  #"buffer", 
-                  #"location_name", 
-                  #"admin_level"
-                  # "location_code",
-                  # "shapefile", 
-                  "int_month", 
-                  "int_year",
-                  "int_day",
-                  "hh_id", 
-                  "line_id",
-                  # "birth_weight_card", 
-                  "geospatial_id", 
-                  "urban",
-                  "survey_name",
-                  "survey_module",
-                  "pregnant"
-                  #"cluster_number", 
-                  # "exclude_weights",
-                  # "exclude_age_range",
-                  # "exclude_age_granularity",
-                  # "exclude_data_lbw",
-                  # "exclude_data_cgf",
-                  # "exclude_representation",
-                  # "exclude_geography",
-                  # "exclude_interview",
-                  # "exclude_longitudinal",
-                  # "exclude_BMIZ",
-                  # "exclude_duplicative"
-                  )
-
-# Subset to only relevant variables
-data<-data[, vars_to_keep, with=F]
+# 
+# ## set variables to keep and subset
+# vars_to_keep <- c("nid", 
+#                   "psu", 
+#                   "psu_id",
+#                   # "source", 
+#                   "file_path",
+#                   # "country",
+#                   "ihme_loc_id",
+#                   # "start_year",    ## The adjusted start year, based on int year. It will be changed to its average within each geography at the collapse step
+#                   "year_start",    ## The start year of the survey, from ubCov 
+#                   # "end_year", 
+#                   "year_end",
+#                   #"year_svy",
+#                   #"year_exp",
+#                   "admin_1",
+#                   "admin_1_mapped",
+#                   "admin_1_id",
+#                   "admin_2",
+#                   "pweight", 
+#                   "strata_id",
+#                   "strata",
+#                   "sex_id", 
+#                   "age_wks", 
+#                   "age_mo", 
+#                   "age_year",
+#                   "age_cat_1",
+#                   "age_cat_2",
+#                   # "height_age_sd",    ## Pulling z-scores through for the one case where it's all we're given--NID 23017
+#                   # "weight_age_sd",    ## Pulling z-scores through for the one case where it's all we're given--NID 23017
+#                   # "weight_height_sd", ## Pulling z-scores through for the one case where it's all we're given--NID 23017
+#                   "birth_weight", 
+#                   "birth_weight_unit",
+#                   "birth_order",
+#                   "metab_weight",
+#                   "metab_height_unit",
+#                   "metab_weight_unit",
+#                   "bmi",
+#                   "overweight",
+#                   "obese",
+#                   "wealth_index_dhs",
+#                   "wealth_factor",
+#                   "mother_weight",
+#                   "mother_height",
+#                   "maternal_ed_yrs",
+#                   "paternal_ed_yrs",
+#                   # "point", 
+#                   "latitude",
+#                   "longitude",
+#                   "orig.psu",
+#                   #"uncertain_point", 
+#                   #"buffer", 
+#                   #"location_name", 
+#                   #"admin_level"
+#                   # "location_code",
+#                   # "shapefile", 
+#                   "int_month", 
+#                   "int_year",
+#                   "int_day",
+#                   "hh_id", 
+#                   "line_id",
+#                   # "birth_weight_card", 
+#                   "geospatial_id", 
+#                   "urban",
+#                   "survey_name",
+#                   "survey_module",
+#                   "pregnant"
+#                   #"cluster_number", 
+#                   # "exclude_weights",
+#                   # "exclude_age_range",
+#                   # "exclude_age_granularity",
+#                   # "exclude_data_lbw",
+#                   # "exclude_data_cgf",
+#                   # "exclude_representation",
+#                   # "exclude_geography",
+#                   # "exclude_interview",
+#                   # "exclude_longitudinal",
+#                   # "exclude_BMIZ",
+#                   # "exclude_duplicative"
+#                   )
+# 
+# # Subset to only relevant variables
+# data<-data[, vars_to_keep, with=F]
 
 if((startcount-nrow(data))>0)stop("!!! WHOA! There aren't the same number of rows coming out of this process as there are going in. Check on this.")
 rm(na.geo,na.hhweight,na.psu,na.pweight,nas,hh.r,psu.r,use.hh,use.psu,vars_to_keep) # Cleaning up the work environment
@@ -438,10 +441,13 @@ start<-nrow(data)
 ## CDC: "BMI is a person's weight in kilograms divided by the square of height in meters"
 data$metab_weight <- as.numeric(data$metab_weight)
 data$metab_height <- as.numeric(data$metab_height)
-data$sex_id <- as.character(data$sex_id)
+data$sex_id <- as.integer(data$sex_id)
 data[,BMI:= metab_weight/((metab_height/100)^2)]
 # Where child height is zero, this will be Infinite.
 # Where child height and weight is zero, this will be NA.
+
+bmi_cutoffs$sex <- ifelse(bmi_cutoffs$sex == 0, 1, 
+                          ifelse(bmi_cutoffs$sex == 1, 2, NA))
 
 # Merge together BMI cutoffs and raw data
 data<-merge(data,
@@ -449,17 +455,16 @@ data<-merge(data,
             by.x=c("age_mo","sex_id"), by.y = c('age_mo','sex'),
             all.x = T, all.y=F)
 
-
 # 2. HAZ (stunting)
 # Combine and Merge Data
 data<-rbindlist( list(merge(data[age_wks<=13],
                             HAZ_wks[,list(l,m,s,sex,age_wks=week)],
-                            by=c("sex", "age_wks"),
+                            by.x=c("sex_id", "age_wks"), by.y=c("sex", "age_wks"),
                             all.x = TRUE, allow.cartesian = TRUE) ,
                       
                       merge(data[age_wks>13],
                             HAZ_mo[,list(l,m,s,sex,age_mo=month,age_cat_1)],
-                            by=c("sex", "age_mo","age_cat_1"),
+                            by.x=c("sex_id", "age_mo","age_cat_1"), by.y=c("sex", "age_mo","age_cat_1"),
                             all.x = TRUE, allow.cartesian = TRUE),
                       
                       data[is.na(age_wks)]), use.names = T, fill=T
@@ -472,12 +477,12 @@ data<-data[,!c("l","m","s"),with=F]
 # 3. WAZ (Underweight)
 data<-rbindlist( list(merge(data[age_wks<=13],
                             WAZ_wks[,list(l,m,s,sex,age_wks=week)],
-                            by=c("sex", "age_wks"),
+                            by.x=c("sex_id", "age_wks"),by.y=c("sex", "age_wks"),
                             all.x = TRUE, allow.cartesian = TRUE) ,
                       
                       merge(data[age_wks>13],
                             WAZ_mo[,list(l,m,s,sex,age_mo=month,age_cat_2)],
-                            by=c("sex", "age_mo","age_cat_2"),
+                            by.x=c("sex_id", "age_mo","age_cat_2"),by.y=c("sex", "age_mo","age_cat_2"),
                             all.x = TRUE, allow.cartesian = TRUE),
                       
                       data[is.na(age_wks)]), use.names = T, fill=T
@@ -495,7 +500,7 @@ data[,metab_height_rounded := plyr::round_any(metab_height, .5)]
 # Merge on WHO data
 data<-merge(data,
             WHZ_mo[,list(l,m,s,sex,metab_height_rounded=length,age_cat_1)],
-            by=c("sex","age_cat_1","metab_height_rounded"),
+            by.x=c("sex_id","age_cat_1","metab_height_rounded"),by.y=c("sex","age_cat_1","metab_height_rounded"),
             all.x = TRUE, allow.cartesian = TRUE)
 
 # calculate WHZ score
@@ -508,12 +513,12 @@ data<-data[,!c("l","m","s"),with=F]
 # Combine and Merge Data
 data<-rbindlist( list(merge(data[age_wks<=13],
                             bmi_wks[,list(l,m,s,sex,age_wks=week)],
-                            by=c("sex", "age_wks"),
+                            by.x=c("sex_id", "age_wks"),by.y=c("sex", "age_wks"),
                             all.x = TRUE, allow.cartesian = TRUE) ,
                       
                       merge(data[age_wks>13],
                             bmi_mo[,list(l,m,s,sex,age_mo=month,age_cat_1)],
-                            by=c("sex", "age_mo","age_cat_1"),
+                            by.x=c("sex_id", "age_mo","age_cat_1"),by.y=c("sex", "age_mo","age_cat_1"),
                             all.x = TRUE, allow.cartesian = TRUE),
                       
                       data[is.na(age_wks)]), use.names = T, fill=T
@@ -535,65 +540,65 @@ rm(HAZ_mo,HAZ_wks,WAZ_wks,WAZ_mo,WHZ_mo,bmi_mo,bmi_wks,iotf_bmi_under_cutoffs,bm
 
 # Meskane Mareko Ethiopia Data (NID 319322) Adding dummy values in for anthro and age so the data won't be dropped as missing. This data was not extracted through ubCov
 # Need to change `ethiopia[,psu:=1:nrow(ethiopia)]` to something that counts unique lat/long pairs.
-
-ethiopia <- read_stata(paste0(root,"DATA/ETH/MESKANE_MAREKO_NUTRITION_SURVEY_2013_2014/ETH_MESKANE_MAREKO_NUTRITION_SURVEY_2013_2014_WAZ_HAZ_WHZ_GPS_Y2017M10D30.DTA"))
-
-# Change column names
-ethiopia <- as.data.table(ethiopia)
-ethiopia <- ethiopia[, -c("latitude")]  
-old_names<-c("y_North","x_East","waz","haz","whz")
-new_names<-c("latitude","longitude","WAZ","HAZ","WHZ")
-setnames(ethiopia,old_names,new_names)  ; rm(old_names)
-
-ethiopia[,latitude:=as.character(latitude)]
-ethiopia[,longitude:=as.character(longitude)]    
-ethiopia[,psu:=paste0(latitude, "_", longitude)]
-ethiopia[,latitude:=as.numeric(latitude)]
-ethiopia[,longitude:=as.numeric(longitude)]     
-
-# Add all other columns
-
-ethiopia[,sex:=3] # This data does not have a gender variable; overwriting with a 3 so that further gender analysis will not work
-ethiopia[,nid:=319322]
-ethiopia[,source:="COUNTRY_SPECIFIC"]
-ethiopia[,country:="ETH"]
-ethiopia[,ihme_loc_id:="ETH_44858"]
-ethiopia[,start_year:=2014]
-ethiopia[,year_start:=2013]
-ethiopia[,end_year:=2014]
-ethiopia[,pweight:=1]
-ethiopia[,strata:=1]
-ethiopia[,age_cat_2:="0-5"]
-ethiopia[,height_age_sd:=HAZ]
-ethiopia[,weight_age_sd:=WAZ]
-ethiopia[,weight_height_sd:=WHZ]
-ethiopia[,point:=1]
-ethiopia[,int_month:=2]
-ethiopia[,int_year:=2014]
-ethiopia[,geospatial_id:=psu]
-ethiopia[,exclude_weights:=0]
-ethiopia[,exclude_age_range:=0]
-ethiopia[,exclude_age_granularity:=0]
-ethiopia[,exclude_data_lbw:=0]
-ethiopia[,exclude_data_cgf:=0]
-ethiopia[,exclude_representation:=0]
-ethiopia[,exclude_geography:=0]
-ethiopia[,exclude_interview:=0]
-ethiopia[,exclude_longitudinal:=0]
-ethiopia[,exclude_duplicative:=0]
-ethiopia[,indicator:=1]
-ethiopia[,N:=1]
-
-data <- rbind.fill(data, ethiopia)    
-data <- as.data.table(data)
-
-# Unlike the Ethiopia data, CWIQ GHA 2003 was extracted through ubCov. Overwriting the the calculated variable with the given z-scores. Putting in dummy values for necessary variables so this will make it through exclude logic.
-
-data[nid == 23017, HAZ := height_age_sd]    
-data[nid == 23017, WAZ := weight_age_sd]    
-data[nid == 23017, WHZ := weight_height_sd]
-
-data<-data[,!c("height_age_sd","weight_age_sd","weight_height_sd"),with=F]	    
+# 
+# ethiopia <- read_stata(paste0(root,"DATA/ETH/MESKANE_MAREKO_NUTRITION_SURVEY_2013_2014/ETH_MESKANE_MAREKO_NUTRITION_SURVEY_2013_2014_WAZ_HAZ_WHZ_GPS_Y2017M10D30.DTA"))
+# 
+# # Change column names
+# ethiopia <- as.data.table(ethiopia)
+# ethiopia <- ethiopia[, -c("latitude")]  
+# old_names<-c("y_North","x_East","waz","haz","whz")
+# new_names<-c("latitude","longitude","WAZ","HAZ","WHZ")
+# setnames(ethiopia,old_names,new_names)  ; rm(old_names)
+# 
+# ethiopia[,latitude:=as.character(latitude)]
+# ethiopia[,longitude:=as.character(longitude)]    
+# ethiopia[,psu:=paste0(latitude, "_", longitude)]
+# ethiopia[,latitude:=as.numeric(latitude)]
+# ethiopia[,longitude:=as.numeric(longitude)]     
+# 
+# # Add all other columns
+# 
+# ethiopia[,sex:=3] # This data does not have a gender variable; overwriting with a 3 so that further gender analysis will not work
+# ethiopia[,nid:=319322]
+# ethiopia[,source:="COUNTRY_SPECIFIC"]
+# ethiopia[,country:="ETH"]
+# ethiopia[,ihme_loc_id:="ETH_44858"]
+# ethiopia[,start_year:=2014]
+# ethiopia[,year_start:=2013]
+# ethiopia[,end_year:=2014]
+# ethiopia[,pweight:=1]
+# ethiopia[,strata:=1]
+# ethiopia[,age_cat_2:="0-5"]
+# ethiopia[,height_age_sd:=HAZ]
+# ethiopia[,weight_age_sd:=WAZ]
+# ethiopia[,weight_height_sd:=WHZ]
+# ethiopia[,point:=1]
+# ethiopia[,int_month:=2]
+# ethiopia[,int_year:=2014]
+# ethiopia[,geospatial_id:=psu]
+# ethiopia[,exclude_weights:=0]
+# ethiopia[,exclude_age_range:=0]
+# ethiopia[,exclude_age_granularity:=0]
+# ethiopia[,exclude_data_lbw:=0]
+# ethiopia[,exclude_data_cgf:=0]
+# ethiopia[,exclude_representation:=0]
+# ethiopia[,exclude_geography:=0]
+# ethiopia[,exclude_interview:=0]
+# ethiopia[,exclude_longitudinal:=0]
+# ethiopia[,exclude_duplicative:=0]
+# ethiopia[,indicator:=1]
+# ethiopia[,N:=1]
+# 
+# data <- rbind.fill(data, ethiopia)    
+# data <- as.data.table(data)
+# 
+# # Unlike the Ethiopia data, CWIQ GHA 2003 was extracted through ubCov. Overwriting the the calculated variable with the given z-scores. Putting in dummy values for necessary variables so this will make it through exclude logic.
+# 
+# data[nid == 23017, HAZ := height_age_sd]    
+# data[nid == 23017, WAZ := weight_age_sd]    
+# data[nid == 23017, WHZ := weight_height_sd]
+# 
+# data<-data[,!c("height_age_sd","weight_age_sd","weight_height_sd"),with=F]	    
 
 #############################################################################################################################################################
 ## 6.) SEASONAL ADJUSTMENT: Adjust for Seasonality, by Modeling Regions
@@ -636,14 +641,14 @@ AddSeasonalAdjustment<-function(raw_table,regions,adjust_var, min_bounds, max_bo
                  ". Adding a new column, ",paste0(adjust_var,"_seas")," to represent the seasonally adjusted version."))
   
   # Ensure the data.table has all the right columns in it:
-  if(sum(c("int_month","int_year",adjust_var,"start_year","country") %in% names(raw_table))!=5){stop("You need to have the following columns: int_month int_year start_year country, and the column specified that you want to adjust.")}
+  if(sum(c("int_month","int_year",adjust_var,"year_start","ihme_loc_id") %in% names(raw_table))!=5){stop("You need to have the following columns: int_month int_year year_start ihme_loc_id, and the column specified that you want to adjust.")}
   #raw_table <- as.data.table(raw_table) # adding this in because of weird bug
   raw_table[,sort_order:=1:nrow(raw_table)] # Generate column preserving original sort order
   
   
   # Convert ISO3 codes to GAUL codes
   gaul_table <- fread(paste0(root, "/WORK/11_geospatial/10_mbg/stage_master_list.csv")) # read in stage master list to get regions 
-  raw_table <- base::merge(raw_table, gaul_table[,list(iso3, mbg_reg)], by.x = "country", by.y = "iso3", all.x = TRUE) # merge tables to create a mbg_reg column
+  raw_table <- base::merge(raw_table, gaul_table[,list(iso3, mbg_reg)], by.x = "ihme_loc_id", by.y = "iso3", all.x = TRUE) # merge tables to create a mbg_reg column
   
   # Renaming mbg_reg column to region
   raw_table <- raw_table[,region := mbg_reg]
@@ -659,18 +664,18 @@ AddSeasonalAdjustment<-function(raw_table,regions,adjust_var, min_bounds, max_bo
     message(sprintf("On region: %s", reg))
     
     Region<-unique(raw_table[region==reg & # In the specific region
-                               int_year>=start_year & # The survey date is after the survey start
+                               int_year>=year_start & # The survey date is after the survey start
                                !is.na(int_year) & !is.na(int_month) &
                                !is.na(get(adjust_var)) & !is.infinite(get(adjust_var)) &
                                (get(adjust_var))>=min_bounds & (get(adjust_var))<=max_bounds # Fit only on data within the boundaries of reasonable
                              ,]) # You have a valid observations for the variable as well
     
-    # Creating an index in time from the start year avaialable in this region:
+    # Creating an index in time from the start year available in this region:
     region_min<-min(Region$int_year,na.rm=T)
     Region[,mo_ind:= (12*(int_year-region_min)) + int_month]
     
     # Fit model with uncorrelated errors
-    m0 <- mgcv::gamm(get(adjust_var) ~ s(int_month, bs = "cc", k = 6) + s(mo_ind, k = 4) + as.factor(country),
+    m0 <- mgcv::gamm(get(adjust_var) ~ s(int_month, bs = "cc", k = 6) + s(mo_ind, k = 4) + as.factor(ihme_loc_id),
                      data = Region)
     
     # Plot/Sanity-check the seasonality adjustments:
@@ -684,10 +689,10 @@ AddSeasonalAdjustment<-function(raw_table,regions,adjust_var, min_bounds, max_bo
     }
     
     # Getting adjustments from model fit:
-    ct <- Region$country[!is.na(Region$country)][1]
+    ct <- Region$ihme_loc_id[!is.na(Region$ihme_loc_id)][1]
     
     pdat <- data.frame(mo_ind    = 1,
-                       country   = as.factor(ct), ## random country
+                       ihme_loc_id   = as.factor(ct), ## random ihme_loc_id
                        int_month = seq(1, 12.9, by = .1)) ## random point in time
     
     reg_periods[, (which(regions %in% reg) + 1)] <- predict(m0$gam, newdata = pdat, type = "terms", se.fit = TRUE)$fit[, 2]
@@ -702,7 +707,7 @@ AddSeasonalAdjustment<-function(raw_table,regions,adjust_var, min_bounds, max_bo
     for(mo in 1:12){
       rows.to.adjust <- which(
         raw_table$region==reg & # In the specific region
-          raw_table$int_year>=raw_table$start_year & # The survey date is after the survey start
+          raw_table$int_year>=raw_table$year_start & # The survey date is after the survey start
           !is.na(raw_table$int_year) & !is.na(raw_table$int_month) &
           !is.na(raw_table[[adjust_var]]) & !is.infinite(raw_table[[adjust_var]]) &
           raw_table$int_month==mo &
@@ -729,6 +734,8 @@ AddSeasonalAdjustment<-function(raw_table,regions,adjust_var, min_bounds, max_bo
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Add column for seasonality-adjusted WHZ (wasting) Z-scores
+data$int_year <- as.numeric(data$int_year)
+data$int_month <- as.numeric(data$int_month)
 data<-AddSeasonalAdjustment(raw_table = data,
                             regions = c("cssa",
                                         "essa",
@@ -820,88 +827,88 @@ data[,stunting_overweight :=ifelse(overweight_who_BMIZ == 1 & stunting_mod_b == 
 ############################################################################################################################################################
 ## 8.) ADD IN SOMALIA DATA, DROP DATA: Clean and Prepare Somalia data--has no z-sores, just headcounts of stunting, wasting, underweight, thus no calcs or adjustments are necessary 
 ############################################################################################################################################################
-
-# Prepare Somalia Data
-
-# NOTE: This strategy does NOT allow for you to use this data for CIAF, since we don't currently know the number of children that are
-# stunted and wasted, etc. Find and use the non-collapsed versions of this data, such that there is a 0 or 1 for each child for whether
-# they are wasted, stunted, and/or underweight, and collapse that on before generating CIAF indicators, if you want to do that aspect of
-# analysis with this survey.
-
-somalia <- fread(paste0(root,"DATA/SOM/NUTRITIONAL_ASSESSMENT_SURVEY/2007_2010/SOM_NUTRIONAL_ASSESSMENT_SURVEY_2007_2010_MALNUTRITION_LAT_LONG_Y2016M10D25.CSV"))
-
-# Change column names
-old_names<-c("Latitude","Longitude","Year of survey","Number of children examined","Number wasting","Number stunting","Number underweight")
-new_names<-c("latitude","longitude","start_year","N","wasting_mod_b","stunting_mod_b","underweight_mod_b")
-setnames(somalia,old_names,new_names)  ; rm(old_names)
-somalia[,psu:=1:nrow(somalia)]
-
-# Repeating, row-wise, with relevant columns only, for each lat/lon/psu, by the N of children sampled in that area.
-somalia<-somalia[rep(seq(.N), N), # Repeat the rows by the number specified in the column  N
-                 c(new_names,"psu"), # Keep these columns
-                 with=F] #
-somalia[,seq:=seq(1:.N),by=c(new_names,"psu")] # Generate an index per each child within a lat/lon
-somalia[,wasting_mod_b:=ifelse(seq<=wasting_mod_b,1,0)] # Generate binary versions
-somalia[,wasting_mod_who:=ifelse(seq<=wasting_mod_b,1,0)] 
-somalia[,stunting_mod_b:=ifelse(seq<=stunting_mod_b,1,0)]
-somalia[,underweight_mod_b:=ifelse(seq<=underweight_mod_b,1,0)]
-
-# Generate some extra columns
-
-somalia[,nid:=270669]
-somalia[,source:="FSNAU"]
-somalia[,country:="SOM"]
-somalia[,ihme_loc_id:="SOM"]
-somalia[,exclude_weights:=0]
-somalia[,exclude_age_range:=0]
-somalia[,exclude_age_granularity:=0]
-somalia[,exclude_data_lbw:=0]
-somalia[,exclude_data_cgf:=0]
-somalia[,exclude_representation:=0]
-somalia[,exclude_geography:=0]
-somalia[,exclude_interview:=0]
-somalia[,exclude_longitudinal:=0]
-somalia[,exclude_duplicative:=0]
-somalia[,year_start:=2007]
-somalia[,end_year:=2010]
-somalia[,pweight:=1]
-somalia[,age_cat_2:="0-5"]
-somalia[,point:=1]
-somalia[,int_year:=start_year]
-somalia[,geospatial_id:=psu]
-somalia[,indicator:=1]
-somalia[,N:=1]
-somalia[,gaul:=226]
-
-# Add in exclusions and drop columns:
-
-indicator_types<-c("HAZ","WHZ","WAZ") #"BMI","CIAF","birth_weight","BMIZ"
-for(i in indicator_types){
-  data<-DropData(data=data,indicator=i)
-}
-
-fwrite(data, paste0(j, '/temp/alicela/dropdata_plot_input/pre_', extract_date, '.csv'))
-
-# Calculate how many observations we drop for indicators
-
-total_obs <- nrow(data)
-HAZ_drop <- nrow(data[HAZ_drop == 1,])
-WAZ_drop <- nrow(data[WAZ_drop == 1,])
-WHZ_drop <- nrow(data[WHZ_drop == 1,])
-total_HAZ <- nrow(data[is.na(HAZ_drop),])
-total_WAZ <- nrow(data[is.na(WAZ_drop),])
-total_WHZ <- nrow(data[is.na(WHZ_drop),])
-HAZ_exclude <- nrow(data[HAZ_exclude == 1,])
-WAZ_exclude <- nrow(data[WAZ_exclude == 1,])
-WHZ_exclude <- nrow(data[WHZ_exclude == 1,])
-
-drop_table <- data.table( x = c('Total Rows', 'HAZ drop', 'WAZ drop', 'WHZ drop', 'HAZ after drop', 'WAZ after drop', 'WHZ after drop', 'HAZ exclude', 'WAZ exclude', 'WHZ exclude'), 
-                          y = c(total_obs, HAZ_drop, WAZ_drop, WHZ_drop, total_HAZ, total_WAZ, total_WHZ, HAZ_exclude, WAZ_exclude, WHZ_exclude))
-
-fwrite(drop_table, paste0(j, 'temp/alicela/drop_table_', extract_date, '.csv'))
-
-#Add Somalia data
-data<-rbind(data,somalia, fill=T)      
+# 
+# # Prepare Somalia Data
+# 
+# # NOTE: This strategy does NOT allow for you to use this data for CIAF, since we don't currently know the number of children that are
+# # stunted and wasted, etc. Find and use the non-collapsed versions of this data, such that there is a 0 or 1 for each child for whether
+# # they are wasted, stunted, and/or underweight, and collapse that on before generating CIAF indicators, if you want to do that aspect of
+# # analysis with this survey.
+# 
+# somalia <- fread(paste0(root,"DATA/SOM/NUTRITIONAL_ASSESSMENT_SURVEY/2007_2010/SOM_NUTRIONAL_ASSESSMENT_SURVEY_2007_2010_MALNUTRITION_LAT_LONG_Y2016M10D25.CSV"))
+# 
+# # Change column names
+# old_names<-c("Latitude","Longitude","Year of survey","Number of children examined","Number wasting","Number stunting","Number underweight")
+# new_names<-c("latitude","longitude","start_year","N","wasting_mod_b","stunting_mod_b","underweight_mod_b")
+# setnames(somalia,old_names,new_names)  ; rm(old_names)
+# somalia[,psu:=1:nrow(somalia)]
+# 
+# # Repeating, row-wise, with relevant columns only, for each lat/lon/psu, by the N of children sampled in that area.
+# somalia<-somalia[rep(seq(.N), N), # Repeat the rows by the number specified in the column  N
+#                  c(new_names,"psu"), # Keep these columns
+#                  with=F] #
+# somalia[,seq:=seq(1:.N),by=c(new_names,"psu")] # Generate an index per each child within a lat/lon
+# somalia[,wasting_mod_b:=ifelse(seq<=wasting_mod_b,1,0)] # Generate binary versions
+# somalia[,wasting_mod_who:=ifelse(seq<=wasting_mod_b,1,0)] 
+# somalia[,stunting_mod_b:=ifelse(seq<=stunting_mod_b,1,0)]
+# somalia[,underweight_mod_b:=ifelse(seq<=underweight_mod_b,1,0)]
+# 
+# # Generate some extra columns
+# 
+# somalia[,nid:=270669]
+# somalia[,source:="FSNAU"]
+# somalia[,country:="SOM"]
+# somalia[,ihme_loc_id:="SOM"]
+# somalia[,exclude_weights:=0]
+# somalia[,exclude_age_range:=0]
+# somalia[,exclude_age_granularity:=0]
+# somalia[,exclude_data_lbw:=0]
+# somalia[,exclude_data_cgf:=0]
+# somalia[,exclude_representation:=0]
+# somalia[,exclude_geography:=0]
+# somalia[,exclude_interview:=0]
+# somalia[,exclude_longitudinal:=0]
+# somalia[,exclude_duplicative:=0]
+# somalia[,year_start:=2007]
+# somalia[,end_year:=2010]
+# somalia[,pweight:=1]
+# somalia[,age_cat_2:="0-5"]
+# somalia[,point:=1]
+# somalia[,int_year:=start_year]
+# somalia[,geospatial_id:=psu]
+# somalia[,indicator:=1]
+# somalia[,N:=1]
+# somalia[,gaul:=226]
+# 
+# # Add in exclusions and drop columns:
+# 
+# indicator_types<-c("HAZ","WHZ","WAZ") #"BMI","CIAF","birth_weight","BMIZ"
+# for(i in indicator_types){
+#   data<-DropData(data=data,indicator=i)
+# }
+# 
+# fwrite(data, paste0(j, '/temp/alicela/dropdata_plot_input/pre_', extract_date, '.csv'))
+# 
+# # Calculate how many observations we drop for indicators
+# 
+# total_obs <- nrow(data)
+# HAZ_drop <- nrow(data[HAZ_drop == 1,])
+# WAZ_drop <- nrow(data[WAZ_drop == 1,])
+# WHZ_drop <- nrow(data[WHZ_drop == 1,])
+# total_HAZ <- nrow(data[is.na(HAZ_drop),])
+# total_WAZ <- nrow(data[is.na(WAZ_drop),])
+# total_WHZ <- nrow(data[is.na(WHZ_drop),])
+# HAZ_exclude <- nrow(data[HAZ_exclude == 1,])
+# WAZ_exclude <- nrow(data[WAZ_exclude == 1,])
+# WHZ_exclude <- nrow(data[WHZ_exclude == 1,])
+# 
+# drop_table <- data.table( x = c('Total Rows', 'HAZ drop', 'WAZ drop', 'WHZ drop', 'HAZ after drop', 'WAZ after drop', 'WHZ after drop', 'HAZ exclude', 'WAZ exclude', 'WHZ exclude'), 
+#                           y = c(total_obs, HAZ_drop, WAZ_drop, WHZ_drop, total_HAZ, total_WAZ, total_WHZ, HAZ_exclude, WAZ_exclude, WHZ_exclude))
+# 
+# fwrite(drop_table, paste0(j, 'temp/alicela/drop_table_', extract_date, '.csv'))
+# 
+# #Add Somalia data
+# data<-rbind(data,somalia, fill=T)      
 
 #####################################################################################################################################################################
 ## 9.) SAVE GBD DATA: Save a copy of data for GBD before we apply our own drop/exclude criteria!
