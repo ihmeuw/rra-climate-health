@@ -674,19 +674,25 @@ AddSeasonalAdjustment<-function(raw_table,regions,adjust_var, min_bounds, max_bo
     region_min<-min(Region$int_year,na.rm=T)
     Region[,mo_ind:= (12*(int_year-region_min)) + int_month]
     
+    # Check for sufficient levels of `ihme_loc_id` before fitting the model
+    if(length(unique(Region$ihme_loc_id)) < 2) {
+      message("Skipping model fitting for region ", reg, " due to insufficient levels in ihme_loc_id.")
+      next
+    }
+    
     # Fit model with uncorrelated errors
     m0 <- mgcv::gamm(get(adjust_var) ~ s(int_month, bs = "cc", k = 6) + s(mo_ind, k = 4) + as.factor(ihme_loc_id),
                      data = Region)
     
     # Plot/Sanity-check the seasonality adjustments:
-    per.plot = FALSE
-    if(per.plot){
-      png(sprintf("/homes/azimmer/wasting_seasonality/wasting_seasonality_05_24_2017/season_gamms_%s_k_4.png", reg),
-          width = 20, height = 8, units = "in", res = 300)
-      layout(matrix(1:2, ncol = 2))
-      plot(m0$gam, scale = 0, main = reg, xlab = "interview month", ylab = paste0(adjust_var," seasonal peiodic bias"))
-      layout(1)
-    }
+    # per.plot = FALSE
+    # if(per.plot){
+    #   png(sprintf("/homes/azimmer/wasting_seasonality/wasting_seasonality_05_24_2017/season_gamms_%s_k_4.png", reg),
+    #       width = 20, height = 8, units = "in", res = 300)
+    #   layout(matrix(1:2, ncol = 2))
+    #   plot(m0$gam, scale = 0, main = reg, xlab = "interview month", ylab = paste0(adjust_var," seasonal peiodic bias"))
+    #   layout(1)
+    # }
     
     # Getting adjustments from model fit:
     ct <- Region$ihme_loc_id[!is.na(Region$ihme_loc_id)][1]
