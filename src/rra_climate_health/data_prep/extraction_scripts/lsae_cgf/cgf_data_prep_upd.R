@@ -64,7 +64,9 @@ cov_plot <- TRUE # Assign TRUE if you want to run coverage plots, assign FALSE i
 plot_new_dcp <- FALSE # Assign TRUE if you just want to plot new data, and FALSE is you want to plot all data
 sex_split <- FALSE # TRUE if you want to collapse indicators by sex, FALSE if you don't need to
 plot_extract <- FALSE # TRUE if you want to run coverage plots for only data that was extracted from reports
-nids <- c('DHS_408484_CH_NGA_2018_2018','DHS_74460_CH_TJK_2012_2012','DHS_77819_CH_DOM_2013_2013','DHS_157021_CH_BGD_2014_2014','DHS_157024_CH_KHM_2014_2014','DHS_157057_CH_KEN_2014_2014','DHS_459845_CH_LBR_2019_2020','DHS_462482_CH_RWA_2019_2020','DHS_470667_CH_MRT_2019_2020','DHS_493562_CH_MDG_2021_2021','DHS_523643_CH_KHM_2021_2022','DHS_527622_CH_BFA_2021_2021','DHS_528571_CH_NPL_2022_2022','DHS_529017_CH_KEN_2022_2022','DHS_529525_CH_GAB_2019_2021','DHS_535004_CH_CIV_2021_2021','DHS_553572_HHM_MOZ_2022_2023','nid_55956')
+new.microdata.path <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/"
+all.files <- list.files(new.microdata.path)
+
 
 # Define file paths
 root <- ifelse(Sys.info()[1]=="AM", "J:/", "/home/j/")
@@ -103,7 +105,8 @@ source(paste0(core_repo, 'mbg_central/graph_data_coverage.R'))
 module_date <- Sys.Date()
 module_date <- gsub("-", "_", module_date)  
 
-input_data_csv<-paste0(l,"rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", nids, ".csv")
+input_data_csv<-paste0(l,"rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", all.files)
+input_data_csv <- input_data_csv[grep("archive", input_data_csv, invert = TRUE)]
 
 #######################################################################################################################################################
 ## 2.) PREPARE RAW EXTRACT DATA: Read in data, calculate age, define geospatial id, 
@@ -327,6 +330,10 @@ DropData <- function(data, indicator) {
     data[age_mo > 60, paste0(indicator, "_drop") := 1]
     data[age_year > 5, paste0(indicator, "_drop") := 1]
   }
+  if(indicator %in% c("HAZ", "WAZ", "WHZ", "CIAF", "BMIZ", "BMI")) { # Exclude all children under 1 month
+    data[age_wks < 3, paste0(indicator, "_drop") := 1]
+    data[age_mo < 1, paste0(indicator, "_drop") := 1]
+  }
   
   # HEIGHT
   if(indicator %in% c("HAZ", "WHZ", "CIAF", "BMI", "BMIZ")) {
@@ -352,7 +359,7 @@ DropData <- function(data, indicator) {
   # This is where we exclude data points from the final data set
   # based on some kind of plausibility metric. This is where the data
   # that aren't NA, but aren't believable, go to die.
-
+  
   if (indicator == "BMI") {
     data[BMI <= 10, paste0(indicator, "_exclude") := 1]
     data[BMI >= 25, paste0(indicator, "_exclude") := 1]
