@@ -284,9 +284,10 @@ data[,N:=1]
 #' or pre-processing concerns, and 'exclude', where data will be excluded based on
 #' cutoffs or criteria. After having
 
-DropData<-function(data=data,indicator){
-  if (!indicator %in% c("HAZ","WHZ","WAZ","BMI","CIAF","birth_weight","BMIZ")){
-    stop("You have not entered in a valid indicator. Must be one of: 'HAZ' 'WHZ' 'WAZ' 'BMI' 'CIAF' 'birth_weight' 'BMIZ' ")
+DropData <- function(data, indicator) {
+  # Check if the indicator is valid
+  if (!indicator %in% c("HAZ", "WHZ", "WAZ", "BMI", "CIAF", "birth_weight", "BMIZ")) {
+    stop("You have not entered a valid indicator. Must be one of: 'HAZ' 'WHZ' 'WAZ' 'BMI' 'CIAF' 'birth_weight' 'BMIZ'")
   }
   
   # 'pre-processing':
@@ -295,107 +296,113 @@ DropData<-function(data=data,indicator){
   # young/old, or they don't have age, height, sex, or weight information.
   # These are the reasons why you'd have NA values in your end indicator Z-scores.
   
+  # Initialize the drop and exclude columns to 0 or NA
+  data[, paste0(indicator, "_drop") := 0]
+  data[, paste0(indicator, "_exclude") := NA]
+  
   # SEX
-  if(indicator!="birth_weight"){
-    data[is.na(sex), drop:=1]
+  if(indicator != "birth_weight") {
+    data[is.na(sex_id), paste0(indicator, "_drop") := 1]
   }
   
   # AGE
-  if(indicator %in% c("HAZ","WAZ","CIAF","BMI", "BMIZ")){ # WHZ (no age) excluded from this list of indicators; Meskane Mareko data has no ages.
-    data[is.na(age_mo) & !(nid %in% c(319322)), drop:=1]
+  if(indicator %in% c("HAZ", "WAZ", "CIAF", "BMI", "BMIZ")) {
+    data[is.na(age_mo) & !(nid %in% c(319322)), paste0(indicator, "_drop") := 1]
   }
-  if(indicator %in% c("HAZ","WAZ","CIAF", "BMIZ")){ #Only indicators where the weeks need to join on; Meskane Mareko data has no ages.
-    data[(age_mo<3) & is.na(age_wks) & !(nid %in% c(319322)), drop:=1] # if the child is less than 3 months old, we need weeks for these children
+  
+  if(indicator %in% c("HAZ", "WAZ", "CIAF", "BMIZ")) {
+    data[(age_mo < 3) & is.na(age_wks) & !(nid %in% c(319322)), paste0(indicator, "_drop") := 1]
   }
-  if(indicator=="WHZ"){ # We use age_cat_1 to merge for WHZ; Meskane Mareko data has no ages.
-    data[is.na(age_cat_1) & !(nid %in% c(319322)),drop:=1]
+  
+  if(indicator == "WHZ") {
+    data[is.na(age_cat_1) & !(nid %in% c(319322)), paste0(indicator, "_drop") := 1]
   }
-  if(indicator=="BMI"){ # Exclude children under 2 if BMI-based
-    data[age_wks<=104, drop:=1]
+  
+  if(indicator == "BMI") {
+    data[age_wks <= 104, paste0(indicator, "_drop") := 1]
   }
-  if(indicator %in% c("HAZ","WAZ","WHZ","CIAF", "BMIZ", "BMI")){ # Exclude all children over 5.
-    data[age_wks>260, drop:=1]
-    data[age_mo>60, drop:=1]
-    data[age_year>5, drop:=1]
+  
+  if(indicator %in% c("HAZ", "WAZ", "WHZ", "CIAF", "BMIZ", "BMI")) {
+    data[age_wks > 260, paste0(indicator, "_drop") := 1]
+    data[age_mo > 60, paste0(indicator, "_drop") := 1]
+    data[age_year > 5, paste0(indicator, "_drop") := 1]
   }
   
   # HEIGHT
-  if(indicator %in% c("HAZ","WHZ","CIAF","BMI", "BMIZ")){ # WAZ (no height) excluded from this list of indicators; 2 nids have zscores but no anthro
-    data[is.na(metab_height) & !(nid %in% c(23017, 319322)), drop:=1]
-    data[metab_height<=0, drop:=1]
-    data[metab_height>=180, drop:=1]# I'm going to assert that there are no 6-foot tall 5 year olds.
+  if(indicator %in% c("HAZ", "WHZ", "CIAF", "BMI", "BMIZ")) {
+    data[is.na(metab_height) & !(nid %in% c(23017, 319322)), paste0(indicator, "_drop") := 1]
+    data[metab_height <= 0, paste0(indicator, "_drop") := 1]
+    data[metab_height >= 180, paste0(indicator, "_drop") := 1]
   }
   
   # WEIGHT
-  if(indicator %in% c("WAZ","WHZ","CIAF","BMI", "BMIZ")){ # HAZ (no weight) excluded from this list of indicators; 2 nids have zscores but no anthro
-    data[is.na(metab_weight) & !(nid %in% c(23017, 319322)), drop:=1]
-    data[metab_weight<=0, drop:=1]
-    data[metab_weight>=45, drop:=1] # I'm also going to assert that there are no 40 kg (nearly 100 lb) kids 5 years or younger. For context, a 5-year old child of 40 lb is normal
+  if(indicator %in% c("WAZ", "WHZ", "CIAF", "BMI", "BMIZ")) {
+    data[is.na(metab_weight) & !(nid %in% c(23017, 319322)), paste0(indicator, "_drop") := 1]
+    data[metab_weight <= 0, paste0(indicator, "_drop") := 1]
+    data[metab_weight >= 45, paste0(indicator, "_drop") := 1]
   }
   
   # BIRTHWEIGHT
-  if(indicator %in% c("birth_weight")){
-    data[is.na(birth_weight), drop:=1]
-    data[birth_weight<=0, drop:=1]
+  if(indicator == "birth_weight") {
+    data[is.na(birth_weight), paste0(indicator, "_drop") := 1]
+    data[birth_weight <= 0, paste0(indicator, "_drop") := 1]
   }
   
   # 'post-processing:
   # This is where we exclude data points from the final data set
   # based on some kind of plausibility metric. This is where the data
   # that aren't NA, but aren't believable, go to die.
-  
-  if (indicator=="BMI"){
-    data[BMI <= 10,exclude:=1]
-    data[BMI >= 25,exclude:=1]
+
+  if (indicator == "BMI") {
+    data[BMI <= 10, paste0(indicator, "_exclude") := 1]
+    data[BMI >= 25, paste0(indicator, "_exclude") := 1]
     print("Data excluded if BMI is above 25 or below 10.")
   }
   
-  if (indicator=="HAZ"){
-    data[HAZ > 6,exclude:=1]
-    data[HAZ < -6,exclude:=1]
+  if (indicator == "HAZ") {
+    data[HAZ > 6, paste0(indicator, "_exclude") := 1]
+    data[HAZ < -6, paste0(indicator, "_exclude") := 1]
     print("Data excluded if HAZ is above 6 or below -6.")
   }
   
-  
-  if (indicator=="WAZ"){
-    data[WAZ > 5,exclude:=1]
-    data[WAZ < -6,exclude:=1]
+  if (indicator == "WAZ") {
+    data[WAZ > 5, paste0(indicator, "_exclude") := 1]
+    data[WAZ < -6, paste0(indicator, "_exclude") := 1]
     print("Data excluded if WAZ is above 5 or below -6.")
   }
   
-  if (indicator=="WHZ"){
-    data[WHZ_seas > 5,exclude:=1]
-    data[WHZ_seas < -5,exclude:=1]
+  if (indicator == "WHZ") {
+    data[WHZ_seas > 5, paste0(indicator, "_exclude") := 1]
+    data[WHZ_seas < -5, paste0(indicator, "_exclude") := 1]
     print("Data excluded if WHZ_seas is above 5 or below -5.")
   }
   
-  if (indicator=="CIAF"){
-    data[,exclude:=NA]
-    data[,exclude_reason:=NA]
+  if (indicator == "CIAF") {
+    data[, paste0(indicator, "_exclude") := NA]
+    data[, paste0(indicator, "_exclude_reason") := NA]
     print("CIAF data exclusion criteria still TBD; update the function when you know!")
   }
   
-  if(indicator=="birth_weight"){
-    data[,exclude:=NA]
-    # using GBD 2017 exclusions based on 0.1 and 99.9 percentiles. These may need to change to align with GBD     
-    data[birth_weight < 0.44  & sex == 0, exclude:=1]
-    data[birth_weight < 0.45  & sex == 1, exclude:=1]
-    data[birth_weight > 4.97  & sex == 0, exclude:=1] 
-    data[birth_weight > 5.143 & sex == 1, exclude:=1]
+  if(indicator == "birth_weight") {
+    # using GBD 2017 exclusions based on 0.1 and 99.9 percentiles. These may need to change to align with GBD    
+    data[, paste0(indicator, "_exclude") := NA]
+    data[birth_weight < 0.44 & sex == 0, paste0(indicator, "_exclude") := 1]
+    data[birth_weight < 0.45 & sex == 1, paste0(indicator, "_exclude") := 1]
+    data[birth_weight > 4.97 & sex == 0, paste0(indicator, "_exclude") := 1]
+    data[birth_weight > 5.143 & sex == 1, paste0(indicator, "_exclude") := 1]
     print("Data excluded if birth weight is below the .1 or above the 99.9 percentile!")
   }
   
-  if (indicator=="BMIZ"){
-    data[BMIZ > 5,exclude:=1]
-    data[BMIZ < -5,exclude:=1]
+  if (indicator == "BMIZ") {
+    data[BMIZ > 5, paste0(indicator, "_exclude") := 1]
+    data[BMIZ < -5, paste0(indicator, "_exclude") := 1]
     print("Data excluded if BMIZ is above 5 or below -5.")
   }
   
-  setnames(data,"exclude",paste0(indicator,"_exclude"))
-  setnames(data,"drop",paste0(indicator,"_drop"))
-  
+  # Return the updated data
   return(data)
 }
+
 
 ##############################################################################################################################################################
 ## 4.) CALCUATE Z SCORES: Load in Growth Standards from Reference Material, Merge on Information and Calculate Metrics
@@ -830,6 +837,12 @@ data[,underweight_mod_c :=ifelse(WAZ <= -2 & WAZ > -3, 1, 0)] # For Bobby's risk
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 data[,stunting_overweight :=ifelse(overweight_who_BMIZ == 1 & stunting_mod_b == 1, 1, 0)]
 
+# Running DropData function
+indicator_types<-c("HAZ","WHZ","WAZ") #"BMI","CIAF","birth_weight","BMIZ"
+for(i in indicator_types){
+  data<-DropData(data=data,indicator=i)
+}
+
 ############################################################################################################################################################
 ## 8.) ADD IN SOMALIA DATA, DROP DATA: Clean and Prepare Somalia data--has no z-sores, just headcounts of stunting, wasting, underweight, thus no calcs or adjustments are necessary 
 ############################################################################################################################################################
@@ -890,8 +903,8 @@ data[,stunting_overweight :=ifelse(overweight_who_BMIZ == 1 & stunting_mod_b == 
 # 
 # indicator_types<-c("HAZ","WHZ","WAZ") #"BMI","CIAF","birth_weight","BMIZ"
 # for(i in indicator_types){
-#   data<-DropData(data=data,indicator=i)
-# }
+#    data<-DropData(data=data,indicator=i)
+#  }
 # 
 # fwrite(data, paste0(j, '/temp/alicela/dropdata_plot_input/pre_', extract_date, '.csv'))
 # 
@@ -973,6 +986,14 @@ iso_list <- sort(isos[Stage == 1 | Stage == '2a' | Stage == '2b', toupper(iso3)]
 #Until I rerun, these exclusions need to be fixed by hand
 data[nid==236205, exclude_data_cgf:=1]
 data[nid==9506, exclude_data_cgf:=0]
+
+# Adding in columns needed for further data processing
+# These columns were initially generated from a merge with the following: R:\share\code\geospatial\alicela\cgf\data_prep\exclusions.csv
+# However, none of these NIDs align with what we currently have, so just creating the columns and filling them all with 0
+data[, c("exclude_weights", "exclude_age_range", "exclude_age_granularity", 
+         "exclude_data_lbw", "exclude_data_cgf", "exclude_representation", 
+         "exclude_geography", "exclude_interview", "exclude_longitudinal", 
+         "exclude_BMIZ", "exclude_duplicative") := 0]
 
 #Excluding all problematic data
 data <- data[exclude_weights!=1,]
