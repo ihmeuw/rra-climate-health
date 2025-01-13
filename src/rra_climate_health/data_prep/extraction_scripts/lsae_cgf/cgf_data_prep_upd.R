@@ -1168,7 +1168,7 @@ for (ind in binary_ind) {
       setnames(all_point_data, 'nid', 'svy_id')  
     } # Closes the point collapse for non-scaled indicators
     
-    fwrite(all_point_data, paste0(l, "LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
+    # fwrite(all_point_data, paste0(l, "LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
   } # Closes the point collapse function
   
   
@@ -1233,7 +1233,7 @@ for (ind in binary_ind) {
     
     
     # write the collapsed data to a folder to use for resampling!
-    fwrite(poly_data_collapsed, paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
+    # fwrite(poly_data_collapsed, paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
   } # Closes the polygon collapse function
   
   
