@@ -75,7 +75,7 @@ l <- ifelse(Sys.info()[1]=="Mac", "Volumes/", "/mnt/team/")
 ref_dir<-paste0(root,"WORK/11_geospatial/10_mbg/child_growth_failure/01 reference/")
 work_dir <- paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions")
 
-# folder_out <- paste0(l, "LIMITED_USE/LU_GEOSPATIAL/geo_matched/", topic, "/test")  
+folder_out <- paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/", topic, "/test")  
 # 
 setwd(work_dir)
 
@@ -330,6 +330,7 @@ DropData <- function(data, indicator) {
     data[age_mo > 60, paste0(indicator, "_drop") := 1]
     data[age_year > 5, paste0(indicator, "_drop") := 1]
   }
+  
   if(indicator %in% c("HAZ", "WAZ", "WHZ", "CIAF", "BMIZ", "BMI")) { # Exclude all children under 1 month
     data[age_wks < 3, paste0(indicator, "_drop") := 1]
     data[age_mo < 1, paste0(indicator, "_drop") := 1]
@@ -954,7 +955,7 @@ data_gbd <- copy(data)
 # data_gbd[nid == 19046, int_year := 1996]  
 
 
-write.csv(data_gbd, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions", module_date, ".csv"))
+write.csv(data_gbd, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/", module_date, ".csv"))
 
 rm(data_gbd)   
 
@@ -991,8 +992,8 @@ iso_list <- sort(isos[Stage == 1 | Stage == '2a' | Stage == '2b', toupper(iso3)]
 ##################################################################################################################################################################
 
 #Until I rerun, these exclusions need to be fixed by hand
-data[nid==236205, exclude_data_cgf:=1]
-data[nid==9506, exclude_data_cgf:=0]
+# data[nid==236205, exclude_data_cgf:=1]
+# data[nid==9506, exclude_data_cgf:=0]
 
 # Adding in columns needed for further data processing
 # These columns were initially generated from a merge with the following: R:\share\code\geospatial\alicela\cgf\data_prep\exclusions.csv
@@ -1063,7 +1064,7 @@ cgf.summary <- merge(cgf.summary, polys, by.x="nid", by.y="nid", all.x=T, all.y=
 
 colnames(cgf.summary) <- c('nid', 'count', "points", "polys")
 
-write.csv(cgf.summary, paste0(j,"WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/headcounts/cgf_headcounts_", module_date, ".csv" ))
+write.csv(cgf.summary, paste0(l,"/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/headcounts_", module_date, ".csv" ))
 
 rm(data_summary, cgf.summary)
 
@@ -1071,14 +1072,10 @@ rm(data_summary, cgf.summary)
 ## 12.) COLLAPSE DATA: Split data into specific indicators, drop data according to indicator, and begin collapsing point and polygon data 
 #########################################################################################################################################################  
 
-# This NID is actually 7 different surveys within the same series, so it needs to be seperated for the collapse
-data <- data[nid == 200838 & start_year == 2000, nid := 20083890]
-data <- data[nid == 200838 & start_year == 2006, nid := 20083896]
-data <- data[nid == 200838 & start_year == 1997, nid := 20083897]
-data <- data[nid == 200838 & start_year == 1991, nid := 20083891]
-data <- data[nid == 200838 & start_year == 1993, nid := 20083893]
-data <- data[nid == 200838 & start_year == 2004, nid := 20083894]
-data <- data[nid == 200838 & start_year == 2009, nid := 20083899]
+# This NID is actually 7 different surveys within the same series, so it needs to be separated for the collapse
+data <- data[nid == 275090 & year_start == 2005, nid := 27509005]
+data <- data[nid == 275090 & year_start == 2007, nid := 27509007]
+data <- data[nid == 275090 & year_start == 2008, nid := 27509008]
 
 # Assign indicators to loop through based on project (otherwise you have to do it manually or it literally takes forever)
 if(proj == 'cgf'){
@@ -1168,7 +1165,7 @@ for (ind in binary_ind) {
       setnames(all_point_data, 'nid', 'svy_id')  
     } # Closes the point collapse for non-scaled indicators
     
-    # fwrite(all_point_data, paste0(l, "LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
+    fwrite(all_point_data, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
   } # Closes the point collapse function
   
   
@@ -1233,7 +1230,7 @@ for (ind in binary_ind) {
     
     
     # write the collapsed data to a folder to use for resampling!
-    # fwrite(poly_data_collapsed, paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
+    fwrite(poly_data_collapsed, paste0(l,'/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
   } # Closes the polygon collapse function
   
   
@@ -1269,13 +1266,13 @@ if (cov_plot == TRUE){
   }
   
   for (ind in coverage_ind){
-    coverage_point <- fread(paste0(l, "LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
-    coverage_poly <- fread(paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
+    coverage_point <- fread(paste0("ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
+    coverage_poly <- fread(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
     
     
-    if (file.exists(paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
+    if (file.exists(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
       print("This indicator utilizes report extractions")
-      extract_data <- fread(paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))
+      extract_data <- fread(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))
       coverage_data <- rbind(coverage_point, coverage_poly, fill=TRUE)
       coverage_data <- coverage_data[,type:=0]
       coverage_data <- rbind(coverage_data, extract_data, fill=TRUE)
@@ -1309,18 +1306,18 @@ if (cov_plot == TRUE){
     
     # Drop data for DBM
     
-    if (proj == 'dbm'){
-      exclude_dbm <- c(76704, 79839, 14015, 14027, 14063, 14105, 58660, 9516, 60942, 24143, 369294, 283812)
-      coverage_data <- coverage_data[(!nid %in% exclude_dbm),]
-    }
-    
-    # Drop South Africa 2003-04 for now
-    coverage_data <- coverage_data[nid != 394227,]
-    coverage_data <- coverage_data[nid != 20798,]
-    
-    # test fix a peru issue
-    
-    coverage_data <- coverage_data[shapefile == 'PER_ADM3', shapefile := 'PER_adm3']
+    # if (proj == 'dbm'){
+    #   exclude_dbm <- c(76704, 79839, 14015, 14027, 14063, 14105, 58660, 9516, 60942, 24143, 369294, 283812)
+    #   coverage_data <- coverage_data[(!nid %in% exclude_dbm),]
+    # }
+    # 
+    # # Drop South Africa 2003-04 for now
+    # coverage_data <- coverage_data[nid != 394227,]
+    # coverage_data <- coverage_data[nid != 20798,]
+    # 
+    # # test fix a peru issue
+    # 
+    # coverage_data <- coverage_data[shapefile == 'PER_ADM3', shapefile := 'PER_adm3']
     
     # Change data source name to be more user friendly - for stage 2 paper, can skip this step for regular coverage plots  
     coverage_data <- coverage_data[source == 'UNICEF_MICS', source:= "UNICEF MICS"]
@@ -1336,7 +1333,7 @@ if (cov_plot == TRUE){
     coverage_data <- coverage_data[source == 'RAND_FLS', source:= "RAND FLS"]
     coverage_data <- coverage_data[source == 'CVD_GEMS', source:= "CVD GEMS"]
     
-    # Adding this next bit in to only run plots with new data. Date renges are specified by extract_date and previous_date in the beginning. If plot_new_dcp is set to
+    # Adding this next bit in to only run plots with new data. Date ranges are specified by extract_date and previous_date in the beginning. If plot_new_dcp is set to
     # TRUE, then it will run with new data only. If you want a full coverage plot, set to FALSE
     
     
@@ -1451,12 +1448,12 @@ if (!file.exists(paste0(j,"WORK/11_geospatial/10_mbg/child_growth_failure/03 dia
 
 for (ind in binary_ind){
   sex <- 'mf'
-  prev_point <- fread(paste0(l, "LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
-  prev_poly <- fread(paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
+  prev_point <- fread(paste0("/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
+  prev_poly <- fread(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
   
-  if (file.exists(paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
+  if (file.exists(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
     print("This indicator utilizes report extractions")
-    ext <- fread(paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))
+    ext <- fread(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))
     all_data <- rbind(prev_point, prev_poly, fill=TRUE)
     all_data <- all_data[,type:=0]
     all_data <- rbind(all_data, ext, fill=TRUE)
@@ -1557,13 +1554,13 @@ for (ind in binary_ind){
   }
   
   for(s in sex){
-    polydat <- read.csv(paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', indicator,'/collapsed_polys_', s, "_", run_date, '.csv'))
+    polydat <- read.csv(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', indicator,'/collapsed_polys_', s, "_", run_date, '.csv'))
     polydat <- as.data.table(polydat)
     polydat <- polydat[,type:=0]
     polydat <- as.data.frame(polydat)
     
-    if (file.exists(paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
-      exdat <- read.csv(paste0(l,'LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/',indicator, '/extractions/collapsed_polys_extractions_', s, '.csv'))
+    if (file.exists(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
+      exdat <- read.csv(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/',indicator, '/extractions/collapsed_polys_extractions_', s, '.csv'))
       
       polydat <- rbind(polydat, exdat)
     }
@@ -1632,7 +1629,7 @@ for (ind in binary_ind) {
     # Format point data so it can be binded to resampled poly data
     # all_point_data <- all_point_data[, pseudocluster := NULL]
     
-    all_point_data <- fread(paste0(l, "LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data","_", s, "_", module_date, ".csv"))
+    all_point_data <- fread(paste0("/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data","_", s, "_", module_date, ".csv"))
     all_point_data <- all_point_data[, weight := 1]
     all_point_data <- all_point_data[, shapefile := ""]
     all_point_data <- all_point_data[, location_code := ""]
@@ -1719,11 +1716,11 @@ for (ind in binary_ind) {
     }
     
     if (proj == 'cgf'){
-      write.csv(all_collapsed, file = paste0(l, "LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/", ind, "_",s,"_", module_date, ".csv"), row.names = FALSE)
+      write.csv(all_collapsed, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", ind, "_",s,"_", module_date, ".csv"), row.names = FALSE)
     }
     
     if (proj == 'risk_factor'){
-      write.csv(all_collapsed, file = paste0(l, "LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/", ind, "_",s,"_", module_date, ".csv"), row.names = FALSE)
+      write.csv(all_collapsed, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", ind, "_",s,"_", module_date, ".csv"), row.names = FALSE)
     }
     
     
@@ -1755,8 +1752,8 @@ if (proj == 'dbm'){
     collapsed_wasting_mod_cond_index[,no_index:=NULL] # remove the variable that identified NA index values
     collapsed_wasting_mod_cond <- copy(collapsed_wasting_mod_cond_index)
     
-    write.csv(collapsed_wasting_mod_cond, file = paste0(l, "LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/", "wasting_mod_cond_", s,"_", module_date, ".csv"), row.names = FALSE)
-    write.csv(collapsed_overweight_who_b, file = paste0(l, "LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/", "overweight_who_b_", s,"_",module_date, ".csv"), row.names = FALSE) #writing as wasting_who_b to keep seperate from cgf moving forward since the index is different
+    write.csv(collapsed_wasting_mod_cond, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", "wasting_mod_cond_", s,"_", module_date, ".csv"), row.names = FALSE)
+    write.csv(collapsed_overweight_who_b, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", "overweight_who_b_", s,"_",module_date, ".csv"), row.names = FALSE) #writing as wasting_who_b to keep seperate from cgf moving forward since the index is different
   }
   
   
