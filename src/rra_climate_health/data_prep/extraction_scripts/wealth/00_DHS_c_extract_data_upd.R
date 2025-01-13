@@ -46,7 +46,7 @@ if (Sys.info()["sysname"] == "Linux") {
 
 
 
-source(paste0(h, "/repos/indicators/1_retrospective/1_GDP_LDI/LSAE/helper_functions.R"))
+source(paste0(h, "/repos/indicators/1_retrospective/1_GDP_LDI/02_subnational_LSAE/helper_functions.R"))
 
 modeling_shapefile_version <- get_LSAE_location_versions()
 modeling_shapefile_version <- modeling_shapefile_version[
