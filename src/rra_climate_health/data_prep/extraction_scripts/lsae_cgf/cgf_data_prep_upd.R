@@ -961,31 +961,31 @@ rm(data_gbd)
 
 
 #Summaries for dashboard      
-
-stage1 <- get_adm0_codes('stage1')
-stage2 <- c(stage1, (get_adm0_codes('stage2')))
-
-isos <- load_adm0_lookup_table()
-noaf <- sort(isos[mbg_reg == 'noaf', toupper(iso3)])
-cssa <- sort(isos[mbg_reg == 'cssa', toupper(iso3)])
-wssa <- sort(isos[mbg_reg == 'wssa', toupper(iso3)])
-essa <- sort(isos[mbg_reg == 'essa', toupper(iso3)])
-sssa <- sort(isos[mbg_reg == 'sssa', toupper(iso3)])
-mide <- sort(isos[mbg_reg == 'mide', toupper(iso3)])
-stan <- sort(isos[mbg_reg == 'stan', toupper(iso3)])
-wssa <- sort(isos[mbg_reg == 'wssa', toupper(iso3)])
-eaas <- sort(isos[mbg_reg == 'eaas', toupper(iso3)])
-soas <- sort(isos[mbg_reg == 'soas', toupper(iso3)])
-seas <- sort(isos[mbg_reg == 'seas', toupper(iso3)])
-ocea <- sort(isos[mbg_reg == 'ocea', toupper(iso3)])
-caca <- sort(isos[mbg_reg == 'caca', toupper(iso3)])
-ansa <- sort(isos[mbg_reg == 'ansa', toupper(iso3)])
-trsa <- sort(isos[mbg_reg == 'trsa', toupper(iso3)])
-
-
-africa <- sort(isos[Stage == 1, toupper(iso3)])
-
-iso_list <- sort(isos[Stage == 1 | Stage == '2a' | Stage == '2b', toupper(iso3)])
+# 
+# stage1 <- get_adm0_codes('stage1')
+# stage2 <- c(stage1, (get_adm0_codes('stage2')))
+# 
+# isos <- load_adm0_lookup_table()
+# noaf <- sort(isos[mbg_reg == 'noaf', toupper(iso3)])
+# cssa <- sort(isos[mbg_reg == 'cssa', toupper(iso3)])
+# wssa <- sort(isos[mbg_reg == 'wssa', toupper(iso3)])
+# essa <- sort(isos[mbg_reg == 'essa', toupper(iso3)])
+# sssa <- sort(isos[mbg_reg == 'sssa', toupper(iso3)])
+# mide <- sort(isos[mbg_reg == 'mide', toupper(iso3)])
+# stan <- sort(isos[mbg_reg == 'stan', toupper(iso3)])
+# wssa <- sort(isos[mbg_reg == 'wssa', toupper(iso3)])
+# eaas <- sort(isos[mbg_reg == 'eaas', toupper(iso3)])
+# soas <- sort(isos[mbg_reg == 'soas', toupper(iso3)])
+# seas <- sort(isos[mbg_reg == 'seas', toupper(iso3)])
+# ocea <- sort(isos[mbg_reg == 'ocea', toupper(iso3)])
+# caca <- sort(isos[mbg_reg == 'caca', toupper(iso3)])
+# ansa <- sort(isos[mbg_reg == 'ansa', toupper(iso3)])
+# trsa <- sort(isos[mbg_reg == 'trsa', toupper(iso3)])
+# 
+# 
+# africa <- sort(isos[Stage == 1, toupper(iso3)])
+# 
+# iso_list <- sort(isos[Stage == 1 | Stage == '2a' | Stage == '2b', toupper(iso3)])
 
 ##################################################################################################################################################################
 ## 10.) APPLY EXCLUDE CRITERIA: Exclude whole surveys that have been determined to not be useable
@@ -998,144 +998,148 @@ iso_list <- sort(isos[Stage == 1 | Stage == '2a' | Stage == '2b', toupper(iso3)]
 # Adding in columns needed for further data processing
 # These columns were initially generated from a merge with the following: R:\share\code\geospatial\alicela\cgf\data_prep\exclusions.csv
 # However, none of these NIDs align with what we currently have, so just creating the columns and filling them all with 0
-data[, c("exclude_weights", "exclude_age_range", "exclude_age_granularity", 
-         "exclude_data_lbw", "exclude_data_cgf", "exclude_representation", 
-         "exclude_geography", "exclude_interview", "exclude_longitudinal", 
-         "exclude_BMIZ", "exclude_duplicative") := 0]
-
-#Excluding all problematic data
-data <- data[exclude_weights!=1,]
-data <- data[exclude_age_range!=1,]
-data <- data[exclude_age_granularity!=1,]
-data <- data[exclude_representation!=1,]
-data <- data[exclude_geography!=1,]
-data <- data[exclude_data_cgf!=1,]
-data <- data[exclude_duplicative!=1,]
+# data[, c("exclude_weights", "exclude_age_range", "exclude_age_granularity", 
+#          "exclude_data_lbw", "exclude_data_cgf", "exclude_representation", 
+#          "exclude_geography", "exclude_interview", "exclude_longitudinal", 
+#          "exclude_BMIZ", "exclude_duplicative") := 0]
+# 
+# #Excluding all problematic data
+# data <- data[exclude_weights!=1,]
+# data <- data[exclude_age_range!=1,]
+# data <- data[exclude_age_granularity!=1,]
+# data <- data[exclude_representation!=1,]
+# data <- data[exclude_geography!=1,]
+# data <- data[exclude_data_cgf!=1,]
+# data <- data[exclude_duplicative!=1,]
 
 ###############################################################################################################################################################
 ## 11.) GENERATE HEADCOUNTS: Generate counts of point, polygons, and N values for each survey
 ###############################################################################################################################################################
 
-#Here we create cross-indicator headcounts, point counts, and poly counts by NID for the SI
-#Since we produce separate datasets for the three indicators, the totals must be calculated prior to collapse
-data_summary <- copy(data)
+## 1/13/25 Commenting out data_summary code since it is unnecessary. Location info will be processed in separate scripts alongside wealth.
 
-# Dropping all cases where none of the three z-scores: HAZ, WAZ, and WHZ, were valid.
-# This should not be necessary if you only need headcounts, point counts and poly counts for a single indicator
-data_summary[,HAZ_ind:=0]
-data_summary[is.na(HAZ_drop) & is.na(HAZ_exclude),HAZ_ind:=1 ]
-data_summary[,WAZ_ind:=0]
-data_summary[is.na(WAZ_drop) & is.na(WAZ_exclude),WAZ_ind:=1 ]
-data_summary[,WHZ_ind:=0]
-data_summary[is.na(WHZ_drop) & is.na(WHZ_exclude),WHZ_ind:=1 ]
-data_summary[, Ind:=0]
-data_summary[HAZ_ind == 1 | WAZ_ind == 1 | WHZ_ind == 1 ,ind:=1 ]
-data_summary <- as.data.table(data_summary)
-data_summary <- data_summary[ind==1,]
-
-#Subsetting to required variables for this summary
-summary_vars <- c("ind", "nid", "latitude", "longitude", "location_code", "shapefile")
-data_summary <- data_summary[, summary_vars, with=F]
-
-#Creating unique point and polygon indicators
-data_summary[, latitude:= as.character(latitude)]
-data_summary[, longitude:= as.character(longitude)]
-data_summary[, latlong := paste0(latitude, "_", longitude)] #creating unique lat/long indicator
-data_summary[is.na(latitude)|is.na(longitude), latlong := NA] #nulling out lat/long indicator where either lat or long is null
-data_summary[, location_code:= as.character(location_code)]
-data_summary[, polygon := paste0(location_code, "_", shapefile)] #Creating unique polygon count
-data_summary[is.na(location_code)|is.na(shapefile), polygon := NA] #nulling out cases where either shapefile or location code is null
-data_summary <- data_summary[!is.na(latlong)|!is.na(polygon),] #subsetting to cases with mappable geographies
-
-#Collapsing data by NID to give unique point and poly counts
-points <- ddply(data_summary,~nid,summarise,points=length(unique(na.omit(latlong))))
-polys <- ddply(data_summary,~nid,summarise,polys=length(unique(na.omit(polygon))))
-
-#Nulling out unnecessary variables 
-data_summary$latitude <- NULL
-data_summary$longitude <- NULL
-data_summary$location_code <- NULL
-data_summary$shapefile <- NULL
-
-#Collapsing to headcounts and merging point and poly counts back on
-cgf.summary <- aggregate(ind ~ nid, data = data_summary, FUN = sum)
-cgf.summary <- merge(cgf.summary, points, by.x="nid", by.y="nid", all.x=T, all.y=F)
-cgf.summary <- merge(cgf.summary, polys, by.x="nid", by.y="nid", all.x=T, all.y=F)
-
-colnames(cgf.summary) <- c('nid', 'count', "points", "polys")
-
-write.csv(cgf.summary, paste0(l,"/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/headcounts_", module_date, ".csv" ))
-
-rm(data_summary, cgf.summary)
+# #Here we create cross-indicator headcounts, point counts, and poly counts by NID for the SI
+# #Since we produce separate datasets for the three indicators, the totals must be calculated prior to collapse
+# data_summary <- copy(data)
+# 
+# # Dropping all cases where none of the three z-scores: HAZ, WAZ, and WHZ, were valid.
+# # This should not be necessary if you only need headcounts, point counts and poly counts for a single indicator
+# data_summary[,HAZ_ind:=0]
+# data_summary[is.na(HAZ_drop) & is.na(HAZ_exclude),HAZ_ind:=1 ]
+# data_summary[,WAZ_ind:=0]
+# data_summary[is.na(WAZ_drop) & is.na(WAZ_exclude),WAZ_ind:=1 ]
+# data_summary[,WHZ_ind:=0]
+# data_summary[is.na(WHZ_drop) & is.na(WHZ_exclude),WHZ_ind:=1 ]
+# data_summary[, Ind:=0]
+# data_summary[HAZ_ind == 1 | WAZ_ind == 1 | WHZ_ind == 1 ,ind:=1 ]
+# data_summary <- as.data.table(data_summary)
+# data_summary <- data_summary[ind==1,]
+# 
+# #Subsetting to required variables for this summary
+# summary_vars <- c("ind", "nid", "latitude", "longitude", "location_code", "shapefile")
+# data_summary <- data_summary[, summary_vars, with=F]
+# 
+# #Creating unique point and polygon indicators
+# data_summary[, latitude:= as.character(latitude)]
+# data_summary[, longitude:= as.character(longitude)]
+# data_summary[, latlong := paste0(latitude, "_", longitude)] #creating unique lat/long indicator
+# data_summary[is.na(latitude)|is.na(longitude), latlong := NA] #nulling out lat/long indicator where either lat or long is null
+# # data_summary[, location_code:= as.character(location_code)]
+# # data_summary[, polygon := paste0(location_code, "_", shapefile)] #Creating unique polygon count
+# # data_summary[is.na(location_code)|is.na(shapefile), polygon := NA] #nulling out cases where either shapefile or location code is null
+# # data_summary <- data_summary[!is.na(latlong)|!is.na(polygon),] #subsetting to cases with mappable geographies
+# 
+# #Collapsing data by NID to give unique point and poly counts
+# points <- ddply(data_summary,~nid,summarise,points=length(unique(na.omit(latlong))))
+# # polys <- ddply(data_summary,~nid,summarise,polys=length(unique(na.omit(polygon))))
+# 
+# #Nulling out unnecessary variables 
+# data_summary$latitude <- NULL
+# data_summary$longitude <- NULL
+# # data_summary$location_code <- NULL
+# # data_summary$shapefile <- NULL
+# 
+# #Collapsing to headcounts and merging point and poly counts back on
+# cgf.summary <- aggregate(ind ~ nid, data = data_summary, FUN = sum)
+# cgf.summary <- merge(cgf.summary, points, by.x="nid", by.y="nid", all.x=T, all.y=F)
+# # cgf.summary <- merge(cgf.summary, polys, by.x="nid", by.y="nid", all.x=T, all.y=F)
+# 
+# colnames(cgf.summary) <- c('nid', 'count', "points")
+# 
+# write.csv(cgf.summary, paste0(l,"/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/headcounts_", module_date, ".csv" ))
+# 
+# rm(data_summary, cgf.summary)
 
 #########################################################################################################################################################
 ## 12.) COLLAPSE DATA: Split data into specific indicators, drop data according to indicator, and begin collapsing point and polygon data 
 #########################################################################################################################################################  
 
-# This NID is actually 7 different surveys within the same series, so it needs to be separated for the collapse
-data <- data[nid == 275090 & year_start == 2005, nid := 27509005]
-data <- data[nid == 275090 & year_start == 2007, nid := 27509007]
-data <- data[nid == 275090 & year_start == 2008, nid := 27509008]
+## 1/13/25 Commenting out all collapsing code due to lack of location information. 
 
-# Assign indicators to loop through based on project (otherwise you have to do it manually or it literally takes forever)
-if(proj == 'cgf'){
-  binary_ind <-c("stunting_mod_b", "wasting_mod_b", "underweight_mod_b")
-} else if (proj == 'dbm'){
-  binary_ind <- c("overweight_who_b",'wasting_mod_cond')
-} else if (proj == 'risk_factor'){
-  binary_ind <-c("stunting_mil_c", "stunting_mod_c", "stunting_sev_c", "wasting_mil_c", "wasting_mod_c", "wasting_sev_c", "underweight_mil_c", "underweight_mod_c", "underweight_sev_c")
-}
-
-for (ind in binary_ind) {
-  all_data <- copy(data)
-  if (ind %in% c('stunting_mod_b', 'stunting_mil_c', 'stunting_mod_c','stunting_sev_c')) {
-    all_data <- all_data[is.na(HAZ_drop),]
-    all_data <- all_data[is.na(HAZ_exclude),]
-  }  
-  if (ind %in% c("wasting_mod_b", "overweight_who_b", 'wasting_mil_c', "wasting_mod_c", 'wasting_sev_c', 'obese_who_b')) {
-    all_data <- all_data[is.na(WHZ_drop),]
-    all_data <- all_data[is.na(WHZ_exclude),]
-  }
-  if (ind %in% c("underweight_mod_b", "underweight_mil_c", "underweight_mod_c", "underweight_sev_c")) {
-    all_data <- all_data[is.na(WAZ_drop),]
-    all_data <- all_data[is.na(WAZ_exclude),]
-  }  
-  if (ind %in% c("overweight_who_BMIZ", "undernutrition_who_BMIZ_mod_b")) {
-    all_data <- all_data[is.na(BMIZ_drop),]
-    all_data <- all_data[is.na(BMIZ_exclude),]
-    all_data <- all_data[exclude_BMIZ!=1,]    
-  }  
-  #undernutrition (BMIZ) modeled conditionally on the assumption that the child is not overweight
-  if (ind == "undernutrition_who_BMIZ_mod_b") {
-    all_data <- all_data[overweight_who_BMIZ!=1,]
-  }
-  if (ind == "stunting_overweight") {
-    all_data <- all_data[is.na(HAZ_drop),]
-    all_data <- all_data[is.na(HAZ_exclude),]
-    all_data <- all_data[is.na(BMIZ_drop),]
-    all_data <- all_data[is.na(BMIZ_exclude),]
-    all_data <- all_data[exclude_BMIZ!=1,]    
-  }    
-  if (ind == "underweight_who_cond") {
-    all_data <- all_data[overweight_who_b!=1,]
-    ind <- "wasting_mod_b"
-  }
-  if (ind == 'wasting_mod_cond'){
-    all_data <- all_data[overweight_who_b!=1,]
-    setnames(all_data, old = 'wasting_mod_b', new = 'wasting_mod_cond')
-  }
-  
-  
-  # write coverage data for input to stat_compiler
-  
-  # stat_data <- copy(all_data)
-  #  stat_file <- paste0(j, 'WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/statcompiler/',ind,'/input/statcompiler_',extract_date,'.csv')
-  #  fwrite(stat_data, stat_file)
-  
-  # Seperate data into points and polys for the collapse!
-  
-  point_data <- all_data[point==1, ]
-  poly_data <- all_data[point==0, ]
+# # This NID is actually 7 different surveys within the same series, so it needs to be separated for the collapse
+# data <- data[nid == 275090 & year_start == 2005, nid := 27509005]
+# data <- data[nid == 275090 & year_start == 2007, nid := 27509007]
+# data <- data[nid == 275090 & year_start == 2008, nid := 27509008]
+# 
+# # Assign indicators to loop through based on project (otherwise you have to do it manually or it literally takes forever)
+# if(proj == 'cgf'){
+#   binary_ind <-c("stunting_mod_b", "wasting_mod_b", "underweight_mod_b")
+# } else if (proj == 'dbm'){
+#   binary_ind <- c("overweight_who_b",'wasting_mod_cond')
+# } else if (proj == 'risk_factor'){
+#   binary_ind <-c("stunting_mil_c", "stunting_mod_c", "stunting_sev_c", "wasting_mil_c", "wasting_mod_c", "wasting_sev_c", "underweight_mil_c", "underweight_mod_c", "underweight_sev_c")
+# }
+# 
+# for (ind in binary_ind) {
+#   all_data <- copy(data)
+#   if (ind %in% c('stunting_mod_b', 'stunting_mil_c', 'stunting_mod_c','stunting_sev_c')) {
+#     all_data <- all_data[is.na(HAZ_drop),]
+#     all_data <- all_data[is.na(HAZ_exclude),]
+#   }  
+#   if (ind %in% c("wasting_mod_b", "overweight_who_b", 'wasting_mil_c', "wasting_mod_c", 'wasting_sev_c', 'obese_who_b')) {
+#     all_data <- all_data[is.na(WHZ_drop),]
+#     all_data <- all_data[is.na(WHZ_exclude),]
+#   }
+#   if (ind %in% c("underweight_mod_b", "underweight_mil_c", "underweight_mod_c", "underweight_sev_c")) {
+#     all_data <- all_data[is.na(WAZ_drop),]
+#     all_data <- all_data[is.na(WAZ_exclude),]
+#   }  
+#   if (ind %in% c("overweight_who_BMIZ", "undernutrition_who_BMIZ_mod_b")) {
+#     all_data <- all_data[is.na(BMIZ_drop),]
+#     all_data <- all_data[is.na(BMIZ_exclude),]
+#     all_data <- all_data[exclude_BMIZ!=1,]    
+#   }  
+#   #undernutrition (BMIZ) modeled conditionally on the assumption that the child is not overweight
+#   if (ind == "undernutrition_who_BMIZ_mod_b") {
+#     all_data <- all_data[overweight_who_BMIZ!=1,]
+#   }
+#   if (ind == "stunting_overweight") {
+#     all_data <- all_data[is.na(HAZ_drop),]
+#     all_data <- all_data[is.na(HAZ_exclude),]
+#     all_data <- all_data[is.na(BMIZ_drop),]
+#     all_data <- all_data[is.na(BMIZ_exclude),]
+#     all_data <- all_data[exclude_BMIZ!=1,]    
+#   }    
+#   if (ind == "underweight_who_cond") {
+#     all_data <- all_data[overweight_who_b!=1,]
+#     ind <- "wasting_mod_b"
+#   }
+#   if (ind == 'wasting_mod_cond'){
+#     all_data <- all_data[overweight_who_b!=1,]
+#     setnames(all_data, old = 'wasting_mod_b', new = 'wasting_mod_cond')
+#   }
+#   
+#   
+#   # write coverage data for input to stat_compiler
+#   
+#   # stat_data <- copy(all_data)
+#   #  stat_file <- paste0(j, 'WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/statcompiler/',ind,'/input/statcompiler_',extract_date,'.csv')
+#   #  fwrite(stat_data, stat_file)
+#   
+#   # Seperate data into points and polys for the collapse!
+#   
+#   point_data <- all_data[point==1, ]
+  # poly_data <- all_data[point==0, ]
   
   ########################################################################################################################################################
   # PART 1: COLLAPSE POINT DATA - Collapse point data by geography, splitting by sex if desired
@@ -1143,382 +1147,388 @@ for (ind in binary_ind) {
   
   ## Process point_data as you normally would, collapsing to cluster means. Let's call this new dt point_data_collapsed.
   ## sum() for binomial indicators or mean() for Gaussian indicators
-  
-  
-  point_collapse <- function(ind, point_data, sex){
-    
-    if(sex=='m'){
-      point_data <- point_data[sex==1,]
-    } else if(sex=='f'){
-      point_data <- point_data[sex==0,]
-    }
-    
-    # Point collapse 
-    if (!(ind %in% c('wasting_mod_who','overweight_mod_who', 'normal_mod_who'))){
-      point_data[point==1 & is.na(pweight), pweight := 1]
-      
-      all_point_data <- point_data[ ,list(N = sum(N), var = sum(get(ind), na.rm = TRUE), pweight_sum = sum(pweight, na.rm = TRUE)), by=c('source', 'start_year','latitude','longitude','country', 'nid')]
-      setnames(all_point_data, "var", ind)
-      all_point_data <- all_point_data[!is.na(latitude)]
-      all_point_data <- all_point_data[!is.na(longitude)]
-      all_point_data$point <- 1
-      setnames(all_point_data, 'nid', 'svy_id')  
-    } # Closes the point collapse for non-scaled indicators
-    
-    fwrite(all_point_data, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
-  } # Closes the point collapse function
+  # 
+  # 
+  # point_collapse <- function(ind, point_data, sex){
+  #   
+  #   if(sex=='m'){
+  #     point_data <- point_data[sex==1,]
+  #   } else if(sex=='f'){
+  #     point_data <- point_data[sex==0,]
+  #   }
+  #   
+  #   # Point collapse 
+  #   if (!(ind %in% c('wasting_mod_who','overweight_mod_who', 'normal_mod_who'))){
+  #     point_data[point==1 & is.na(pweight), pweight := 1]
+  #     
+  #     all_point_data <- point_data[ ,list(N = sum(N), var = sum(get(ind), na.rm = TRUE), pweight_sum = sum(pweight, na.rm = TRUE)), by=c('source', 'start_year','latitude','longitude','country', 'nid')]
+  #     setnames(all_point_data, "var", ind)
+  #     all_point_data <- all_point_data[!is.na(latitude)]
+  #     all_point_data <- all_point_data[!is.na(longitude)]
+  #     all_point_data$point <- 1
+  #     setnames(all_point_data, 'nid', 'svy_id')  
+  #   } # Closes the point collapse for non-scaled indicators
+  #   
+  #   fwrite(all_point_data, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
+  # } # Closes the point collapse function
   
   
   
   ##############################################################################################################################################
   # PART 2: COLLAPSE POLYGON DATA - Collapse data by survey and polygon
   ##############################################################################################################################################
-  
-  # Per Damaris, since we're no longer dropping problem strata, we're just going to remove all rows missing pweights in the poly data
-  poly_data <- poly_data[!is.na(pweight),]
-  
-  # Dropping polygons with only 1 observation  
-  poly_data_test <- copy(poly_data)
-  poly_data_test <- poly_data_test[, list(N=sum(N)), by=c('source', 'start_year', 'country', 'location_code', 'shapefile' )]
-  poly_data_bad <- poly_data_test[N==1, ]
-  
-  if(length(poly_data_bad[, source]) > 0) {
-    message("This many polygons have 1 observation so will be dropped:")
-    print(table(poly_data_bad[, source], poly_data_bad[, start_year]))
-    ##    poly_data_test[, N:= NULL]
-    poly_data <- merge(poly_data, poly_data_test, by=c('start_year', 'country', 'location_code', 'shapefile', 'source'))
-    poly_data <- poly_data[N.x != N.y, ] ## n.x and n.y are equal where both are 1, i.e. where poly had one cluster
-    setnames(poly_data, 'N.x', 'N') ## set the original N col back
-    poly_data[, N.y := NULL] ## remove the summed N col
-  }
-  
-  ## setnames(poly_data, 'country', 'iso3') ## AOZ edit: these "countries" are iso3. should the be full country names?
-  poly_surveys <- unique(poly_data[, nid])
-  
-  
-  poly_collapse <- function(ind, poly_data, sex){
-    
-    if(sex=='m'){
-      poly_data <- poly_data[sex==1,]
-    } else if(sex=='f'){
-      poly_data <- poly_data[sex==0,]
-    }
-    
-    ####Kish's  collapse  
-    
-    # The polygon collapse 
-    if (!(ind %in% c('wasting_mod_who','overweight_mod_who', 'normal_mod_who'))){
-      collapsed_dat2 <- poly_data %>%
-        mutate(pweight2 = pweight^2) %>%
-        group_by(country, location_code, shapefile, source, nid) %>%
-        summarise(mean = weighted.mean(get(ind), w = pweight, na.rm = TRUE),
-                  n_eff = ((sum(pweight, na.rm = TRUE))^2)/(sum(pweight2, na.rm = TRUE)),
-                  pweight_sum = sum(pweight, na.rm = TRUE),
-                  start_year=floor(weighted.mean(start_year, w=N)))
-      
-      all_poly_data<-data.frame(collapsed_dat2)
-      all_poly_data[[ind]] <- round(all_poly_data$mean * all_poly_data$n_eff)
-      # names(all_poly_data)[names(all_poly_data) == 'var'] <- get("ind")  
-      all_poly_data$N <- round(all_poly_data$n_eff)
-      all_poly_data$point <- 0
-      all_poly_data <- subset( all_poly_data, select = -c(mean, n_eff ) )
-      setnames(all_poly_data, 'nid', 'svy_id')
-    } # Closes polygon collapse for non-scaled indicators
-    
-    poly_data_collapsed <- copy(all_poly_data)
-    poly_data_collapsed <- as.data.table(poly_data_collapsed)
-    
-    
-    # write the collapsed data to a folder to use for resampling!
-    fwrite(poly_data_collapsed, paste0(l,'/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
-  } # Closes the polygon collapse function
-  
+  # 
+  # # Per Damaris, since we're no longer dropping problem strata, we're just going to remove all rows missing pweights in the poly data
+  # poly_data <- poly_data[!is.na(pweight),]
+  # 
+  # # Dropping polygons with only 1 observation  
+  # poly_data_test <- copy(poly_data)
+  # poly_data_test <- poly_data_test[, list(N=sum(N)), by=c('source', 'start_year', 'country', 'location_code', 'shapefile' )]
+  # poly_data_bad <- poly_data_test[N==1, ]
+  # 
+  # if(length(poly_data_bad[, source]) > 0) {
+  #   message("This many polygons have 1 observation so will be dropped:")
+  #   print(table(poly_data_bad[, source], poly_data_bad[, start_year]))
+  #   ##    poly_data_test[, N:= NULL]
+  #   poly_data <- merge(poly_data, poly_data_test, by=c('start_year', 'country', 'location_code', 'shapefile', 'source'))
+  #   poly_data <- poly_data[N.x != N.y, ] ## n.x and n.y are equal where both are 1, i.e. where poly had one cluster
+  #   setnames(poly_data, 'N.x', 'N') ## set the original N col back
+  #   poly_data[, N.y := NULL] ## remove the summed N col
+  # }
+  # 
+  # ## setnames(poly_data, 'country', 'iso3') ## AOZ edit: these "countries" are iso3. should the be full country names?
+  # poly_surveys <- unique(poly_data[, nid])
+  # 
+  # 
+  # poly_collapse <- function(ind, poly_data, sex){
+  #   
+  #   if(sex=='m'){
+  #     poly_data <- poly_data[sex==1,]
+  #   } else if(sex=='f'){
+  #     poly_data <- poly_data[sex==0,]
+  #   }
+  #   
+  #   ####Kish's  collapse  
+  #   
+  #   # The polygon collapse 
+  #   if (!(ind %in% c('wasting_mod_who','overweight_mod_who', 'normal_mod_who'))){
+  #     collapsed_dat2 <- poly_data %>%
+  #       mutate(pweight2 = pweight^2) %>%
+  #       group_by(country, location_code, shapefile, source, nid) %>%
+  #       summarise(mean = weighted.mean(get(ind), w = pweight, na.rm = TRUE),
+  #                 n_eff = ((sum(pweight, na.rm = TRUE))^2)/(sum(pweight2, na.rm = TRUE)),
+  #                 pweight_sum = sum(pweight, na.rm = TRUE),
+  #                 start_year=floor(weighted.mean(start_year, w=N)))
+  #     
+  #     all_poly_data<-data.frame(collapsed_dat2)
+  #     all_poly_data[[ind]] <- round(all_poly_data$mean * all_poly_data$n_eff)
+  #     # names(all_poly_data)[names(all_poly_data) == 'var'] <- get("ind")  
+  #     all_poly_data$N <- round(all_poly_data$n_eff)
+  #     all_poly_data$point <- 0
+  #     all_poly_data <- subset( all_poly_data, select = -c(mean, n_eff ) )
+  #     setnames(all_poly_data, 'nid', 'svy_id')
+  #   } # Closes polygon collapse for non-scaled indicators
+  #   
+  #   poly_data_collapsed <- copy(all_poly_data)
+  #   poly_data_collapsed <- as.data.table(poly_data_collapsed)
+  #   
+  #   
+  #   # write the collapsed data to a folder to use for resampling!
+  #   fwrite(poly_data_collapsed, paste0(l,'/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
+  # } # Closes the polygon collapse function
+  # 
   
   # Collapse stuff!
-  
-  if(sex_split==TRUE){
-    point_collapse(ind, point_data,"m")
-    point_collapse(ind, point_data, "f")
-    point_collapse(ind, point_data, "mf")
-    poly_collapse(ind, poly_data, "m")
-    poly_collapse(ind, poly_data, "f")
-    poly_collapse(ind, poly_data, "mf")
-  }
-  
-  if(sex_split==FALSE){
-    point_collapse(ind, point_data, "mf")
-    poly_collapse(ind, poly_data, "mf")
-  }
-} # Closes the entire for loop for collapsing data by indicator
+#   
+#   if(sex_split==TRUE){
+#     point_collapse(ind, point_data,"m")
+#     point_collapse(ind, point_data, "f")
+#     point_collapse(ind, point_data, "mf")
+#     # poly_collapse(ind, poly_data, "m")
+#     # poly_collapse(ind, poly_data, "f")
+#     # poly_collapse(ind, poly_data, "mf")
+#   }
+#   
+#   if(sex_split==FALSE){
+#     point_collapse(ind, point_data, "mf")
+#     # poly_collapse(ind, poly_data, "mf")
+#   }
+# } # Closes the entire for loop for collapsing data by indicator
 
 ##############################################################################################################################################################
 ## 13.) DATA COVERAGE PLOTS: Read in collapsed points and polys, add in data extracted from reports, and plot!
 ##############################################################################################################################################################  
-source('/share/code/geospatial/alicela/lbd_core/mbg_central/graph_data_coverage.R')
-if (cov_plot == TRUE){
-  sex <- 'mf'
-  if(proj == 'cgf'){
-    coverage_ind <-c("stunting_mod_b", "wasting_mod_b", "underweight_mod_b")
-  } else if (proj == 'dbm'){
-    coverage_ind <- c("overweight_who_b", 'wasting_mod_cond') #, 'normal_mod_who'
-  } else if (proj == 'risk_factor'){
-    coverage_ind <-c("stunting_mil_c", "stunting_mod_c", "stunting_sev_c", "wasting_mil_c", "wasting_mod_c", "wasting_sev_c", "underweight_mil_c", "underweight_mod_c", "underweight_sev_c")
-  }
-  
-  for (ind in coverage_ind){
-    coverage_point <- fread(paste0("ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
-    coverage_poly <- fread(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
-    
-    
-    if (file.exists(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
-      print("This indicator utilizes report extractions")
-      extract_data <- fread(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))
-      coverage_data <- rbind(coverage_point, coverage_poly, fill=TRUE)
-      coverage_data <- coverage_data[,type:=0]
-      coverage_data <- rbind(coverage_data, extract_data, fill=TRUE)
-    } else {
-      print("No report extractions for this indicator")
-      coverage_data <- rbind(coverage_point, coverage_poly, fill=TRUE)
-      coverage_data <- coverage_data[,type:=0]
-    }
-    
-    # drop china survey for now
-    
-    # coverage_data <- coverage_data[svy_id != 283812,]
-    
-    # Creating a unique geography id and calling it cluster_id, because the plotting code errors without it  
-    coverage_data[, cluster_id := paste0(latitude, "_", longitude)]
-    coverage_data[, location_code := as.character(location_code)]
-    coverage_data[is.na(latitude) & is.na(longitude), cluster_id := location_code]  
-    coverage_data[, latitude := as.numeric(latitude)]
-    coverage_data[, longitude := as.numeric(longitude)]
-    coverage_data[, location_code := as.numeric(location_code)]
-    
-    # Also, the new coverage plot code requires an 'nid' variable, which I renamed svy_id. Bah.
-    coverage_data[,nid := svy_id]
-    
-    # Convert to rate space and replace old count variable with generic variable name
-    coverage_data[, (ind):= get(ind) / N ]
-    
-    # Drop pre 2000 surveys
-    
-    coverage_data <- coverage_data[start_year > 1999,]
-    
-    # Drop data for DBM
-    
-    # if (proj == 'dbm'){
-    #   exclude_dbm <- c(76704, 79839, 14015, 14027, 14063, 14105, 58660, 9516, 60942, 24143, 369294, 283812)
-    #   coverage_data <- coverage_data[(!nid %in% exclude_dbm),]
-    # }
-    # 
-    # # Drop South Africa 2003-04 for now
-    # coverage_data <- coverage_data[nid != 394227,]
-    # coverage_data <- coverage_data[nid != 20798,]
-    # 
-    # # test fix a peru issue
-    # 
-    # coverage_data <- coverage_data[shapefile == 'PER_ADM3', shapefile := 'PER_adm3']
-    
-    # Change data source name to be more user friendly - for stage 2 paper, can skip this step for regular coverage plots  
-    coverage_data <- coverage_data[source == 'UNICEF_MICS', source:= "UNICEF MICS"]
-    coverage_data <- coverage_data[source == 'MACRO_DHS', source:= "Macro DHS"]
-    coverage_data <- coverage_data[source == 'COUNTRY_SPECIFIC', source:= "Other"]
-    coverage_data <- coverage_data[source == 'ARAB_LEAGUE_PAPFAM', source:= "PAPFAM"]
-    coverage_data <- coverage_data[source == 'WB_CWIQ', source:= "CWIQ"]
-    coverage_data <- coverage_data[source == 'WB_LSMS', source:= "LSMS"]
-    coverage_data <- coverage_data[source == 'WB_LSMS_ISA', source:= "LSMS ISA"]
-    coverage_data <- coverage_data[source == 'WB_PRIORITY_SURVEY', source:= "Priority Survey"]
-    coverage_data <- coverage_data[source == 'CDC_RHS', source:= "CDC RHS"]
-    coverage_data <- coverage_data[source == 'ABD_DHS', source:= "ABD DHS"]
-    coverage_data <- coverage_data[source == 'RAND_FLS', source:= "RAND FLS"]
-    coverage_data <- coverage_data[source == 'CVD_GEMS', source:= "CVD GEMS"]
-    
-    # Adding this next bit in to only run plots with new data. Date ranges are specified by extract_date and previous_date in the beginning. If plot_new_dcp is set to
-    # TRUE, then it will run with new data only. If you want a full coverage plot, set to FALSE
-    
-    
-    if (plot_new_dcp == TRUE){
-      new_nids <- setdiff(current, previous)
-      coverage_data_new <- coverage_data[nid %in% new_nids,]
-      sad_nids <- setdiff(new_nids, coverage_data_new$nid)
-      print(paste0('These NIDs were extracted since ', previous_date,' but have been dropped somewhere in the data processing process:', sad_nids))
-      save_directory <- paste0(j,"WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data coverage plots/",ind, "_", extract_date,  "_", sex, "_new/")
-      coverage_data <- copy(coverage_data_new)
-    } else {
-      save_directory <- paste0(j, "WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data coverage plots/",ind, "_", extract_date, "_", sex, "_all/")
-    }
-    
-    if (plot_extract == TRUE){
-      coverage_data <- coverage_data[type == 1,]
-      save_directory <- paste0(j, "WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data coverage plots/",ind, "_", extract_date, "_", sex, "_extract/")
-    } else {
-      save_directory <- paste0(j, "WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data coverage plots/",ind, "_", extract_date, "_", sex, "_all/")
-    }
-    
-    # Assoicate indicator with a more readable name for labels
-    if (ind == 'stunting_mod_b'){
-      nice_name <- 'Stunting'
-    } else if (ind == 'wasting_mod_b'){
-      nice_name <- "Wasting"
-    } else if (ind == 'underweight_mod_b'){
-      nice_name <- "Underweight"
-    } else if (ind == 'overweight_who_b'){
-      nice_name <- 'Overweight'
-    } else if (ind == 'overweight_mod_who'){
-      nice_name <- 'Standardized Oerweight'
-    } else if (ind == 'wasting_mod_who'){
-      nice_name <- 'Wasting'
-    } else if (ind == 'normal_mod_who'){
-      nice_name <- 'Standardized Normal'
-    } else if (ind == 'wasting_mod_cond'){
-      nice_name <- 'Wasting'
-    } else if (ind == 'stunting_sev_c'){
-      nice_name <- 'Severe Stunting only'
-    } else if (ind == 'stunting_mil_c'){
-      nice_name <- 'Mild Stunting only'
-    } else if (ind == 'stunting_mod_c'){
-      nice_name <- 'Moderate Stunting only'
-    } else if (ind == 'wasting_sev_c'){
-      nice_name <- 'Severe Wasting only'
-    } else if (ind == 'wasting_mil_c'){
-      nice_name <- 'Mild Wasting only'
-    } else if (ind == 'wasting_mod_c'){
-      nice_name <- 'Moderate Wasting only'
-    } else if (ind == 'obese_who_b'){
-      nice_name <- 'Obesity'
-    } else if (ind == 'underweight_sev_c'){
-      nice_name <- 'Severe Underweight only'
-    } else if (ind == 'underweight_mil_c'){
-      nice_name <- 'Mild Underweight only'
-    } else if (ind == 'underweight_mod_c'){
-      nice_name <- 'Moderate Underweight only'
-    }
-    
-    ## make the plots now that the data is ready 
-    plot_regions<- c("se_asia", "south_asia", "middle_east-TUR", "africa","latin_america")
-    
-    for (reg in plot_regions) {    
-      
-      coverage_maps <- graph_data_coverage_values(df = coverage_data,
-                                                  var = ind,
-                                                  title = nice_name,
-                                                  year_min = 2000,
-                                                  year_max = 2017,
-                                                  year_var = 'start_year',
-                                                  region = reg,
-                                                  cores = 20,
-                                                  indicator = ind,
-                                                  since_date = '2017-11-02',
-                                                  high_is_bad = TRUE,
-                                                  return_maps = TRUE,
-                                                  legend_title = paste0("Prevalence \n of ", nice_name),
-                                                  fast_shapefiles = T,
-                                                  simplify_polys = T,
-                                                  tolerance = 0.01,
-                                                  save_on_share = F,
-                                                  base_font_size = 18,
-                                                  out_dir = save_directory,
-                                                  prep_shiny = F,
-                                                  color_scheme = "classic",
-                                                  #annual_period_maps = TRUE,
-                                                  #save_period_maps = TRUE,
-                                                  new_data_plots = FALSE)
-      #core_repo = "/snfs2/HOME/bvp/lbd_core/lbd_core")  
-    } # Closes for loop that loops through regions to generage coverage plots for each one
-  } # Closes for loop that iterates through indicators and makes a coverage plot for every region for that indicator
-} # Closes the entire coverage plot loop, including prepping data for graph_data_coverage_values() and evaluating if cov_plot == TRUE
+
+## 1/13/25 Commenting out all plotting code due to lack of point/poly data.
+
+# source('/share/code/geospatial/alicela/lbd_core/mbg_central/graph_data_coverage.R')
+# if (cov_plot == TRUE){
+#   sex <- 'mf'
+#   if(proj == 'cgf'){
+#     coverage_ind <-c("stunting_mod_b", "wasting_mod_b", "underweight_mod_b")
+#   } else if (proj == 'dbm'){
+#     coverage_ind <- c("overweight_who_b", 'wasting_mod_cond') #, 'normal_mod_who'
+#   } else if (proj == 'risk_factor'){
+#     coverage_ind <-c("stunting_mil_c", "stunting_mod_c", "stunting_sev_c", "wasting_mil_c", "wasting_mod_c", "wasting_sev_c", "underweight_mil_c", "underweight_mod_c", "underweight_sev_c")
+#   }
+#   
+#   for (ind in coverage_ind){
+#     coverage_point <- fread(paste0("ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
+#     coverage_poly <- fread(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
+#     
+#     
+#     if (file.exists(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
+#       print("This indicator utilizes report extractions")
+#       extract_data <- fread(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))
+#       coverage_data <- rbind(coverage_point, coverage_poly, fill=TRUE)
+#       coverage_data <- coverage_data[,type:=0]
+#       coverage_data <- rbind(coverage_data, extract_data, fill=TRUE)
+#     } else {
+#       print("No report extractions for this indicator")
+#       coverage_data <- rbind(coverage_point, coverage_poly, fill=TRUE)
+#       coverage_data <- coverage_data[,type:=0]
+#     }
+#     
+#     # drop china survey for now
+#     
+#     # coverage_data <- coverage_data[svy_id != 283812,]
+#     
+#     # Creating a unique geography id and calling it cluster_id, because the plotting code errors without it  
+#     coverage_data[, cluster_id := paste0(latitude, "_", longitude)]
+#     coverage_data[, location_code := as.character(location_code)]
+#     coverage_data[is.na(latitude) & is.na(longitude), cluster_id := location_code]  
+#     coverage_data[, latitude := as.numeric(latitude)]
+#     coverage_data[, longitude := as.numeric(longitude)]
+#     coverage_data[, location_code := as.numeric(location_code)]
+#     
+#     # Also, the new coverage plot code requires an 'nid' variable, which I renamed svy_id. Bah.
+#     coverage_data[,nid := svy_id]
+#     
+#     # Convert to rate space and replace old count variable with generic variable name
+#     coverage_data[, (ind):= get(ind) / N ]
+#     
+#     # Drop pre 2000 surveys
+#     
+#     coverage_data <- coverage_data[start_year > 1999,]
+#     
+#     # Drop data for DBM
+#     
+#     # if (proj == 'dbm'){
+#     #   exclude_dbm <- c(76704, 79839, 14015, 14027, 14063, 14105, 58660, 9516, 60942, 24143, 369294, 283812)
+#     #   coverage_data <- coverage_data[(!nid %in% exclude_dbm),]
+#     # }
+#     # 
+#     # # Drop South Africa 2003-04 for now
+#     # coverage_data <- coverage_data[nid != 394227,]
+#     # coverage_data <- coverage_data[nid != 20798,]
+#     # 
+#     # # test fix a peru issue
+#     # 
+#     # coverage_data <- coverage_data[shapefile == 'PER_ADM3', shapefile := 'PER_adm3']
+#     
+#     # Change data source name to be more user friendly - for stage 2 paper, can skip this step for regular coverage plots  
+#     coverage_data <- coverage_data[source == 'UNICEF_MICS', source:= "UNICEF MICS"]
+#     coverage_data <- coverage_data[source == 'MACRO_DHS', source:= "Macro DHS"]
+#     coverage_data <- coverage_data[source == 'COUNTRY_SPECIFIC', source:= "Other"]
+#     coverage_data <- coverage_data[source == 'ARAB_LEAGUE_PAPFAM', source:= "PAPFAM"]
+#     coverage_data <- coverage_data[source == 'WB_CWIQ', source:= "CWIQ"]
+#     coverage_data <- coverage_data[source == 'WB_LSMS', source:= "LSMS"]
+#     coverage_data <- coverage_data[source == 'WB_LSMS_ISA', source:= "LSMS ISA"]
+#     coverage_data <- coverage_data[source == 'WB_PRIORITY_SURVEY', source:= "Priority Survey"]
+#     coverage_data <- coverage_data[source == 'CDC_RHS', source:= "CDC RHS"]
+#     coverage_data <- coverage_data[source == 'ABD_DHS', source:= "ABD DHS"]
+#     coverage_data <- coverage_data[source == 'RAND_FLS', source:= "RAND FLS"]
+#     coverage_data <- coverage_data[source == 'CVD_GEMS', source:= "CVD GEMS"]
+#     
+#     # Adding this next bit in to only run plots with new data. Date ranges are specified by extract_date and previous_date in the beginning. If plot_new_dcp is set to
+#     # TRUE, then it will run with new data only. If you want a full coverage plot, set to FALSE
+#     
+#     
+#     if (plot_new_dcp == TRUE){
+#       new_nids <- setdiff(current, previous)
+#       coverage_data_new <- coverage_data[nid %in% new_nids,]
+#       sad_nids <- setdiff(new_nids, coverage_data_new$nid)
+#       print(paste0('These NIDs were extracted since ', previous_date,' but have been dropped somewhere in the data processing process:', sad_nids))
+#       save_directory <- paste0(j,"WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data coverage plots/",ind, "_", extract_date,  "_", sex, "_new/")
+#       coverage_data <- copy(coverage_data_new)
+#     } else {
+#       save_directory <- paste0(j, "WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data coverage plots/",ind, "_", extract_date, "_", sex, "_all/")
+#     }
+#     
+#     if (plot_extract == TRUE){
+#       coverage_data <- coverage_data[type == 1,]
+#       save_directory <- paste0(j, "WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data coverage plots/",ind, "_", extract_date, "_", sex, "_extract/")
+#     } else {
+#       save_directory <- paste0(j, "WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data coverage plots/",ind, "_", extract_date, "_", sex, "_all/")
+#     }
+#     
+#     # Assoicate indicator with a more readable name for labels
+#     if (ind == 'stunting_mod_b'){
+#       nice_name <- 'Stunting'
+#     } else if (ind == 'wasting_mod_b'){
+#       nice_name <- "Wasting"
+#     } else if (ind == 'underweight_mod_b'){
+#       nice_name <- "Underweight"
+#     } else if (ind == 'overweight_who_b'){
+#       nice_name <- 'Overweight'
+#     } else if (ind == 'overweight_mod_who'){
+#       nice_name <- 'Standardized Oerweight'
+#     } else if (ind == 'wasting_mod_who'){
+#       nice_name <- 'Wasting'
+#     } else if (ind == 'normal_mod_who'){
+#       nice_name <- 'Standardized Normal'
+#     } else if (ind == 'wasting_mod_cond'){
+#       nice_name <- 'Wasting'
+#     } else if (ind == 'stunting_sev_c'){
+#       nice_name <- 'Severe Stunting only'
+#     } else if (ind == 'stunting_mil_c'){
+#       nice_name <- 'Mild Stunting only'
+#     } else if (ind == 'stunting_mod_c'){
+#       nice_name <- 'Moderate Stunting only'
+#     } else if (ind == 'wasting_sev_c'){
+#       nice_name <- 'Severe Wasting only'
+#     } else if (ind == 'wasting_mil_c'){
+#       nice_name <- 'Mild Wasting only'
+#     } else if (ind == 'wasting_mod_c'){
+#       nice_name <- 'Moderate Wasting only'
+#     } else if (ind == 'obese_who_b'){
+#       nice_name <- 'Obesity'
+#     } else if (ind == 'underweight_sev_c'){
+#       nice_name <- 'Severe Underweight only'
+#     } else if (ind == 'underweight_mil_c'){
+#       nice_name <- 'Mild Underweight only'
+#     } else if (ind == 'underweight_mod_c'){
+#       nice_name <- 'Moderate Underweight only'
+#     }
+#     
+#     ## make the plots now that the data is ready 
+#     plot_regions<- c("se_asia", "south_asia", "middle_east-TUR", "africa","latin_america")
+#     
+#     for (reg in plot_regions) {    
+#       
+#       coverage_maps <- graph_data_coverage_values(df = coverage_data,
+#                                                   var = ind,
+#                                                   title = nice_name,
+#                                                   year_min = 2000,
+#                                                   year_max = 2017,
+#                                                   year_var = 'start_year',
+#                                                   region = reg,
+#                                                   cores = 20,
+#                                                   indicator = ind,
+#                                                   since_date = '2017-11-02',
+#                                                   high_is_bad = TRUE,
+#                                                   return_maps = TRUE,
+#                                                   legend_title = paste0("Prevalence \n of ", nice_name),
+#                                                   fast_shapefiles = T,
+#                                                   simplify_polys = T,
+#                                                   tolerance = 0.01,
+#                                                   save_on_share = F,
+#                                                   base_font_size = 18,
+#                                                   out_dir = save_directory,
+#                                                   prep_shiny = F,
+#                                                   color_scheme = "classic",
+#                                                   #annual_period_maps = TRUE,
+#                                                   #save_period_maps = TRUE,
+#                                                   new_data_plots = FALSE)
+#       #core_repo = "/snfs2/HOME/bvp/lbd_core/lbd_core")  
+#     } # Closes for loop that loops through regions to generage coverage plots for each one
+#   } # Closes for loop that iterates through indicators and makes a coverage plot for every region for that indicator
+# } # Closes the entire coverage plot loop, including prepping data for graph_data_coverage_values() and evaluating if cov_plot == TRUE
 
 ###########################################################################################################################################################
 ## 14.) DATA PREVALENCE PLOTS: These use to happen pre-collapse, but it makes more sense to happen post, plus this way we can include report extractions :)
 ############################################################################################################################################################
-if(proj == 'cgf'){
-  binary_ind <-c("stunting_mod_b", "wasting_mod_b", "underweight_mod_b")
-} else if (proj == 'dbm'){
-  binary_ind <-c("wasting_mod_cond", 'overweight_who_b')
-} else if (proj == 'risk_factor'){
-  binary_ind <-c("stunting_mil_c", "stunting_mod_c", "stunting_sev_c", 'wasting_mil_c', 'wasting_mod_c','wasting_sev_c', "underweight_mil_c", "underweight_mod_c", "underweight_sev_c")
-}
 
-#This code loops through the indicators and creates plots for each one
+## 1/13/25 Commenting out due to lack of point/poly data.
 
-# Create a dated folder for the prevalence plots if needed
-if (!file.exists(paste0(j,"WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data prevalence plots/", module_date))){
-  dir.create(paste0(j,"WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data prevalence plots/", module_date))
-}
-
-for (ind in binary_ind){
-  sex <- 'mf'
-  prev_point <- fread(paste0("/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
-  prev_poly <- fread(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
-  
-  if (file.exists(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
-    print("This indicator utilizes report extractions")
-    ext <- fread(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))
-    all_data <- rbind(prev_point, prev_poly, fill=TRUE)
-    all_data <- all_data[,type:=0]
-    all_data <- rbind(all_data, ext, fill=TRUE)
-  } else {
-    print("This indicator does not utilize report extractions")
-    all_data <- rbind(prev_point, prev_poly, fill=TRUE)
-    all_data <- all_data[,type:=0]
-  }
-  
-  
-  indi_name <- ind
-  
-  
-  #names(all_data)[names(all_data) == indi_name] <- "indi_true"
-  # all_data <- all_data[!(is.na(all_data$pweight) | is.na(all_data$indi_true)),]  
-  #all_data$pweight[all_data$point == 1 & is.na(all_data$pweight)] <- 1        
-  
-  #alldat <- mutate(all_data, wt_num = pweight*indi_true)
-  #alldat <- alldat %>% group_by(country, year_start, nid, point) %>% summarize(indicator = sum(wt_num, na.rm = TRUE)/sum(pweight, na.rm = TRUE), total_N = sum(N))
-  names(all_data)[names(all_data) == indi_name] <- "indicator"
-  names(all_data)[names(all_data) == "svy_id"] <- "nid"
-  all_data$point <- as.factor(all_data$point)
-  
-  all_data <- as.data.table(all_data)
-  
-  #all_data <- all_data[is.na(pweight_sum), pweight_sum := N]
-  #all_data <- all_data[,wt_num := pweight_sum*indicator]
-  
-  all_data <- all_data[,.(indicator = sum(indicator, na.rm = TRUE), N = sum(N, na.rm = TRUE)), by = .(country, start_year, nid, point)]
-  all_data <- all_data[,indicator := indicator/N]
-  all_data <- all_data[start_year >= 2000,]
-  # Fix this weird Mexico thing
-  all_data <- all_data[N >10,]
-  
-  plotname = paste0(indi_name, "_", module_date)
-  
-  pdf(file = paste0(j,"WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data prevalence plots/", module_date, "/", plotname, ".pdf")) 
-  all_data <- as.data.frame(all_data)
-  #write.csv(alldat, paste0("/snfs2/HOME/bvp/child_growth_failure_h/data_validation/", plotname, "_data.csv"))
-  
-  alldat_clean <- subset(all_data, !is.na(all_data$point))  
-  alldat_clean$year_start <- as.numeric(alldat_clean$start_year)
-  message(paste0("Creating prevalence plots for ",ind))    
-  for (i in iso_list) {
-    #If you want to see each ISO as it's plotted, uncomment this:
-    #message(i)
-    plotdat <- filter(alldat_clean, country == i)
-    if (nrow(plotdat) > 0) {
-      print(
-        ggplot(plotdat) + 
-          geom_point(aes(x = start_year, y = indicator, shape = point, size = N,
-                         col = indi_name, fill = "black")) +
-          geom_smooth(aes(x = start_year, y = indicator, col = indi_name, weight = N),
-                      size = 0.5, se = F, fullrange = F, method = lm) +
-          geom_text(aes(x = start_year, y = indicator, label = nid)) +
-          ggtitle(i) + ylim(0,1) + xlim(1996,2018) + 
-          xlab("Year") + ylab("Prevalence") + theme_bw()
-        #+ scale_shape_identity()
-      )
-    } # if statement if nrow is > 0
-  } # for loop that iterates throught iso codes
-  dev.off()  
-}  # Closes the data prevalence plot code   
-
-rm(all_data)
+# if(proj == 'cgf'){
+#   binary_ind <-c("stunting_mod_b", "wasting_mod_b", "underweight_mod_b")
+# } else if (proj == 'dbm'){
+#   binary_ind <-c("wasting_mod_cond", 'overweight_who_b')
+# } else if (proj == 'risk_factor'){
+#   binary_ind <-c("stunting_mil_c", "stunting_mod_c", "stunting_sev_c", 'wasting_mil_c', 'wasting_mod_c','wasting_sev_c', "underweight_mil_c", "underweight_mod_c", "underweight_sev_c")
+# }
+# 
+# #This code loops through the indicators and creates plots for each one
+# 
+# # Create a dated folder for the prevalence plots if needed
+# # if (!file.exists(paste0(j,"WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data prevalence plots/", module_date))){
+# #   dir.create(paste0(j,"WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data prevalence plots/", module_date))
+# # }
+# 
+# for (ind in binary_ind){
+#   sex <- 'mf'
+#   prev_point <- fread(paste0("/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
+#   prev_poly <- fread(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
+#   
+#   if (file.exists(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
+#     print("This indicator utilizes report extractions")
+#     ext <- fread(paste0('ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))
+#     all_data <- rbind(prev_point, prev_poly, fill=TRUE)
+#     all_data <- all_data[,type:=0]
+#     all_data <- rbind(all_data, ext, fill=TRUE)
+#   } else {
+#     print("This indicator does not utilize report extractions")
+#     all_data <- rbind(prev_point, prev_poly, fill=TRUE)
+#     all_data <- all_data[,type:=0]
+#   }
+#   
+#   
+#   indi_name <- ind
+#   
+#   
+#   #names(all_data)[names(all_data) == indi_name] <- "indi_true"
+#   # all_data <- all_data[!(is.na(all_data$pweight) | is.na(all_data$indi_true)),]  
+#   #all_data$pweight[all_data$point == 1 & is.na(all_data$pweight)] <- 1        
+#   
+#   #alldat <- mutate(all_data, wt_num = pweight*indi_true)
+#   #alldat <- alldat %>% group_by(country, year_start, nid, point) %>% summarize(indicator = sum(wt_num, na.rm = TRUE)/sum(pweight, na.rm = TRUE), total_N = sum(N))
+#   names(all_data)[names(all_data) == indi_name] <- "indicator"
+#   names(all_data)[names(all_data) == "svy_id"] <- "nid"
+#   all_data$point <- as.factor(all_data$point)
+#   
+#   all_data <- as.data.table(all_data)
+#   
+#   #all_data <- all_data[is.na(pweight_sum), pweight_sum := N]
+#   #all_data <- all_data[,wt_num := pweight_sum*indicator]
+#   
+#   all_data <- all_data[,.(indicator = sum(indicator, na.rm = TRUE), N = sum(N, na.rm = TRUE)), by = .(country, start_year, nid, point)]
+#   all_data <- all_data[,indicator := indicator/N]
+#   all_data <- all_data[start_year >= 2000,]
+#   # Fix this weird Mexico thing
+#   all_data <- all_data[N >10,]
+#   
+#   plotname = paste0(indi_name, "_", module_date)
+#   
+#   pdf(file = paste0(j,"WORK/11_geospatial/10_mbg/child_growth_failure/03 diagnostics/data prevalence plots/", module_date, "/", plotname, ".pdf")) 
+#   all_data <- as.data.frame(all_data)
+#   #write.csv(alldat, paste0("/snfs2/HOME/bvp/child_growth_failure_h/data_validation/", plotname, "_data.csv"))
+#   
+#   alldat_clean <- subset(all_data, !is.na(all_data$point))  
+#   alldat_clean$year_start <- as.numeric(alldat_clean$start_year)
+#   message(paste0("Creating prevalence plots for ",ind))    
+#   for (i in iso_list) {
+#     #If you want to see each ISO as it's plotted, uncomment this:
+#     #message(i)
+#     plotdat <- filter(alldat_clean, country == i)
+#     if (nrow(plotdat) > 0) {
+#       print(
+#         ggplot(plotdat) + 
+#           geom_point(aes(x = start_year, y = indicator, shape = point, size = N,
+#                          col = indi_name, fill = "black")) +
+#           geom_smooth(aes(x = start_year, y = indicator, col = indi_name, weight = N),
+#                       size = 0.5, se = F, fullrange = F, method = lm) +
+#           geom_text(aes(x = start_year, y = indicator, label = nid)) +
+#           ggtitle(i) + ylim(0,1) + xlim(1996,2018) + 
+#           xlab("Year") + ylab("Prevalence") + theme_bw()
+#         #+ scale_shape_identity()
+#       )
+#     } # if statement if nrow is > 0
+#   } # for loop that iterates throught iso codes
+#   dev.off()  
+# }  # Closes the data prevalence plot code   
+# 
+# rm(all_data)
 
 
 
@@ -1527,271 +1537,277 @@ rm(all_data)
 ##      This method runs getPoints on each shapefile in parallel. It is much faster than resample_polygons(), and breaks far less often :) Each shapefile is written to a csv.
 ##############################################################################################################################################################################
 
-if(proj == 'cgf'){
-  binary_ind <-c("stunting_mod_b", "wasting_mod_b", "underweight_mod_b")
-} else if (proj == 'dbm'){
-  binary_ind <- c("overweight_who_b",'wasting_mod_cond')
-} else if (proj == 'risk_factor'){
-  binary_ind <-c("stunting_mil_c", "stunting_mod_c", "stunting_sev_c", "wasting_mil_c", "wasting_mod_c", "wasting_sev_c", "underweight_mil_c", "underweight_mod_c", "underweight_sev_c")
-}
+## 1/13/25 Commenting out due to lack of point/poly data.
 
-for (ind in binary_ind){
-  nodes <- ''
-  project <- ifelse(nodes == 'geos',
-                    '-P proj_geo_nodes -l gn=TRUE',                      		
-                    '-P proj_geospatial')
-  user <- "alicela"
-  date <- extract_date
-  
-  #setwd('/homes/ihme/alicela/repos/cgf/data_prep/')
-  indicator <- ind
-  run_date <- module_date
-  
-  if(sex_split==TRUE){
-    sex <- c('m', 'f', 'mf')
-  } else{
-    sex <- 'mf'
-  }
-  
-  for(s in sex){
-    polydat <- read.csv(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', indicator,'/collapsed_polys_', s, "_", run_date, '.csv'))
-    polydat <- as.data.table(polydat)
-    polydat <- polydat[,type:=0]
-    polydat <- as.data.frame(polydat)
-    
-    if (file.exists(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
-      exdat <- read.csv(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/',indicator, '/extractions/collapsed_polys_extractions_', s, '.csv'))
-      
-      polydat <- rbind(polydat, exdat)
-    }
-    
-    
-    
-    #polydat <- filter(polydat, is.na(latitude) & !is.na(shapefile) & !is.na(location_code))
-    polydat <- subset(polydat, point == 0)
-    
-    for (shp in unique(polydat$shapefile)) { 
-      jname <- paste(indicator, shp, sep = "_")
-      mycores <- 4
-      sys.sub <- paste0("qsub ",project,paste0(" -l m_mem_free=10G -l fthread=2 -q all.q -l archive=TRUE -e /share/temp/sgeoutput/",user,"/errors -o /share/temp/sgeoutput/",user,"/output "),"-cwd -N ", jname, " ")
-      script <- "/share/homes/alicela/repos/cgf/data_prep/child.R"
-      r_shell <- ifelse(nodes == 'geos',
-                        'r_shell_geos.sh',                      		
-                        '/share/singularity-images/rstudio/shells/r_shell_singularity_3501.sh')
-      
-      args <- paste(shp, indicator, run_date, s)
-      system(paste(sys.sub, r_shell, script, args)) 
-    } # Closes for loop that iterates through shapefiles and submits qsubs for each one
-    rm(polydat)
-  } # Closes for loop that iterates through each sex and runs the resample process
-  
-} # Closes resample code
+# if(proj == 'cgf'){
+#   binary_ind <-c("stunting_mod_b", "wasting_mod_b", "underweight_mod_b")
+# } else if (proj == 'dbm'){
+#   binary_ind <- c("overweight_who_b",'wasting_mod_cond')
+# } else if (proj == 'risk_factor'){
+#   binary_ind <-c("stunting_mil_c", "stunting_mod_c", "stunting_sev_c", "wasting_mil_c", "wasting_mod_c", "wasting_sev_c", "underweight_mil_c", "underweight_mod_c", "underweight_sev_c")
+# }
+# 
+# for (ind in binary_ind){
+#   nodes <- ''
+#   project <- ifelse(nodes == 'geos',
+#                     '-P proj_geo_nodes -l gn=TRUE',                      		
+#                     '-P proj_geospatial')
+#   user <- "alicela"
+#   date <- extract_date
+#   
+#   #setwd('/homes/ihme/alicela/repos/cgf/data_prep/')
+#   indicator <- ind
+#   run_date <- module_date
+#   
+#   if(sex_split==TRUE){
+#     sex <- c('m', 'f', 'mf')
+#   } else{
+#     sex <- 'mf'
+#   }
+#   
+#   for(s in sex){
+#     polydat <- read.csv(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', indicator,'/collapsed_polys_', s, "_", run_date, '.csv'))
+#     polydat <- as.data.table(polydat)
+#     polydat <- polydat[,type:=0]
+#     polydat <- as.data.frame(polydat)
+#     
+#     if (file.exists(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/', ind,'/extractions/collapsed_polys_extractions_', sex, '.csv'))){
+#       exdat <- read.csv(paste0('/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/cgf/',indicator, '/extractions/collapsed_polys_extractions_', s, '.csv'))
+#       
+#       polydat <- rbind(polydat, exdat)
+#     }
+#     
+#     
+#     
+#     #polydat <- filter(polydat, is.na(latitude) & !is.na(shapefile) & !is.na(location_code))
+#     polydat <- subset(polydat, point == 0)
+#     
+#     for (shp in unique(polydat$shapefile)) { 
+#       jname <- paste(indicator, shp, sep = "_")
+#       mycores <- 4
+#       sys.sub <- paste0("qsub ",project,paste0(" -l m_mem_free=10G -l fthread=2 -q all.q -l archive=TRUE -e /share/temp/sgeoutput/",user,"/errors -o /share/temp/sgeoutput/",user,"/output "),"-cwd -N ", jname, " ")
+#       script <- "/share/homes/alicela/repos/cgf/data_prep/child.R"
+#       r_shell <- ifelse(nodes == 'geos',
+#                         'r_shell_geos.sh',                      		
+#                         '/share/singularity-images/rstudio/shells/r_shell_singularity_3501.sh')
+#       
+#       args <- paste(shp, indicator, run_date, s)
+#       system(paste(sys.sub, r_shell, script, args)) 
+#     } # Closes for loop that iterates through shapefiles and submits qsubs for each one
+#     rm(polydat)
+#   } # Closes for loop that iterates through each sex and runs the resample process
+#   
+# } # Closes resample code
 
 #######################################################################################################################################################################################
 ## 16.) FINAL PROCESSING STEPS: Append point data and resampled polygon data together, rename columns, drop specific surveys, do some final indicator specific tasks, write to folder!
 #######################################################################################################################################################################################
 
-if(sex_split==TRUE){
-  sex <- c('m', 'f', 'mf')} else {
-    sex <- 'mf'
-  }   
+## 1/13/25 Commenting out due to lack of point/poly data.
 
-for (ind in binary_ind) {
-  # Write all resampled shapefile files to a list
-  for (s in sex){
-    resampled_polys <- list.files(paste0(j, "temp/alicela/collapse_temp/resample_", ind, "_", s), full.names=T, pattern = ".csv$", ignore.case=T, recursive = T)
-    # Read in each file and bind together
-    for (poly in resampled_polys){
-      
-      # if the merged dataset doesn't exist, create it
-      print(poly)
-      if (!exists("dataset")){
-        dataset <- read.table(poly, header=TRUE, sep=",")
-      }
-      
-      # if the merged dataset does exist, append to it
-      if (exists("dataset")){
-        temp_dataset <-read.table(poly, header=TRUE, sep=",")
-        dataset<-rbind(dataset, temp_dataset)
-        rm(temp_dataset)
-      }
-      
-    }
-    
-    # Convert resampled poly data to a data table
-    resampled_poly_data <- as.data.table(dataset) 
-    rm(dataset) # need to remove dataset or else this will mess up the next indicator
-    
-    # format resampled poly data so that it can be binded onto collapsed point data
-    setcolorder(resampled_poly_data, c('source', 'start_year', 'lat', 'long', 'country', 'svy_id', 'N', ind, 'pweight_sum', 'point', 'weight', 'shapefile', 'location_code', 'X', 'type'))
-    setnames(resampled_poly_data, c('lat', 'long'), c('latitude', 'longitude'))
-    
-    # Format point data so it can be binded to resampled poly data
-    # all_point_data <- all_point_data[, pseudocluster := NULL]
-    
-    all_point_data <- fread(paste0("/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data","_", s, "_", module_date, ".csv"))
-    all_point_data <- all_point_data[, weight := 1]
-    all_point_data <- all_point_data[, shapefile := ""]
-    all_point_data <- all_point_data[, location_code := ""]
-    all_point_data <- all_point_data[, X := NA]
-    all_point_data <- all_point_data[, type := 0]
-    
-    
-    ##############################################################################################################################################
-    ## Append point and polygon collapsed data
-    all_processed_data <- rbind(all_point_data, resampled_poly_data)
-    setnames(all_processed_data, 'start_year', 'year')
-    all_collapsed <- copy(all_processed_data)
-    
-    ## Replace year with period 1998-2002, 2003-2007, 2008-2012, 2013-2017
-    all_collapsed <- subset(all_collapsed, year > 1997)
-    names(all_collapsed)[names(all_collapsed) == "year"] = "original_year"
-    all_collapsed <- all_collapsed[original_year >= 1998 & original_year <= 2002, year := 2000]
-    all_collapsed <- all_collapsed[original_year >= 2003 & original_year <= 2007, year := 2005]
-    all_collapsed <- all_collapsed[original_year >= 2008 & original_year <= 2012, year := 2010]
-    all_collapsed <- all_collapsed[original_year >= 2013 & original_year <= 2017, year := 2015]
-    
-    all_collapsed <- all_collapsed[, latitude := as.numeric(latitude)]
-    all_collapsed <- all_collapsed[, longitude := as.numeric(longitude)]
-    all_collapsed <- all_collapsed[!is.na(latitude)]
-    all_collapsed <- all_collapsed[!is.na(longitude)]
-    all_collapsed <- all_collapsed[latitude>=-90 & latitude<=90]
-    all_collapsed <- all_collapsed[longitude>=-180 & longitude<=180]
-    
-    # Fix the NIDs I split up for China
-    weird_nids <- c('20083890', '20083896', '20083897', '20083891', '20083893', '20083894', '20083899')
-    all_collapsed[svy_id %in% weird_nids, svy_id:= 200838]
-    
-    
-    all_collapsed <- all_collapsed[, var := get(ind)]
-    all_collapsed <- all_collapsed[, var := round(var)]
-    ## In clusters where ind > N (due to tiny samples and every child having ind = 1), cap at N
-    all_collapsed <- all_collapsed[var > N, var := N]
-    all_collapsed[, (ind) := NULL]
-    names(all_collapsed)[names(all_collapsed) == 'var'] <- get("ind")  
-    
-    
-    # Remove rows that have a NA value in column 'N' or indicator column
-    all_collapsed <- na.omit(all_collapsed, cols=c("N", ind))
-    
-    
-    # Change column names
-    
-    setnames(all_collapsed, "year", "period_year")
-    setnames(all_collapsed, "original_year", "year")
-    
-    # Include 1998 Iran before subsetting by year for DBM
-    
-    if(proj == 'dbm'){
-      all_collapsed[svy_id == 19046, year := 2000]
-    }
-    
-    # Subset by stage and year
-    
-    all_collapsed <- all_collapsed[year >= 2000,]
-    all_collapsed <- all_collapsed[country %in% iso_list,]
-    
-    # Drop weird surveys
-    
-    if(proj == 'cgf'){
-      all_collapsed <- all_collapsed[svy_id != 79839,]
-      all_collapsed <- all_collapsed[svy_id != 24143,]
-    } else if (proj == 'dbm'){
-      exclude_dbm <- c(76704, 79839, 14015, 14027, 14063, 14105, 58660, 9516, 60942, 24143, 369294, 283812)
-      all_collapsed <- all_collapsed[(!svy_id %in% exclude_dbm),]
-    } else if (proj == 'risk_factor'){
-      all_collapsed <- all_collapsed[svy_id != 79839,]
-      all_collapsed <- all_collapsed[svy_id != 24143,]
-    }
-    
-    # Drop report extractions that are from the same year as microdata
-    
-    exclude_report <- c(56883, 306329, 52147, 151732, 151729)
-    all_collapsed <- all_collapsed[(!svy_id %in% exclude_report),]
-    
-    # Subset by indicator
-    
-    if (ind %in% c('overweight_who_b', 'wasting_mod_cond')){
-      assign(paste0("collapsed_", ind, "_", s), all_collapsed)
-    }
-    
-    if (proj == 'cgf'){
-      write.csv(all_collapsed, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", ind, "_",s,"_", module_date, ".csv"), row.names = FALSE)
-    }
-    
-    if (proj == 'risk_factor'){
-      write.csv(all_collapsed, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", ind, "_",s,"_", module_date, ".csv"), row.names = FALSE)
-    }
-    
-    
-    
-    print(paste0("Finished ", ind, " ", s))
-    rm(all_collapsed)
-    rm(resampled_poly_data)
-    rm(all_point_data)
-    rm(all_processed_data)
-    #  Sys.time() - start_time
-    
-  } # Closes the for loop that iterates through each sex for a given indicator and does final processing on each dataset
-} # Closes the for loop that iterates through indicators and does final processing on each data set
-
-# Create an index to match up overweight_mod_b and wasting_mod_cond - has to be done outside of the loop since we need both datasets to create the index.            
-
-if (proj == 'dbm'){                 
-  create_dbm_index <- function(collapsed_overweight_who_b, collapsed_wasting_mod_cond, s){
-    # Creating index for overweight_who_b and wasting_mod_cond ONLY
-    collapsed_overweight_who_b[,index := .GRP, by =.(latitude, longitude)] # give unique numbers for each unique lat/long combo
-    index_over <- collapsed_overweight_who_b[,c('latitude', 'longitude', 'index')] # subset to create an index data table
-    index_over <- unique(index_over[]) # Remove duplicates to index table
-    
-    # applying the index from wasting to overweight
-    collapsed_wasting_mod_cond_index <- merge(collapsed_wasting_mod_cond, index_over, by = c('latitude', 'longitude'), all.x = TRUE, all.y = FALSE) # merge indexes to wasting data
-    collapsed_wasting_mod_cond_index[is.na(index),no_index:=1] # create a new variable that identifies rows that didn't match lat/longs with the index table so weren't assigned an index
-    collapsed_wasting_mod_cond_index[is.na(index),index := .GRP, by =.(latitude, longitude)] # create a new index for those rows
-    collapsed_wasting_mod_cond_index[no_index ==1,index := index+277131] # Add 277131 to each new index number so it won't overlap with the old numbers
-    collapsed_wasting_mod_cond_index[,no_index:=NULL] # remove the variable that identified NA index values
-    collapsed_wasting_mod_cond <- copy(collapsed_wasting_mod_cond_index)
-    
-    write.csv(collapsed_wasting_mod_cond, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", "wasting_mod_cond_", s,"_", module_date, ".csv"), row.names = FALSE)
-    write.csv(collapsed_overweight_who_b, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", "overweight_who_b_", s,"_",module_date, ".csv"), row.names = FALSE) #writing as wasting_who_b to keep seperate from cgf moving forward since the index is different
-  }
-  
-  
-  if (sex_split == TRUE){
-    create_dbm_index(collapsed_overweight_who_b_mf, collapsed_wasting_mod_cond_mf, "mf")
-    create_dbm_index(collapsed_overweight_who_b_m, collapsed_wasting_mod_cond_m, "m")
-    create_dbm_index(collapsed_overweight_who_b_f, collapsed_wasting_mod_cond_f, "f")
-  } else {
-    create_dbm_index(collapsed_overweight_who_b_mf, collapsed_wasting_mod_cond_mf, "mf")
-  }
-} # Closes if statement that does final processing for dbm indicators
+# if(sex_split==TRUE){
+#   sex <- c('m', 'f', 'mf')} else {
+#     sex <- 'mf'
+#   }   
+# 
+# for (ind in binary_ind) {
+#   # Write all resampled shapefile files to a list
+#   for (s in sex){
+#     resampled_polys <- list.files(paste0(j, "temp/alicela/collapse_temp/resample_", ind, "_", s), full.names=T, pattern = ".csv$", ignore.case=T, recursive = T)
+#     # Read in each file and bind together
+#     for (poly in resampled_polys){
+#       
+#       # if the merged dataset doesn't exist, create it
+#       print(poly)
+#       if (!exists("dataset")){
+#         dataset <- read.table(poly, header=TRUE, sep=",")
+#       }
+#       
+#       # if the merged dataset does exist, append to it
+#       if (exists("dataset")){
+#         temp_dataset <-read.table(poly, header=TRUE, sep=",")
+#         dataset<-rbind(dataset, temp_dataset)
+#         rm(temp_dataset)
+#       }
+#       
+#     }
+#     
+#     # Convert resampled poly data to a data table
+#     resampled_poly_data <- as.data.table(dataset) 
+#     rm(dataset) # need to remove dataset or else this will mess up the next indicator
+#     
+#     # format resampled poly data so that it can be binded onto collapsed point data
+#     setcolorder(resampled_poly_data, c('source', 'start_year', 'lat', 'long', 'country', 'svy_id', 'N', ind, 'pweight_sum', 'point', 'weight', 'shapefile', 'location_code', 'X', 'type'))
+#     setnames(resampled_poly_data, c('lat', 'long'), c('latitude', 'longitude'))
+#     
+#     # Format point data so it can be binded to resampled poly data
+#     # all_point_data <- all_point_data[, pseudocluster := NULL]
+#     
+#     all_point_data <- fread(paste0("/ihme/limited_use/LIMITED_USE/LU_GEOSPATIAL/collapsed/", topic, "/", ind, "/all_point_data","_", s, "_", module_date, ".csv"))
+#     all_point_data <- all_point_data[, weight := 1]
+#     all_point_data <- all_point_data[, shapefile := ""]
+#     all_point_data <- all_point_data[, location_code := ""]
+#     all_point_data <- all_point_data[, X := NA]
+#     all_point_data <- all_point_data[, type := 0]
+#     
+#     
+#     ##############################################################################################################################################
+#     ## Append point and polygon collapsed data
+#     all_processed_data <- rbind(all_point_data, resampled_poly_data)
+#     setnames(all_processed_data, 'start_year', 'year')
+#     all_collapsed <- copy(all_processed_data)
+#     
+#     ## Replace year with period 1998-2002, 2003-2007, 2008-2012, 2013-2017
+#     all_collapsed <- subset(all_collapsed, year > 1997)
+#     names(all_collapsed)[names(all_collapsed) == "year"] = "original_year"
+#     all_collapsed <- all_collapsed[original_year >= 1998 & original_year <= 2002, year := 2000]
+#     all_collapsed <- all_collapsed[original_year >= 2003 & original_year <= 2007, year := 2005]
+#     all_collapsed <- all_collapsed[original_year >= 2008 & original_year <= 2012, year := 2010]
+#     all_collapsed <- all_collapsed[original_year >= 2013 & original_year <= 2017, year := 2015]
+#     
+#     all_collapsed <- all_collapsed[, latitude := as.numeric(latitude)]
+#     all_collapsed <- all_collapsed[, longitude := as.numeric(longitude)]
+#     all_collapsed <- all_collapsed[!is.na(latitude)]
+#     all_collapsed <- all_collapsed[!is.na(longitude)]
+#     all_collapsed <- all_collapsed[latitude>=-90 & latitude<=90]
+#     all_collapsed <- all_collapsed[longitude>=-180 & longitude<=180]
+#     
+#     # Fix the NIDs I split up for China
+#     weird_nids <- c('20083890', '20083896', '20083897', '20083891', '20083893', '20083894', '20083899')
+#     all_collapsed[svy_id %in% weird_nids, svy_id:= 200838]
+#     
+#     
+#     all_collapsed <- all_collapsed[, var := get(ind)]
+#     all_collapsed <- all_collapsed[, var := round(var)]
+#     ## In clusters where ind > N (due to tiny samples and every child having ind = 1), cap at N
+#     all_collapsed <- all_collapsed[var > N, var := N]
+#     all_collapsed[, (ind) := NULL]
+#     names(all_collapsed)[names(all_collapsed) == 'var'] <- get("ind")  
+#     
+#     
+#     # Remove rows that have a NA value in column 'N' or indicator column
+#     all_collapsed <- na.omit(all_collapsed, cols=c("N", ind))
+#     
+#     
+#     # Change column names
+#     
+#     setnames(all_collapsed, "year", "period_year")
+#     setnames(all_collapsed, "original_year", "year")
+#     
+#     # Include 1998 Iran before subsetting by year for DBM
+#     
+#     if(proj == 'dbm'){
+#       all_collapsed[svy_id == 19046, year := 2000]
+#     }
+#     
+#     # Subset by stage and year
+#     
+#     all_collapsed <- all_collapsed[year >= 2000,]
+#     all_collapsed <- all_collapsed[country %in% iso_list,]
+#     
+#     # Drop weird surveys
+#     
+#     if(proj == 'cgf'){
+#       all_collapsed <- all_collapsed[svy_id != 79839,]
+#       all_collapsed <- all_collapsed[svy_id != 24143,]
+#     } else if (proj == 'dbm'){
+#       exclude_dbm <- c(76704, 79839, 14015, 14027, 14063, 14105, 58660, 9516, 60942, 24143, 369294, 283812)
+#       all_collapsed <- all_collapsed[(!svy_id %in% exclude_dbm),]
+#     } else if (proj == 'risk_factor'){
+#       all_collapsed <- all_collapsed[svy_id != 79839,]
+#       all_collapsed <- all_collapsed[svy_id != 24143,]
+#     }
+#     
+#     # Drop report extractions that are from the same year as microdata
+#     
+#     exclude_report <- c(56883, 306329, 52147, 151732, 151729)
+#     all_collapsed <- all_collapsed[(!svy_id %in% exclude_report),]
+#     
+#     # Subset by indicator
+#     
+#     if (ind %in% c('overweight_who_b', 'wasting_mod_cond')){
+#       assign(paste0("collapsed_", ind, "_", s), all_collapsed)
+#     }
+#     
+#     if (proj == 'cgf'){
+#       write.csv(all_collapsed, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed/", ind, "_",s,"_", module_date, ".csv"), row.names = FALSE)
+#     }
+#     
+#     if (proj == 'risk_factor'){
+#       write.csv(all_collapsed, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed/", ind, "_",s,"_", module_date, ".csv"), row.names = FALSE)
+#     }
+#     
+#     
+#     
+#     print(paste0("Finished ", ind, " ", s))
+#     rm(all_collapsed)
+#     rm(resampled_poly_data)
+#     rm(all_point_data)
+#     rm(all_processed_data)
+#     #  Sys.time() - start_time
+#     
+#   } # Closes the for loop that iterates through each sex for a given indicator and does final processing on each dataset
+# } # Closes the for loop that iterates through indicators and does final processing on each data set
+# 
+# # Create an index to match up overweight_mod_b and wasting_mod_cond - has to be done outside of the loop since we need both datasets to create the index.            
+# 
+# if (proj == 'dbm'){                 
+#   create_dbm_index <- function(collapsed_overweight_who_b, collapsed_wasting_mod_cond, s){
+#     # Creating index for overweight_who_b and wasting_mod_cond ONLY
+#     collapsed_overweight_who_b[,index := .GRP, by =.(latitude, longitude)] # give unique numbers for each unique lat/long combo
+#     index_over <- collapsed_overweight_who_b[,c('latitude', 'longitude', 'index')] # subset to create an index data table
+#     index_over <- unique(index_over[]) # Remove duplicates to index table
+#     
+#     # applying the index from wasting to overweight
+#     collapsed_wasting_mod_cond_index <- merge(collapsed_wasting_mod_cond, index_over, by = c('latitude', 'longitude'), all.x = TRUE, all.y = FALSE) # merge indexes to wasting data
+#     collapsed_wasting_mod_cond_index[is.na(index),no_index:=1] # create a new variable that identifies rows that didn't match lat/longs with the index table so weren't assigned an index
+#     collapsed_wasting_mod_cond_index[is.na(index),index := .GRP, by =.(latitude, longitude)] # create a new index for those rows
+#     collapsed_wasting_mod_cond_index[no_index ==1,index := index+277131] # Add 277131 to each new index number so it won't overlap with the old numbers
+#     collapsed_wasting_mod_cond_index[,no_index:=NULL] # remove the variable that identified NA index values
+#     collapsed_wasting_mod_cond <- copy(collapsed_wasting_mod_cond_index)
+#     
+#     write.csv(collapsed_wasting_mod_cond, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", "wasting_mod_cond_", s,"_", module_date, ".csv"), row.names = FALSE)
+#     write.csv(collapsed_overweight_who_b, file = paste0(l, "rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", "overweight_who_b_", s,"_",module_date, ".csv"), row.names = FALSE) #writing as wasting_who_b to keep seperate from cgf moving forward since the index is different
+#   }
+#   
+#   
+#   if (sex_split == TRUE){
+#     create_dbm_index(collapsed_overweight_who_b_mf, collapsed_wasting_mod_cond_mf, "mf")
+#     create_dbm_index(collapsed_overweight_who_b_m, collapsed_wasting_mod_cond_m, "m")
+#     create_dbm_index(collapsed_overweight_who_b_f, collapsed_wasting_mod_cond_f, "f")
+#   } else {
+#     create_dbm_index(collapsed_overweight_who_b_mf, collapsed_wasting_mod_cond_mf, "mf")
+#   }
+# } # Closes if statement that does final processing for dbm indicators
 
 ###################################################################################################################################################################################
 ## 17.) Generate exclusions list
 ###################################################################################################################################################################################
 
-exclude_vars <- c("HAZ_drop", "HAZ_exclude", "WAZ_drop", "WAZ_exclude", "WHZ_drop", "WHZ_exclude", "BMI_drop", "BMI_exclude", "BMIZ_drop", "BMIZ_exclude", "birth_weight_drop", "birth_weight_exclude", "nid")
+## 1/13/25 Commenting out as BMI_drop, BMI_exclude, BMIZ_drop, BMIZ_exclude, birth_weight_drop, and birth_weight_exclude do not exist in data.
 
-cgf_exclude <- data[, exclude_vars, with=F]
-
-cgf.exclusions <- aggregate(cbind(is.na(HAZ_drop),
-                                  is.na(HAZ_exclude),
-                                  is.na(WAZ_drop),
-                                  is.na(WAZ_exclude),
-                                  is.na(WHZ_drop),
-                                  is.na(WHZ_exclude),
-                                  is.na(BMI_drop),
-                                  is.na(BMI_exclude),
-                                  is.na(BMIZ_drop),
-                                  is.na(BMIZ_exclude),                                        
-                                  #CIAF_drop,
-                                  #CIAF_exclude,
-                                  is.na(birth_weight_drop),
-                                  is.na(birth_weight_exclude)) ~ nid,
-                            data = cgf_exclude, FUN = mean)
-colnames(cgf.exclusions) <- c('nid', 'HAZ_drop', 'HAZ_exclude', 'WAZ_drop', 'WAZ_exclude', 'WHZ_drop', 'WHZ_exclude',
-                              'BMI_drop', 'BMI_exclude', 'BMIZ_drop', 'BMIZ_exclude', 'birth_weight_drop', 'birth_weight_exclude')
-
-write.csv(cgf.exclusions, paste0(folder_out, "/exclude_diagnostic_", module_date, ".csv"), row.names = F)
+# exclude_vars <- c("HAZ_drop", "HAZ_exclude", "WAZ_drop", "WAZ_exclude", "WHZ_drop", "WHZ_exclude", "BMI_drop", "BMI_exclude", "BMIZ_drop", "BMIZ_exclude", "birth_weight_drop", "birth_weight_exclude", "nid")
+# 
+# cgf_exclude <- data[, exclude_vars, with=F]
+# 
+# cgf.exclusions <- aggregate(cbind(is.na(HAZ_drop),
+#                                   is.na(HAZ_exclude),
+#                                   is.na(WAZ_drop),
+#                                   is.na(WAZ_exclude),
+#                                   is.na(WHZ_drop),
+#                                   is.na(WHZ_exclude),
+#                                   is.na(BMI_drop),
+#                                   is.na(BMI_exclude),
+#                                   is.na(BMIZ_drop),
+#                                   is.na(BMIZ_exclude),                                        
+#                                   #CIAF_drop,
+#                                   #CIAF_exclude,
+#                                   is.na(birth_weight_drop),
+#                                   is.na(birth_weight_exclude)) ~ nid,
+#                             data = cgf_exclude, FUN = mean)
+# colnames(cgf.exclusions) <- c('nid', 'HAZ_drop', 'HAZ_exclude', 'WAZ_drop', 'WAZ_exclude', 'WHZ_drop', 'WHZ_exclude',
+#                               'BMI_drop', 'BMI_exclude', 'BMIZ_drop', 'BMIZ_exclude', 'birth_weight_drop', 'birth_weight_exclude')
+# 
+# write.csv(cgf.exclusions, paste0(folder_out, "/exclude_diagnostic_", module_date, ".csv"), row.names = F)
 
 ################################################################################################################################################################      
