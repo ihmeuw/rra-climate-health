@@ -69,7 +69,7 @@ global_admin1_sf <- sf::st_read(global_admin1_shapefile_fp)
 
 dhs_path <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/dta"
 dhs_files <- list.files(path = dhs_path, pattern = "*.dta", recursive = T, ignore.case = T)
-dhs_hh_files <- paste0(dhs_path, dhs_files)
+dhs_hh_files <- paste0(dhs_path, "/", dhs_files)
 
 #read in all extracted surveys and combine###
 dhs_extracts <- lapply(dhs_hh_files,function(i){
