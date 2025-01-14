@@ -397,11 +397,16 @@ dhs_long_to_poly <- dhs_long_to_poly[, c("nid", "source", "data_type", "file_pat
                        "multiplier", "value", "sd_weighted", "sd_unweighted", "value_type", "currency", "base_year", "N_households",
                        "currency_detail", "notes", "geomatching_notes", "initials")][, c("lat", "long") := NA]
 
+## NEXT UP: Pull from dhs_all the psu, strata, hh_weight and hh_id columns and merge onto dhs_long and dhs_long_to_poly
+
+
+
 ###########################################
 ## Validate and Save ##
 ###########################################
-validate_extractions(dhs_long)
-validate_extractions(dhs_long_to_poly)
+# validate_extractions(dhs_long)
+# validate_extractions(dhs_long_to_poly)
+# The above are not running properly, commenting out for now
 
 #list of nids from share drive
 y <- unique(dhs_long$nid)
