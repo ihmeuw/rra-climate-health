@@ -254,50 +254,50 @@ dhs_long <- dhs_all %>%
 
 
 # Replace year (the year the survey started in) with int_year (the median interview year for each location)
-setnames(dhs_all, "int_year", "year")
-setnames(dhs_all, "survey_series", "source")
-setnames(dhs_all, "hhweight", "weight")
-setnames(dhs_all, "admin_level", "location_type")
+setnames(dhs_long, "int_year", "year")
+setnames(dhs_long, "survey_series", "source")
+setnames(dhs_long, "hhweight", "weight")
+setnames(dhs_long, "admin_level", "location_type")
 
 #matching tabulated data
-dhs_all$location_type[dhs_all$location_type=="0"]<-"admin0"
-dhs_all$location_type[dhs_all$location_type=="1"]<-"admin1"
-dhs_all$location_type[dhs_all$location_type=="2"]<-"admin2"
-dhs_all$location_type[dhs_all$location_type=="3"]<-"admin3"
-dhs_all$location_type[dhs_all$location_type=="4"]<-"admin4"
-dhs_all$location_type[dhs_all$location_type=="4"]<- NA
-dhs_all$location_type[dhs_all$location_type==">1"]<- NA 
-dhs_all$location_type[dhs_all$location_type=="<1"]<- NA
-dhs_all$location_type[dhs_all$location_type=="<2"]<- NA
+dhs_long$location_type[dhs_long$location_type=="0"]<-"admin0"
+dhs_long$location_type[dhs_long$location_type=="1"]<-"admin1"
+dhs_long$location_type[dhs_long$location_type=="2"]<-"admin2"
+dhs_long$location_type[dhs_long$location_type=="3"]<-"admin3"
+dhs_long$location_type[dhs_long$location_type=="4"]<-"admin4"
+dhs_long$location_type[dhs_long$location_type=="4"]<- NA
+dhs_long$location_type[dhs_long$location_type==">1"]<- NA 
+dhs_long$location_type[dhs_long$location_type=="<1"]<- NA
+dhs_long$location_type[dhs_long$location_type=="<2"]<- NA
 
 
 
 #changing values based on extraction template
-dhs_all$measure[dhs_all$measure=="wealth_score"]<-"asset score"
-dhs_all$measure[dhs_all$measure=="quintiles"]<-"asset percentile"
+dhs_long$measure[dhs_long$measure=="wealth_score"]<-"asset score"
+dhs_long$measure[dhs_long$measure=="quintiles"]<-"asset percentile"
 
 
 
 
-#Add column dhs_all based on extraction template
-dhs_all$source <- "DHS"
-dhs_all$data_type <- "survey"
-dhs_all$location_id <- NA
-dhs_all$source_location_id <- NA
-dhs_all$source_location_type <- NA 
-dhs_all$multiplier <- 1
-dhs_all$denominator <- "total"
-dhs_all$value_type <- "aggregated"
-dhs_all$currency_detail <- NA 
-dhs_all$currency <- NA
-dhs_all$base_year <- NA
-dhs_all$notes <- NA
-dhs_all$geomatching_notes <- NA
-dhs_all$initials <- "BZ"
+#Add column dhs_long based on extraction template
+dhs_long$source <- "DHS"
+dhs_long$data_type <- "survey"
+dhs_long$location_id <- NA
+dhs_long$source_location_id <- NA
+dhs_long$source_location_type <- NA 
+dhs_long$multiplier <- 1
+dhs_long$denominator <- "total"
+dhs_long$value_type <- "aggregated"
+dhs_long$currency_detail <- NA 
+dhs_long$currency <- NA
+dhs_long$base_year <- NA
+dhs_long$notes <- NA
+dhs_long$geomatching_notes <- NA
+dhs_long$initials <- "BZ"
 
 
 #check for NAS in asset score/percentile values and why:
-test_value <-  dhs_all[is.na(dhs_all$measure), ]
+test_value <-  dhs_long[is.na(dhs_long$measure), ]
 
 # #List of NIDS checked by an analyst. See documentation.
 value_checked <- c(20595,191270,270469)
@@ -310,31 +310,31 @@ if(nrow(test_value) > 0){
 
 
 #NA asset score/percentile value removal      
-dhs_all <- dhs_all[!is.na(dhs_all$wealth_score),]
+dhs_long <- dhs_long[!is.na(dhs_long$wealth_score),]
 
 # Pull location_ids for data that has been geomatched to LSAE standard location set, based on location_codes
-dhs_all <- data.table(dhs_all)
+dhs_long <- data.table(dhs_long)
 ad1_locs_info <- data.table(global_admin1_sf)[, .(location_code = ADM1_CODE, location_id_fill_ad1 = loc_id)]
 ad2_locs_info <- data.table(global_admin2_sf)[, .(location_code = ADM2_CODE, location_id_fill_ad2 = loc_id)]
 
-dhs_all_ad1_fill <- dhs_all[grepl("lbd_standard_admin_1", shapefile) & is.na(location_id) & !is.na(location_code)]
-dhs_all_ad1_fill <- merge(dhs_all_ad1_fill, ad1_locs_info, by = c("location_code"), all.x = TRUE)
-nrow(dhs_all_ad1_fill[is.na(location_id_fill_ad1)]) # should be 0
-dhs_all_ad1_fill[, location_id := location_id_fill_ad1][, location_id_fill_ad1 := NULL]
-dhs_all_ad2_fill <- dhs_all[grepl("lbd_standard_admin_2", shapefile) & is.na(location_id) & !is.na(location_code)]
-dhs_all_ad2_fill <- merge(dhs_all_ad2_fill, ad2_locs_info, by = c("location_code"), all.x = TRUE)
-nrow(dhs_all_ad2_fill[is.na(location_id_fill_ad2)]) # should be 0
-dhs_all_ad2_fill[, location_id := location_id_fill_ad2][, location_id_fill_ad2 := NULL]
+dhs_long_ad1_fill <- dhs_long[grepl("lbd_standard_admin_1", shapefile) & is.na(location_id) & !is.na(location_code)]
+dhs_long_ad1_fill <- merge(dhs_long_ad1_fill, ad1_locs_info, by = c("location_code"), all.x = TRUE)
+nrow(dhs_long_ad1_fill[is.na(location_id_fill_ad1)]) # should be 0
+dhs_long_ad1_fill[, location_id := location_id_fill_ad1][, location_id_fill_ad1 := NULL]
+dhs_long_ad2_fill <- dhs_long[grepl("lbd_standard_admin_2", shapefile) & is.na(location_id) & !is.na(location_code)]
+dhs_long_ad2_fill <- merge(dhs_long_ad2_fill, ad2_locs_info, by = c("location_code"), all.x = TRUE)
+nrow(dhs_long_ad2_fill[is.na(location_id_fill_ad2)]) # should be 0
+dhs_long_ad2_fill[, location_id := location_id_fill_ad2][, location_id_fill_ad2 := NULL]
 
-dhs_fill <- rbind(dhs_all_ad1_fill, dhs_all_ad2_fill)
-dhs_all_before <- copy(dhs_all)
-dhs_all <- dhs_all[!(grepl("lbd_standard_admin_1", shapefile) & is.na(location_id) & !is.na(location_code)) & 
+dhs_fill <- rbind(dhs_long_ad1_fill, dhs_long_ad2_fill)
+dhs_long_before <- copy(dhs_long)
+dhs_long <- dhs_long[!(grepl("lbd_standard_admin_1", shapefile) & is.na(location_id) & !is.na(location_code)) & 
                      !(grepl("lbd_standard_admin_2", shapefile) & is.na(location_id) & !is.na(location_code))]
-dhs_all <- rbind(dhs_all, dhs_fill)
-validate_merge_nrows(dhs_all_before, dhs_all)
+dhs_long <- rbind(dhs_long, dhs_fill)
+validate_merge_nrows(dhs_long_before, dhs_long)
 
 # Fill location_ids based on standard shapefiles from stable shapefiles - currently no data match this criteria
-stable_shapefile_nids <- unique(dhs_all[shapefile_type=="stable"]$nid) # none
+stable_shapefile_nids <- unique(dhs_long[shapefile_type=="stable"]$nid) # none
 
 
 ###########################################
@@ -342,8 +342,8 @@ stable_shapefile_nids <- unique(dhs_all[shapefile_type=="stable"]$nid) # none
 ###########################################
 
 # split the data into point and polygon datasets
-dpoint <- subset(dhs_all, point == 1)
-dpoly  <- subset(dhs_all, point == 0)
+dpoint <- subset(dhs_long, point == 1)
+dpoly  <- subset(dhs_long, point == 0)
 
 # alternate dataset for SAE modeling where point data is matched and aggregated to admin2 polygons
 # note that the CRS projection used here should align with that used by the shapefile you're matching to; 
@@ -373,25 +373,25 @@ dpoint_to_poly <- dpoint_to_poly[, .(value = weighted.mean(value, w=weight), sd_
                by = .(iso3, nid, source, year, shapefile, location_code, data_type, location_id, file_path, location_name, location_type,source_location_type, source_location_id, measure, denominator, multiplier, value_type, currency, base_year, currency_detail, geomatching_notes, notes, initials)]
 
 # Combine dpoint and dpoly back together
-dhs_all <- rbindlist(list(dpoint, dpoly), fill=T)
-dhs_all_to_poly <- rbindlist(list(dpoint_to_poly, dpoly), fill=T)
+dhs_long <- rbindlist(list(dpoint, dpoly), fill=T)
+dhs_long_to_poly <- rbindlist(list(dpoint_to_poly, dpoly), fill=T)
 
 # Process SD
 # Drop some observations where only one household was surveyed, since this is not representative of the region, 
 # and because the very small SD throws off the SAE models
-dhs_all <- dhs_all[!(N_households == 1 & sd_weighted < 1)]
-dhs_all_to_poly <- dhs_all_to_poly[!(N_households == 1 & sd_weighted < 1)]
-dhs_all[is.na(sd_weighted), sd_weighted := sd_unweighted] # Correct a few clusters where SD goes missing
-dhs_all_to_poly[is.na(sd_weighted), sd_weighted := sd_unweighted] 
-nrow(dhs_all[is.na(sd_unweighted)]) + nrow(dhs_all[is.na(sd_weighted)]) # should be 0
-nrow(dhs_all_to_poly[is.na(sd_unweighted)]) + nrow(dhs_all_to_poly[is.na(sd_weighted)]) # should be 0
+dhs_long <- dhs_long[!(N_households == 1 & sd_weighted < 1)]
+dhs_long_to_poly <- dhs_long_to_poly[!(N_households == 1 & sd_weighted < 1)]
+dhs_long[is.na(sd_weighted), sd_weighted := sd_unweighted] # Correct a few clusters where SD goes missing
+dhs_long_to_poly[is.na(sd_weighted), sd_weighted := sd_unweighted] 
+nrow(dhs_long[is.na(sd_unweighted)]) + nrow(dhs_long[is.na(sd_weighted)]) # should be 0
+nrow(dhs_long_to_poly[is.na(sd_unweighted)]) + nrow(dhs_long_to_poly[is.na(sd_weighted)]) # should be 0
 
 #Select columns for final dataset
-dhs_all <- dhs_all[, c("nid", "source", "data_type", "file_path", "year", "iso3", "location_id", "location_type", "location_name", 
+dhs_long <- dhs_long[, c("nid", "source", "data_type", "file_path", "year", "iso3", "location_id", "location_type", "location_name", 
                        "source_location_type",  "source_location_id", "lat",  "long", "location_code",  "shapefile", "measure", "denominator",
                        "multiplier", "value", "sd_weighted", "sd_unweighted", "value_type", "currency", "base_year", "N_households",
                        "currency_detail", "notes", "geomatching_notes", "initials")]
-dhs_all_to_poly <- dhs_all_to_poly[, c("nid", "source", "data_type", "file_path", "year", "iso3", "location_id", "location_type", "location_name", 
+dhs_long_to_poly <- dhs_long_to_poly[, c("nid", "source", "data_type", "file_path", "year", "iso3", "location_id", "location_type", "location_name", 
                        "source_location_type",  "source_location_id", "location_code",  "shapefile", "measure", "denominator",
                        "multiplier", "value", "sd_weighted", "sd_unweighted", "value_type", "currency", "base_year", "N_households",
                        "currency_detail", "notes", "geomatching_notes", "initials")][, c("lat", "long") := NA]
@@ -399,12 +399,12 @@ dhs_all_to_poly <- dhs_all_to_poly[, c("nid", "source", "data_type", "file_path"
 ###########################################
 ## Validate and Save ##
 ###########################################
-validate_extractions(dhs_all)
-validate_extractions(dhs_all_to_poly)
+validate_extractions(dhs_long)
+validate_extractions(dhs_long_to_poly)
 
 #list of nids from share drive
-y <- unique(dhs_all$nid)
-z <- unique(dhs_all$nid)
+y <- unique(dhs_long$nid)
+z <- unique(dhs_long$nid)
 
 # Surveys missing all wealth information in the raw data files, as checked by an analyst
 surveys_missing_all_data <- c(58006, 30777)
