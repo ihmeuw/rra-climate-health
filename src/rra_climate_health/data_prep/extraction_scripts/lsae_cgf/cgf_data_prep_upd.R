@@ -107,6 +107,8 @@ module_date <- gsub("-", "_", module_date)
 
 input_data_csv<-paste0(l,"rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", all.files)
 input_data_csv <- input_data_csv[grep("archive", input_data_csv, invert = TRUE)]
+input_data_csv <- input_data_csv[grep("dta", input_data_csv, invert = TRUE)]
+input_data_csv <- input_data_csv[grep("wealth", input_data_csv, invert = TRUE)]
 
 #######################################################################################################################################################
 ## 2.) PREPARE RAW EXTRACT DATA: Read in data, calculate age, define geospatial id, 
