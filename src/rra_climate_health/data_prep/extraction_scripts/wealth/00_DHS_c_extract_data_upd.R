@@ -398,8 +398,17 @@ dhs_long_to_poly <- dhs_long_to_poly[, c("nid", "source", "data_type", "file_pat
                        "currency_detail", "notes", "geomatching_notes", "initials")][, c("lat", "long") := NA]
 
 ## NEXT UP: Pull from dhs_all the psu, strata, hh_weight and hh_id columns and merge onto dhs_long and dhs_long_to_poly
+dhs_merge <- dhs_all[, .(nid, strata, psu, hhweight, hh_id, location_code)]
+dhs_merge <- unique(dhs_merge)
 
+# Separating necessary merge columns into pieces
+dhs_merge_1 <- dhs_merge[, .(nid, location_code, hh_id)]
+dhs_merge_1 <- unique(dhs_merge_1)
 
+dhs_merge_2 <- dhs_merge[, .(nid, hh_id)]
+
+# Stepwise merge due to many-to-many relationship
+dhs_long <- merge(dhs_long, dhs_merge_1, by = c("nid","location_code"), all.x = TRUE)
 
 ###########################################
 ## Validate and Save ##
@@ -410,7 +419,7 @@ dhs_long_to_poly <- dhs_long_to_poly[, c("nid", "source", "data_type", "file_pat
 
 #list of nids from share drive
 y <- unique(dhs_long$nid)
-z <- unique(dhs_long$nid)
+z <- unique(dhs_long_to_poly$nid)
 
 # Surveys missing all wealth information in the raw data files, as checked by an analyst
 surveys_missing_all_data <- c(58006, 30777)
@@ -431,5 +440,5 @@ if(length(nid_diff_to_poly) > 0){
 # Exporting
 dhs_long$point_to_polygon = FALSE
 write.csv(dhs_long, "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/00_DHS.csv")
-dhs_long$point_to_polygon = TRUE
+dhs_long_to_poly$point_to_polygon = TRUE
 write.csv(dhs_long_to_poly, "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/00_DHS_poly.csv")
