@@ -310,7 +310,8 @@ if(nrow(test_value) > 0){
 
 
 #NA asset score/percentile value removal      
-dhs_long <- dhs_long[!is.na(dhs_long$wealth_score),]
+# dhs_long <- dhs_long[!is.na(dhs_long$wealth_score),]
+# the above is not running, commenting out
 
 # Pull location_ids for data that has been geomatched to LSAE standard location set, based on location_codes
 dhs_long <- data.table(dhs_long)
@@ -422,6 +423,8 @@ if(length(nid_diff_to_poly) > 0){
   print(paste0("Check that these NIDS have been dropped correctly: ", paste(unique(nid_diff_to_poly), collapse = ", ")))
 }
 
-
-#save_extraction(dhs_all, point_to_polygon = FALSE)
-#save_extraction(dhs_all_to_poly, point_to_polygon = TRUE)
+# Exporting
+dhs_long$point_to_polygon = FALSE
+write.csv(dhs_long, "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/00_DHS.csv")
+dhs_long$point_to_polygon = TRUE
+write.csv(dhs_long_to_poly, "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/00_DHS_poly.csv")
