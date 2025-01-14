@@ -52,6 +52,51 @@ modeling_shapefile_version <- modeling_location_version[
 # Modify the note here to explain what changed between compiles
 change_note <- "Added new extractions"
 
+save_extraction <- function(dt, compiled = F, point_to_polygon){
+  #' @description Saves out extracted data to filesystem, creating both a datestamped and stable filepath
+  #' @param dt [data.frame/data.table] The extracted data to save out, in extraction template format
+  #' @param compiled [logical] Whether or not the data to save out is compiled data from all sources, or individual sources. Default is FALSE, to be used with individual data sources.
+  #' @param point_to_polygon [logical] Whether or not the data has aggregated points to polygons, to create a separate dataset for point vs polygon modeling. Typically only applicable for survey sources such as DHS, MICS, and LSMS, as well as for the compiled dataset.
+  #' @return None
+  #' @output files /ihme/resource_tracking/LSAE_income/1_data_extractions/archive/extracted_<source>_<date>.csv and /ihme/resource_tracking/LSAE_income/1_data_extractions/extracted_<source>.csv
+  
+  date <- gsub(" ", "", format(Sys.time(), "%m %d %Y"))
+  if("source" %in% colnames(dt)) {
+    # Save out 
+    if(compiled) {
+      source <- "ALL_compiled"
+    } else {
+      source <- unique(dt$source)
+    }
+    if(source == "" | is.na(source)) {
+      message(paste0("Error: Column \'source\' must contain nonmissing values"))
+    } else if(length(source) > 1) {
+      message(paste0("Error: Multiple values present in column \'source\': ", paste(source, collapse = ", ")))
+    } else {
+      path <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/"
+      
+      if(source %in% c("DHS", "MICS", "LSMS", "COUNTRY_SPECIFIC", "ALL_compiled")) {
+        if(point_to_polygon) {
+          poly_string <- "all_polygon"
+        } else {
+          poly_string <- "point_and_polygon"
+        }
+        out_path <- paste0(path, "extracted_", source, "_", poly_string, ".csv")
+      } else {
+        poly_string <- ""
+        out_path <- paste0(path, "extracted_", source, ".csv")
+      }
+      archive_path <- paste0(path, "archive/extracted_", source, "_", poly_string, "_", date, ".csv")
+      fwrite(dt, archive_path)
+      fwrite(dt, out_path)
+      cat("Files saved out to:\n", out_path, "\n", archive_path)
+    }
+  } else {
+    message(paste0("Error: Column \'source\' missing in data"))
+  }
+}
+
+
 for(point_to_polygon in c(TRUE, FALSE)) {
   
   if(point_to_polygon) {
@@ -66,7 +111,7 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   previous_data <- fread(previous_extraction)
   
   # Read in all extracted wealth files (latest best versions)
-  extracted_files <- list.files(paste0("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/wealth"), pattern = "\\.dta$", full.names = TRUE)
+  extracted_files <- list.files(paste0("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing"), pattern = "^00_DHS", full.names = TRUE)
   if(point_to_polygon) {
     extracted_files <- extracted_files[!(extracted_files %like% "_poly")]
   } else {
@@ -74,7 +119,7 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   }
 
   # Bind together all extracted data
-  extracted_files_dt <- lapply(extracted_files, read_dta)
+  extracted_files_dt <- lapply(extracted_files, fread, sep=",")
   dt <- rbindlist(extracted_files_dt, fill = TRUE)
   
   # Save out data
