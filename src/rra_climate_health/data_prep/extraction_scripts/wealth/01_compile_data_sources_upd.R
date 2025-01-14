@@ -41,8 +41,8 @@ if (Sys.info()["sysname"] == "Linux") {
   k <- "I:/"
 }
 
-source(paste0(h, "/indicators/1_retrospective/1_GDP_LDI/LSAE/helper_functions.R"))
-root_fold <- paste0(i, "resource_tracking/LSAE_income/1_data_extractions/")
+source(paste0(h, "repos/indicators/1_retrospective/1_GDP_LDI/02_subnational_LSAE/helper_functions.R"))
+root_fold <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/"
 
 modeling_location_version <- get_LSAE_location_versions()
 modeling_version_id <- max(modeling_location_version$location_set_version_ids)
@@ -50,7 +50,7 @@ modeling_shapefile_version <- modeling_location_version[
   location_set_version_ids == modeling_version_id, shapefile_dates]
 
 # Modify the note here to explain what changed between compiles
-change_note <- "Added new extractions for CIV 2021 DHS and MEX ENIGH series at admin1"
+change_note <- "Added new extractions"
 
 for(point_to_polygon in c(TRUE, FALSE)) {
   
@@ -61,22 +61,20 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   }
   
   # Read in previous compiled file for versioning purposes
-  previous_extraction <- paste0(root_fold, "extracted_ALL_compiled", point_to_polygon_string, ".csv")
+  previous_extraction <- paste0(root_fold, "00_DHS_poly", ".csv")
   previous_extraction_timestamp <- gsub(" ", "", format(file.info(previous_extraction)$ctime, "%m %d %Y"))
   previous_data <- fread(previous_extraction)
   
   # Read in all extracted wealth files (latest best versions)
-  extracted_files <- list.files(path = root_fold, pattern = "extracted_.*.csv",  recursive = F, ignore.case = T)
-  extracted_files <- extracted_files[!(extracted_files %like% "ALL_compiled")]
+  extracted_files <- list.files(paste0("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/wealth"), pattern = "\\.dta$", full.names = TRUE)
   if(point_to_polygon) {
-    extracted_files <- extracted_files[!(extracted_files %like% "_point_and_polygon")]
+    extracted_files <- extracted_files[!(extracted_files %like% "_poly")]
   } else {
     extracted_files <- extracted_files[!(extracted_files %like% "_all_polygon")]
   }
-  extracted_files <- paste0(root_fold, extracted_files)
-  
+
   # Bind together all extracted data
-  extracted_files_dt <- lapply(extracted_files, fread, sep=",")
+  extracted_files_dt <- lapply(extracted_files, read_dta)
   dt <- rbindlist(extracted_files_dt, fill = TRUE)
   
   # Save out data
@@ -84,7 +82,7 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   
   # Create changelog
   date <- gsub(" ", "", format(Sys.time(), "%m %d %Y"))
-  fileConn <- file(paste0(root_fold, "changelogs/changelog_compiled", point_to_polygon_string, "_", date, ".txt"))
+  fileConn <- file(paste0(root_fold, "changelog_compiled", point_to_polygon_string, "_", date, ".txt"))
   
   changelog <- (paste0("Changelog for extracted_ALL_compiled", point_to_polygon_string, "_", date, ".csv:\n"))
   changelog <- paste0(changelog, "Input source files included:\n")
