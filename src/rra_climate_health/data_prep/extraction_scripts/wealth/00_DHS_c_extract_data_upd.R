@@ -67,7 +67,7 @@ global_admin1_sf <- sf::st_read(global_admin1_shapefile_fp)
 ## Load and read all files ##
 #############################
 
-dhs_path <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/dta"
+dhs_path <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/wealth"
 dhs_files <- list.files(path = dhs_path, pattern = "*.dta", recursive = T, ignore.case = T)
 dhs_hh_files <- paste0(dhs_path, "/", dhs_files)
 
