@@ -69,82 +69,82 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   extracted_data <- fread(paste0(root_fold, "extracted_ALL_compiled", point_to_polygon_string, ".csv"))
   extracted_data_processed <- copy(extracted_data)
   
-  ##### OECD
-  # measures/denominators are GDPpc and income pc, this is fine
-  # currency is nominal LCU, will convert to 2010 PPP$
-  # multiplier is 1
-  extracted_data_processed_OECD <- currency_conversion(extracted_data_processed[source == "OECD"], 
-                                                       col.loc = 'iso3',  
-                                                       col.value = 'value', 
-                                                       currency = 'lcu',
-                                                       col.currency.year = 'base_year',
-                                                       base.year = 2010, 
-                                                       base.unit = 'ppp')
-  extracted_data_processed_OECD[, currency := "PPP"][, base_year := 2010]
-  
-  extracted_data_processed <- rbind(extracted_data_processed[source != "OECD"], extracted_data_processed_OECD)
-  
+  # ##### OECD
+  # # measures/denominators are GDPpc and income pc, this is fine
+  # # currency is nominal LCU, will convert to 2010 PPP$
+  # # multiplier is 1
+  # extracted_data_processed_OECD <- currency_conversion(extracted_data_processed[source == "OECD"], 
+  #                                                      col.loc = 'iso3',  
+  #                                                      col.value = 'value', 
+  #                                                      currency = 'lcu',
+  #                                                      col.currency.year = 'base_year',
+  #                                                      base.year = 2010, 
+  #                                                      base.unit = 'ppp')
+  # extracted_data_processed_OECD[, currency := "PPP"][, base_year := 2010]
+  # 
+  # extracted_data_processed <- rbind(extracted_data_processed[source != "OECD"], extracted_data_processed_OECD)
+  # 
   ##### EUROSTAT
   # measures/denominators are GDP and income total, will divide by population
   # currency is nominal LCU, will convert to 2010 PPP$
   # multiplier is 1e06
   # TODO: ideally we may want to extract per capita values in future
+  # 
+  # extracted_data_processed_EUROSTAT <- currency_conversion(extracted_data_processed[source == "EUROSTAT"], 
+  #                                                          col.loc = 'iso3',  
+  #                                                          col.value = 'value', 
+  #                                                          currency = 'lcu',
+  #                                                          col.currency.year = 'base_year',
+  #                                                          base.year = 2010, 
+  #                                                          base.unit = 'ppp')
+  # extracted_data_processed_EUROSTAT[, currency := "PPP"][, base_year := 2010]
+  # extracted_data_processed_EUROSTAT[, value := value * multiplier][, multiplier := 1]
+  # 
+  # extracted_data_processed_EUROSTAT <- merge(extracted_data_processed_EUROSTAT, 
+  #                                            covariate_data[, .(location_id = loc_id, year, pop, ADM0_NAME)], 
+  #                                            by = c("location_id", "year"), all.x = TRUE) # note there are some NA pops pre-2000
+  # extracted_data_processed_EUROSTAT[denominator == "total" & !is.na(pop), value := value / pop][denominator == "total" & !is.na(pop), denominator := "per capita"]
+  # extracted_data_processed_EUROSTAT[, c("pop", "ADM0_NAME") := NULL]
+  # 
+  # extracted_data_processed <- rbind(extracted_data_processed[source != "EUROSTAT"], extracted_data_processed_EUROSTAT)
+  # 
+  # ##### USHD
+  # # measures/denominators are income per capita
+  # # currency is 2021 real LCU (USD), will convert to 2010 PPP$
+  # # multiplier is 1
+  # 
+  # extracted_data_processed_USHD <- currency_conversion(extracted_data_processed[source == "USHD"], 
+  #                                                      col.loc = 'iso3',  
+  #                                                      col.value = 'value', 
+  #                                                      currency = 'lcu',
+  #                                                      col.currency.year = 'base_year',
+  #                                                      base.year = 2010, 
+  #                                                      base.unit = 'ppp')
+  # extracted_data_processed_USHD[, currency := "PPP"][, base_year := 2010]
+  # 
+  # 
+  # extracted_data_processed <- rbind(extracted_data_processed[source != "USHD"], extracted_data_processed_USHD)
+  # 
+  # 
   
-  extracted_data_processed_EUROSTAT <- currency_conversion(extracted_data_processed[source == "EUROSTAT"], 
-                                                           col.loc = 'iso3',  
-                                                           col.value = 'value', 
-                                                           currency = 'lcu',
-                                                           col.currency.year = 'base_year',
-                                                           base.year = 2010, 
-                                                           base.unit = 'ppp')
-  extracted_data_processed_EUROSTAT[, currency := "PPP"][, base_year := 2010]
-  extracted_data_processed_EUROSTAT[, value := value * multiplier][, multiplier := 1]
-  
-  extracted_data_processed_EUROSTAT <- merge(extracted_data_processed_EUROSTAT, 
-                                             covariate_data[, .(location_id = loc_id, year, pop, ADM0_NAME)], 
-                                             by = c("location_id", "year"), all.x = TRUE) # note there are some NA pops pre-2000
-  extracted_data_processed_EUROSTAT[denominator == "total" & !is.na(pop), value := value / pop][denominator == "total" & !is.na(pop), denominator := "per capita"]
-  extracted_data_processed_EUROSTAT[, c("pop", "ADM0_NAME") := NULL]
-  
-  extracted_data_processed <- rbind(extracted_data_processed[source != "EUROSTAT"], extracted_data_processed_EUROSTAT)
-  
-  ##### USHD
-  # measures/denominators are income per capita
-  # currency is 2021 real LCU (USD), will convert to 2010 PPP$
-  # multiplier is 1
-  
-  extracted_data_processed_USHD <- currency_conversion(extracted_data_processed[source == "USHD"], 
-                                                       col.loc = 'iso3',  
-                                                       col.value = 'value', 
-                                                       currency = 'lcu',
-                                                       col.currency.year = 'base_year',
-                                                       base.year = 2010, 
-                                                       base.unit = 'ppp')
-  extracted_data_processed_USHD[, currency := "PPP"][, base_year := 2010]
-  
-  
-  extracted_data_processed <- rbind(extracted_data_processed[source != "USHD"], extracted_data_processed_USHD)
-  
-  
-  
-  ##### LSMS
-  # measures/denominators are annual income/consumption/expenditure/consumption expenditure per capita, will group together consumption and consumption expenditure variables
-  # currency is nominal LCU, will convert to 2010 PPP$
-  # multiplier is 1 or 1000
-  
-  extracted_data_processed_LSMS <- currency_conversion(extracted_data_processed[source == "LSMS"], 
-                                                       col.loc = 'iso3',  
-                                                       col.value = 'value', 
-                                                       currency = 'lcu',
-                                                       col.currency.year = 'base_year',
-                                                       base.year = 2010, 
-                                                       base.unit = 'ppp')
-  extracted_data_processed_LSMS[, currency := "PPP"][, base_year := 2010]
-  extracted_data_processed_LSMS[, value := value * multiplier][, multiplier := 1]
-  extracted_data_processed_LSMS[measure == "consumption expenditure", measure := "consumption"]
-  
-  
-  extracted_data_processed <- rbind(extracted_data_processed[source != "LSMS"], extracted_data_processed_LSMS)
+  # ##### LSMS
+  # # measures/denominators are annual income/consumption/expenditure/consumption expenditure per capita, will group together consumption and consumption expenditure variables
+  # # currency is nominal LCU, will convert to 2010 PPP$
+  # # multiplier is 1 or 1000
+  # 
+  # extracted_data_processed_LSMS <- currency_conversion(extracted_data_processed[source == "LSMS"], 
+  #                                                      col.loc = 'iso3',  
+  #                                                      col.value = 'value', 
+  #                                                      currency = 'lcu',
+  #                                                      col.currency.year = 'base_year',
+  #                                                      base.year = 2010, 
+  #                                                      base.unit = 'ppp')
+  # extracted_data_processed_LSMS[, currency := "PPP"][, base_year := 2010]
+  # extracted_data_processed_LSMS[, value := value * multiplier][, multiplier := 1]
+  # extracted_data_processed_LSMS[measure == "consumption expenditure", measure := "consumption"]
+  # 
+  # 
+  # extracted_data_processed <- rbind(extracted_data_processed[source != "LSMS"], extracted_data_processed_LSMS)
   
   
   ##### MICS and DHS
@@ -159,7 +159,7 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   
   extracted_data_processed_MICS_DHS <- extracted_data_processed[source %in% c("MICS", "DHS") & measure == "asset score"]
   
-  extracted_data_processed_MICS_DHS <- copy(as.data.table(dhs_all)[source %in% c("MICS", "DHS") & measure == "asset score"])
+  # extracted_data_processed_MICS_DHS <- copy(as.data.table(dhs_all)[source %in% c("MICS", "DHS") & measure == "asset score"])
   
   minmax_assetscore_values_MICS_DHS <- copy(extracted_data_processed_MICS_DHS)[, .(min = min(value), max = max(value)), by = c("nid")]
   minmax_assetscore_values_MICS_DHS[, range := max + abs(min)]
@@ -179,7 +179,7 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   # MoloMods
   extracted_data_processed_MICS_DHS[, value := value * multiplier]
   extracted_data_processed_MICS_DHS <- subset(extracted_data_processed_MICS_DHS, point == 1)
-  write_parquet(extracted_data_processed_MICS_DHS, '/ihme/scratch/users/victorvt/cgfwealth_spatial/dhs_wealth_uncollapsed_onlypoints_rescaled.parquet')
+  # write_parquet(extracted_data_processed_MICS_DHS, '/ihme/scratch/users/victorvt/cgfwealth_spatial/dhs_wealth_uncollapsed_onlypoints_rescaled.parquet')
   # extracted_data_processed_MICS_DHS[, value := value * multiplier][
   #   , sd_weighted := sd_weighted * multiplier][
   #     , sd_unweighted := sd_unweighted * multiplier]
@@ -192,56 +192,56 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   # currency is nominal LCU, will convert to 2010 PPP$
   # multiplier is 1
   
-  extracted_data_processed_CS <- currency_conversion(extracted_data_processed[source == "COUNTRY_SPECIFIC"], 
-                                                     col.loc = 'iso3',  
-                                                     col.value = 'value', 
-                                                     currency = 'lcu',
-                                                     col.currency.year = 'base_year',
-                                                     base.year = 2010, 
-                                                     base.unit = 'ppp')
-  extracted_data_processed_CS[, currency := "PPP"][, base_year := 2010]
-  extracted_data_processed_CS[, value := value * multiplier][, multiplier := 1]
-  extracted_data_processed_CS[measure == "consumption expenditure", measure := "consumption"]
-  
-  
-  extracted_data_processed <- rbind(extracted_data_processed[source != "COUNTRY_SPECIFIC"], extracted_data_processed_CS)
-  
+  # extracted_data_processed_CS <- currency_conversion(extracted_data_processed[source == "COUNTRY_SPECIFIC"], 
+  #                                                    col.loc = 'iso3',  
+  #                                                    col.value = 'value', 
+  #                                                    currency = 'lcu',
+  #                                                    col.currency.year = 'base_year',
+  #                                                    base.year = 2010, 
+  #                                                    base.unit = 'ppp')
+  # extracted_data_processed_CS[, currency := "PPP"][, base_year := 2010]
+  # extracted_data_processed_CS[, value := value * multiplier][, multiplier := 1]
+  # extracted_data_processed_CS[measure == "consumption expenditure", measure := "consumption"]
+  # 
+  # 
+  # extracted_data_processed <- rbind(extracted_data_processed[source != "COUNTRY_SPECIFIC"], extracted_data_processed_CS)
+  # 
   ##### GDL
   # measure is income index
   # no currency measures applicable
   # multiplier is 1
   # no transformations needed
-  extracted_data_processed <- rbind(extracted_data_processed[source != "GDL"], extracted_data_processed[source == "GDL"][,base_year := NA])
+  # extracted_data_processed <- rbind(extracted_data_processed[source != "GDL"], extracted_data_processed[source == "GDL"][,base_year := NA])
   
-  ##### IPUMS
-  # measure is annual income/expenditure/consumption expenditure per capita
-  # currency is  nominal LCU, will convert to 2010 PPP$
-  # multiplier is 1
-  
-  extracted_data_processed_IPUMS <- currency_conversion(extracted_data_processed[source == "IPUMS"], 
-                                                        col.loc = 'iso3',  
-                                                        col.value = 'value', 
-                                                        currency = 'lcu',
-                                                        col.currency.year = 'base_year',
-                                                        base.year = 2010, 
-                                                        base.unit = 'ppp')
-  extracted_data_processed_IPUMS[, currency := "PPP"][, base_year := 2010]
-  extracted_data_processed_IPUMS[measure == "consumption expenditure", measure := "consumption"]
-  
-  extracted_data_processed <- rbind(extracted_data_processed[source != "IPUMS"], extracted_data_processed_IPUMS)
-  
-  
-  extracted_data_processed[, measure := gsub(" ", "_", measure)]  
-  
-  # Standardize isocodes of a few subnational surveys
-  extracted_data_processed[grepl("_", iso3), iso3 := substring(iso3, 1, 3)]
-  
-  # Drop a couple of DOM DHS_SPECIAL surveys that were only representative of Batey villages at the GPS level, so will exclude from aggregated admin2 data because not representative
-  # Also fill in SD for a LSMS VNM manually extracted survey with tabular data
-  if(point_to_polygon) {
-    extracted_data_processed <- extracted_data_processed[!(nid %in% c(21198, 165645))]
-    extracted_data_processed <- extracted_data_processed[nid == 25927, c("sd_unweighted", "sd_weighted") := 0.0001]
-  }
+  # ##### IPUMS
+  # # measure is annual income/expenditure/consumption expenditure per capita
+  # # currency is  nominal LCU, will convert to 2010 PPP$
+  # # multiplier is 1
+  # 
+  # extracted_data_processed_IPUMS <- currency_conversion(extracted_data_processed[source == "IPUMS"], 
+  #                                                       col.loc = 'iso3',  
+  #                                                       col.value = 'value', 
+  #                                                       currency = 'lcu',
+  #                                                       col.currency.year = 'base_year',
+  #                                                       base.year = 2010, 
+  #                                                       base.unit = 'ppp')
+  # extracted_data_processed_IPUMS[, currency := "PPP"][, base_year := 2010]
+  # extracted_data_processed_IPUMS[measure == "consumption expenditure", measure := "consumption"]
+  # 
+  # extracted_data_processed <- rbind(extracted_data_processed[source != "IPUMS"], extracted_data_processed_IPUMS)
+  # 
+  # 
+  # extracted_data_processed[, measure := gsub(" ", "_", measure)]  
+  # 
+  # # Standardize isocodes of a few subnational surveys
+  # extracted_data_processed[grepl("_", iso3), iso3 := substring(iso3, 1, 3)]
+  # 
+  # # Drop a couple of DOM DHS_SPECIAL surveys that were only representative of Batey villages at the GPS level, so will exclude from aggregated admin2 data because not representative
+  # # Also fill in SD for a LSMS VNM manually extracted survey with tabular data
+  # if(point_to_polygon) {
+  #   extracted_data_processed <- extracted_data_processed[!(nid %in% c(21198, 165645))]
+  #   extracted_data_processed <- extracted_data_processed[nid == 25927, c("sd_unweighted", "sd_weighted") := 0.0001]
+  # }
   
   fwrite(extracted_data_processed, paste0(root_fold, "extracted_ALL_compiled_processed", point_to_polygon_string, ".csv"))
   
@@ -304,12 +304,11 @@ extracted_data_processed_ad2$pop_coverage <- NULL
 # Perform a population-weighted average of the admin2 regions to get to the estimated admin1 value
 extracted_data_processed_ad2_agg <- extracted_data_processed_ad2[, new_value := value * ADM2_pop]
 extracted_data_processed_ad2$ADM2_pop <- NULL
-extracted_data_processed_ad2_agg <- extracted_data_processed_ad2_agg[, .(new_value = sum(new_value), N_households = sum(N_households),
-                                                                         sd_weighted = mean(sd_weighted), sd_unweighted = mean(sd_unweighted)), 
+extracted_data_processed_ad2_agg <- extracted_data_processed_ad2_agg[, .(new_value = sum(new_value)), 
                                                                      by = c("year", "ADM1_NAME", "nid", "source", 
                                                                             "data_type", "file_path", "iso3", "location_type", "shapefile",
-                                                                            "measure", "denominator", "multiplier", "value_type", "currency",
-                                                                            "base_year", "currency_detail", "notes", "geomatching_notes",
+                                                                            "measure", "denominator", "multiplier", "value_type", 
+                                                                            "base_year", 
                                                                             "initials", "lat", "long", "ADM0_NAME", "ADM1_pop", "new_ADM1_pop", "ADM1_loc_id")]
 extracted_data_processed_ad2_agg[, new_value := new_value / new_ADM1_pop]
 
@@ -324,7 +323,7 @@ extracted_data_processed_ad2_agg[, source := paste0(source, "_adm2_aggregated")]
 extracted_data_processed_all <- rbind(extracted_data_processed, extracted_data_processed_ad2_agg, fill = T)
 
 # For SAE modeling, create standard error from standard deviation in order to reduce uncertainty
-extracted_data_processed_all[, se_weighted := sd_weighted / sqrt(N_households)]
+# extracted_data_processed_all[, se_weighted := sd_weighted / sqrt(N_households)]
 
 fwrite(extracted_data_processed_all, paste0(root_fold, "extracted_ALL_compiled_processed_all_polygon.csv"))
 fwrite(extracted_data_processed_all, paste0(root_fold, "input_data_extracted_ALL_compiled_processed_all_polygon.csv"))
