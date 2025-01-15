@@ -1,3 +1,5 @@
+## Purpose: Merging CGF and wealth data files
+
 ## Setup
 rm(list = ls())
 pacman::p_load(readr)
@@ -20,5 +22,9 @@ convert_keys_to_char <- function(dt, keys) {
 cgf <- convert_keys_to_char(cgf, merge_keys)
 wealth <- convert_keys_to_char(wealth, merge_keys)
 
-## Merging
-tmp <- merge(cgf, wealth[, !c('file_path','survey_module')], by.x = c('hh_id','nid','strata','psu','pweight','ihme_loc_id','year_start','year_end','geospatial_id'), by.y = c('hh_id','nid','strata','psu','weight','iso3','year_start','year_end','geospatial_id'), all.x = T)
+## Merging and exporting
+tmp <- merge(cgf, wealth[, !c('file_path','survey_module')], 
+             by.x = c('hh_id','nid','strata','psu','pweight','ihme_loc_id','year_start','year_end','geospatial_id'), 
+             by.y = c('hh_id','nid','strata','psu','weight','iso3','year_start','year_end','geospatial_id'), 
+             all.x = T)
+write.csv(tmp, '/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/merged_cgf_wealth.csv')
