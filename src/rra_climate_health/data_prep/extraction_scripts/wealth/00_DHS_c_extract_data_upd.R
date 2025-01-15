@@ -337,6 +337,17 @@ validate_merge_nrows(dhs_long_before, dhs_long)
 # Fill location_ids based on standard shapefiles from stable shapefiles - currently no data match this criteria
 stable_shapefile_nids <- unique(dhs_long[shapefile_type=="stable"]$nid) # none
 
+#### STOPPING HERE FOR NOW, TO PREVENT FURTHER AGGREGATION
+# Removing any empty columns, then exporting
+columns_to_remove <- c("point", "lat", "long", "shapefile", "location_code", 
+                       "location_name", "location_type", "sharefile_type", 
+                       "location_id", "source_location_id", "source_location_type", 
+                       "currency_detail", "currency", "base_year", "notes", 
+                       "geomatching_notes")
+
+dhs_long <- dhs_long[, !names(dhs_long) %in% columns_to_remove, with = FALSE]
+
+write.csv(dhs_long, "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_00_DHS.csv")
 
 ###########################################
 ## Collapse data ##
@@ -438,7 +449,7 @@ if(length(nid_diff_to_poly) > 0){
 }
 
 # Exporting
-dhs_long$point_to_polygon = FALSE
-write.csv(dhs_long, "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/00_DHS.csv")
-dhs_long_to_poly$point_to_polygon = TRUE
-write.csv(dhs_long_to_poly, "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/00_DHS_poly.csv")
+# dhs_long$point_to_polygon = FALSE
+# write.csv(dhs_long, "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/00_DHS.csv")
+# dhs_long_to_poly$point_to_polygon = TRUE
+# write.csv(dhs_long_to_poly, "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/00_DHS_poly.csv")
