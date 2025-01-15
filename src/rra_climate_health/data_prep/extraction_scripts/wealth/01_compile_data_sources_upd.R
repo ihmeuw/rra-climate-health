@@ -50,7 +50,7 @@ modeling_shapefile_version <- modeling_location_version[
   location_set_version_ids == modeling_version_id, shapefile_dates]
 
 # Modify the note here to explain what changed between compiles
-change_note <- "Added new extractions"
+change_note <- "Ran script on new 00 output file"
 
 save_extraction <- function(dt, compiled = F, point_to_polygon){
   #' @description Saves out extracted data to filesystem, creating both a datestamped and stable filepath
@@ -86,7 +86,7 @@ save_extraction <- function(dt, compiled = F, point_to_polygon){
         poly_string <- ""
         out_path <- paste0(path, "extracted_", source, ".csv")
       }
-      archive_path <- paste0(path, "archive/extracted_", source, "_", poly_string, "_", date, ".csv")
+      archive_path <- paste0(path, "extracted_", source, "_", poly_string, "_", date, ".csv")
       fwrite(dt, archive_path)
       fwrite(dt, out_path)
       cat("Files saved out to:\n", out_path, "\n", archive_path)
@@ -106,17 +106,19 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   }
   
   # Read in previous compiled file for versioning purposes
-  previous_extraction <- paste0(root_fold, "00_DHS_poly", ".csv")
+  previous_extraction <- paste0(root_fold, "extracted_ALL_compiled", point_to_polygon_string, ".csv")
   previous_extraction_timestamp <- gsub(" ", "", format(file.info(previous_extraction)$ctime, "%m %d %Y"))
   previous_data <- fread(previous_extraction)
   
   # Read in all extracted wealth files (latest best versions)
-  extracted_files <- list.files(paste0("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing"), pattern = "^00_DHS", full.names = TRUE)
+  extracted_files <- list.files(path = root_fold, pattern = "extracted_.*.csv",  recursive = F, ignore.case = T)
+  extracted_files <- extracted_files[!(extracted_files %like% "ALL_compiled")]
   if(point_to_polygon) {
-    extracted_files <- extracted_files[!(extracted_files %like% "_poly")]
+    extracted_files <- extracted_files[!(extracted_files %like% "_point_and_polygon")]
   } else {
     extracted_files <- extracted_files[!(extracted_files %like% "_all_polygon")]
   }
+  extracted_files <- paste0(root_fold, extracted_files)
 
   # Bind together all extracted data
   extracted_files_dt <- lapply(extracted_files, fread, sep=",")
@@ -131,7 +133,7 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   
   changelog <- (paste0("Changelog for extracted_ALL_compiled", point_to_polygon_string, "_", date, ".csv:\n"))
   changelog <- paste0(changelog, "Input source files included:\n")
-  changelog <- paste0(changelog, paste("   ", extracted_files, ", timestamp ", gsub(" ", "", format(file.info(extracted_files)$ctime, "%m %d %Y")), collapse = "\n"), "\n")
+  # changelog <- paste0(changelog, paste("   ", extracted_files, ", timestamp ", gsub(" ", "", format(file.info(extracted_files)$ctime, "%m %d %Y")), collapse = "\n"), "\n")
   changelog <- paste0(changelog, "Run by user: ", user, "\n")
   changelog <- paste0(changelog, "Number of NIDs included: ", length(unique(dt$nid)), "\n")
   changelog <- paste0(changelog, "Number of years included: ", length(unique(dt$year)), "\n")
