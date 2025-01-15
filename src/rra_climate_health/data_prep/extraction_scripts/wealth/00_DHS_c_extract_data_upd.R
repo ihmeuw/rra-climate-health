@@ -339,9 +339,8 @@ stable_shapefile_nids <- unique(dhs_long[shapefile_type=="stable"]$nid) # none
 
 #### STOPPING HERE FOR NOW, TO PREVENT FURTHER AGGREGATION
 # Removing any empty columns, then exporting
-columns_to_remove <- c("point", "lat", "long", "shapefile", "location_code", 
-                       "location_name", "location_type", "sharefile_type", 
-                       "location_id", "source_location_id", "source_location_type", 
+columns_to_remove <- c("location_name", "location_type", "sharefile_type", 
+                        "source_location_id", "source_location_type", 
                        "currency_detail", "currency", "base_year", "notes", 
                        "geomatching_notes")
 
@@ -408,18 +407,18 @@ dhs_long_to_poly <- dhs_long_to_poly[, c("nid", "source", "data_type", "file_pat
                        "multiplier", "value", "sd_weighted", "sd_unweighted", "value_type", "currency", "base_year", "N_households",
                        "currency_detail", "notes", "geomatching_notes", "initials")][, c("lat", "long") := NA]
 
-## NEXT UP: Pull from dhs_all the psu, strata, hh_weight and hh_id columns and merge onto dhs_long and dhs_long_to_poly
-dhs_merge <- dhs_all[, .(nid, strata, psu, hhweight, hh_id, location_code)]
-dhs_merge <- unique(dhs_merge)
-
-# Separating necessary merge columns into pieces
-dhs_merge_1 <- dhs_merge[, .(nid, location_code, hh_id)]
-dhs_merge_1 <- unique(dhs_merge_1)
-
-dhs_merge_2 <- dhs_merge[, .(nid, hh_id)]
-
-# Stepwise merge due to many-to-many relationship
-dhs_long <- merge(dhs_long, dhs_merge_1, by = c("nid","location_code"), all.x = TRUE)
+# ## NEXT UP: Pull from dhs_all the psu, strata, hh_weight and hh_id columns and merge onto dhs_long and dhs_long_to_poly
+# dhs_merge <- dhs_all[, .(nid, strata, psu, hhweight, hh_id, location_code)]
+# dhs_merge <- unique(dhs_merge)
+# 
+# # Separating necessary merge columns into pieces
+# dhs_merge_1 <- dhs_merge[, .(nid, location_code, hh_id)]
+# dhs_merge_1 <- unique(dhs_merge_1)
+# 
+# dhs_merge_2 <- dhs_merge[, .(nid, hh_id)]
+# 
+# # Stepwise merge due to many-to-many relationship
+# dhs_long <- merge(dhs_long, dhs_merge_1, by = c("nid","location_code"), all.x = TRUE)
 
 ###########################################
 ## Validate and Save ##
