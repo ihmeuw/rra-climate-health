@@ -339,7 +339,7 @@ stable_shapefile_nids <- unique(dhs_long[shapefile_type=="stable"]$nid) # none
 
 #### STOPPING HERE FOR NOW, TO PREVENT FURTHER AGGREGATION
 # Removing any empty columns, then exporting
-columns_to_remove <- c("location_name", "location_type", "sharefile_type", 
+columns_to_remove <- c("location_name", "sharefile_type", 
                         "source_location_id", "source_location_type", 
                        "currency_detail", "currency", "base_year", "notes", 
                        "geomatching_notes")
