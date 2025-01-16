@@ -341,7 +341,7 @@ stable_shapefile_nids <- unique(dhs_long[shapefile_type=="stable"]$nid) # none
 # Removing any empty columns, then exporting
 columns_to_remove <- c("location_name", "sharefile_type", 
                         "source_location_id", "source_location_type", 
-                       "currency_detail", "currency", "base_year", "notes", 
+                       "currency_detail", "currency", "notes", 
                        "geomatching_notes")
 
 dhs_long <- dhs_long[, !names(dhs_long) %in% columns_to_remove, with = FALSE]
