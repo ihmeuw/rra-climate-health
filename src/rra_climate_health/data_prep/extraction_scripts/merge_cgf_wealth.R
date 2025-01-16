@@ -31,4 +31,13 @@ tmp <- merge(cgf, wealth[, !c('file_path','survey_module','year_start','year_end
 ## Renaming weight to hhweight for clarity
 tmp <- setnames(tmp, 'weight', 'hhweight')
 
+## Combining lat/latitude and long/longitude columns together
+tmp[, lat := coalesce(lat, latitude)]
+tmp[, long := coalesce(long, longitude)]
+
+tmp[, c("latitude", "longitude") := NULL]
+
+## Rename ihme_loc_id to iso3
+tmp <- setnames(tmp, 'ihme_loc_id', 'iso3')
+
 write.csv(tmp, '/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/merged_cgf_wealth.csv')
