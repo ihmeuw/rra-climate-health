@@ -70,6 +70,13 @@ ggplot(cgf_wealth, aes(x = location_name, fill = presence_category)) +
     fill = "Geo data: Coordinates, shapefile or neither?"
   ) +
   theme_minimal() + 
+  theme(
+    axis.text.x = element_text(size = 5, angle = 90, hjust = 1),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5), 
+    axis.title.x = element_text(size = 12, face = "bold"),  
+    axis.title.y = element_text(size = 12, face = "bold"),  
+    legend.title = element_text(size = 10)
+  ) + 
   theme(axis.text.x = element_text(size = 5, angle = 90, hjust = 1)) +
   geom_text_repel(
     data = cgf_wealth %>%
