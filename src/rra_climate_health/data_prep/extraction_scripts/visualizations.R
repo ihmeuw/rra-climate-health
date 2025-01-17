@@ -6,6 +6,7 @@
 library(dplyr)
 library(tidyverse)
 library(ggplot2)
+library(ggrepel)
 
 source("/ihme/cc_resources/libraries/current/r/get_outputs.R")
 source("/ihme/cc_resources/libraries/current/r/get_location_metadata.R")
@@ -14,8 +15,13 @@ source("/ihme/cc_resources/libraries/current/r/get_location_metadata.R")
 cgf_wealth <- read_csv('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/merged_cgf_wealth.csv')
 
 modeling_hierarchy_2021 <- get_location_metadata(location_set_id = 35, release_id=9)
-countries <- modeling_hierarchy_2021[level==3,]
-country_ids <- unique(countries$location_id)
+countries <- modeling_hierarchy_2021[location_type=='admin0',]
+
+setnames(countries, "ihme_loc_id", "iso3")
+countries <- countries[, .(iso3, location_name)]
+
+# Merging with all GBD countries for viz purposes
+cgf_wealth <- merge(countries, cgf_wealth, by = "iso3", all.x = TRUE)
 
 ## Visualization 1 ---------------------------------------------
 # For each country, how many data points (rows) are available for that country
@@ -41,3 +47,38 @@ cgf_wealth$both_present <- ifelse(
   cgf_wealth$coordinates_present == 1 & cgf_wealth$shapefile_present == 1, 
   1, 
   0)
+
+# Mutating based on presence of coordinates, shapefile, both, or neither
+cgf_wealth <- cgf_wealth %>%
+  mutate(
+    presence_category = case_when(
+      coordinates_present == 1 & shapefile_present == 1 ~ "both_present",
+      coordinates_present == 1 & shapefile_present == 0 ~ "coordinates_present",
+      coordinates_present == 0 & shapefile_present == 1 ~ "shapefile_present",
+      coordinates_present == 0 & shapefile_present == 0 ~ "neither_present",
+      TRUE ~ "unknown"  # In case there are any missing or strange values
+    )
+  )
+
+# Creating bar chart
+ggplot(cgf_wealth, aes(x = location_name, fill = presence_category)) +
+  geom_bar(position = "stack") +
+  labs(
+    title = "Number of CGF/wealth observations by country",
+    x = "Location Name",
+    y = "Number of rows",
+    fill = "Geo data: Coordinates, shapefile or neither?"
+  ) +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(size = 5, angle = 90, hjust = 1)) +
+  geom_text_repel(
+    data = cgf_wealth %>%
+      group_by(location_name) %>%  
+      tally() %>%  
+      filter(n > 1),  
+    aes(x = location_name, y = n, label = location_name),  
+    size = 3,      
+    box.padding = 0.35,
+    max.overlaps = 50,
+    inherit.aes = FALSE
+  )
