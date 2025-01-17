@@ -84,7 +84,7 @@ ggplot(cgf_wealth, aes(x = location_name, fill = presence_category)) +
       tally() %>%  
       filter(n > 1),  
     aes(x = location_name, y = n, label = location_name),  
-    size = 3,      
+    size = 4,      
     box.padding = 0.35,
     max.overlaps = 50,
     inherit.aes = FALSE
