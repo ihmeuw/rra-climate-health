@@ -7,6 +7,7 @@ library(dplyr)
 library(tidyverse)
 library(ggplot2)
 library(ggrepel)
+library(data.table)
 
 source("/ihme/cc_resources/libraries/current/r/get_outputs.R")
 source("/ihme/cc_resources/libraries/current/r/get_location_metadata.R")
@@ -47,6 +48,20 @@ cgf_wealth$both_present <- ifelse(
   cgf_wealth$coordinates_present == 1 & cgf_wealth$shapefile_present == 1, 
   1, 
   0)
+
+# # Temporary diagnostics: How many rows from each NID do not have geo data?
+# cgf_wealth[, num_rows := .N, by = nid]
+# 
+# filtered_cgf_wealth <- cgf_wealth[neither_present == 1]
+# 
+# filtered_cgf_wealth[, num_rows_no_geo := .N, by = nid]
+# filtered_cgf_wealth <- filtered_cgf_wealth[!is.na(nid)]
+# 
+# filtered_cgf_wealth <- filtered_cgf_wealth[, .(nid, num_rows, num_rows_no_geo)]
+# 
+# filtered_cgf_wealth <- unique(filtered_cgf_wealth)
+# 
+# filtered_cgf_wealth[, prop_no_geo := num_rows_no_geo / num_rows]
 
 # Mutating based on presence of coordinates, shapefile, both, or neither
 cgf_wealth <- cgf_wealth %>%
