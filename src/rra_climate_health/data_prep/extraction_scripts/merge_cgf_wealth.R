@@ -1,4 +1,6 @@
+## Authors: Kristin Hong, Maya Oleynikova
 ## Purpose: Merging CGF and wealth data files
+## Date: 1/15/25
 
 ## Setup
 rm(list = ls())
@@ -10,7 +12,8 @@ wealth <- setDT(read_csv('/mnt/team/rapidresponse/pub/population/modeling/climat
 
 
 # Function to convert data types of merge keys to character for consistency in merging
-merge_keys <- c('hh_id','nid','strata','psu','year_start','year_end')
+merge_keys_cgf <- c('hh_id','nid','strata','psu','psu_id')
+merge_keys_wealth <- c('hh_id','nid','strata','psu')
 convert_keys_to_char <- function(dt, keys) {
   for (key in keys) {
     dt[, (key) := as.character(get(key))]
@@ -19,13 +22,13 @@ convert_keys_to_char <- function(dt, keys) {
 }
 
 # Convert the data types of merge keys in both datasets
-cgf <- convert_keys_to_char(cgf, merge_keys)
-wealth <- convert_keys_to_char(wealth, merge_keys)
+cgf <- convert_keys_to_char(cgf, merge_keys_cgf)
+wealth <- convert_keys_to_char(wealth, merge_keys_wealth)
 
 ## Merging
-tmp <- merge(cgf, wealth[, !c('file_path','survey_module','year_start','year_end','year')], 
-             by.x = c('hh_id','nid','strata','psu','ihme_loc_id','geospatial_id','survey_name'), 
-             by.y = c('hh_id','nid','strata','psu','iso3','geospatial_id','source'), 
+tmp <- merge(cgf, wealth[, !c('file_path','survey_module','year_start','year_end','year','geospatial_id')], 
+             by.x = c('hh_id','nid','strata','psu_id','ihme_loc_id','survey_name'), 
+             by.y = c('hh_id','nid','strata','psu','iso3','source'), 
              all.x = T)
 
 ## Renaming weight to hhweight for clarity
