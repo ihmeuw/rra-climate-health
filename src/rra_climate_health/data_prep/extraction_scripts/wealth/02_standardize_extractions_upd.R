@@ -127,25 +127,25 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   # 
   # 
   
-  # ##### LSMS
-  # # measures/denominators are annual income/consumption/expenditure/consumption expenditure per capita, will group together consumption and consumption expenditure variables
-  # # currency is nominal LCU, will convert to 2010 PPP$
-  # # multiplier is 1 or 1000
-  # 
-  # extracted_data_processed_LSMS <- currency_conversion(extracted_data_processed[source == "LSMS"], 
-  #                                                      col.loc = 'iso3',  
-  #                                                      col.value = 'value', 
-  #                                                      currency = 'lcu',
-  #                                                      col.currency.year = 'base_year',
-  #                                                      base.year = 2010, 
-  #                                                      base.unit = 'ppp')
-  # extracted_data_processed_LSMS[, currency := "PPP"][, base_year := 2010]
-  # extracted_data_processed_LSMS[, value := value * multiplier][, multiplier := 1]
-  # extracted_data_processed_LSMS[measure == "consumption expenditure", measure := "consumption"]
-  # 
-  # 
-  # extracted_data_processed <- rbind(extracted_data_processed[source != "LSMS"], extracted_data_processed_LSMS)
-  
+  ##### LSMS
+  # measures/denominators are annual income/consumption/expenditure/consumption expenditure per capita, will group together consumption and consumption expenditure variables
+  # currency is nominal LCU, will convert to 2010 PPP$
+  # multiplier is 1 or 1000
+
+  extracted_data_processed_LSMS <- currency_conversion(extracted_data_processed[source == "LSMS"],
+                                                       col.loc = 'iso3',
+                                                       col.value = 'value',
+                                                       currency = 'lcu',
+                                                       col.currency.year = 'base_year',
+                                                       base.year = 2010,
+                                                       base.unit = 'ppp')
+  extracted_data_processed_LSMS[, currency := "PPP"][, base_year := 2010]
+  extracted_data_processed_LSMS[, value := value * multiplier][, multiplier := 1]
+  extracted_data_processed_LSMS[measure == "consumption expenditure", measure := "consumption"]
+
+
+  extracted_data_processed <- rbind(extracted_data_processed[source != "LSMS"], extracted_data_processed_LSMS)
+
   
   ##### MICS and DHS
   # measures/denominators are asset score/asset percentile in total space
