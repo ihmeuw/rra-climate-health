@@ -917,25 +917,25 @@ for(i in indicator_types){
 #  }
 # 
 # fwrite(data, paste0(j, '/temp/alicela/dropdata_plot_input/pre_', extract_date, '.csv'))
-# 
-# # Calculate how many observations we drop for indicators
-# 
-# total_obs <- nrow(data)
-# HAZ_drop <- nrow(data[HAZ_drop == 1,])
-# WAZ_drop <- nrow(data[WAZ_drop == 1,])
-# WHZ_drop <- nrow(data[WHZ_drop == 1,])
-# total_HAZ <- nrow(data[is.na(HAZ_drop),])
-# total_WAZ <- nrow(data[is.na(WAZ_drop),])
-# total_WHZ <- nrow(data[is.na(WHZ_drop),])
-# HAZ_exclude <- nrow(data[HAZ_exclude == 1,])
-# WAZ_exclude <- nrow(data[WAZ_exclude == 1,])
-# WHZ_exclude <- nrow(data[WHZ_exclude == 1,])
-# 
-# drop_table <- data.table( x = c('Total Rows', 'HAZ drop', 'WAZ drop', 'WHZ drop', 'HAZ after drop', 'WAZ after drop', 'WHZ after drop', 'HAZ exclude', 'WAZ exclude', 'WHZ exclude'), 
-#                           y = c(total_obs, HAZ_drop, WAZ_drop, WHZ_drop, total_HAZ, total_WAZ, total_WHZ, HAZ_exclude, WAZ_exclude, WHZ_exclude))
-# 
-# fwrite(drop_table, paste0(j, 'temp/alicela/drop_table_', extract_date, '.csv'))
-# 
+
+# Calculate how many observations we drop for indicators
+
+total_obs <- nrow(data)
+HAZ_drop <- nrow(data[HAZ_drop == 1,])
+WAZ_drop <- nrow(data[WAZ_drop == 1,])
+WHZ_drop <- nrow(data[WHZ_drop == 1,])
+total_HAZ <- nrow(data[is.na(HAZ_drop),])
+total_WAZ <- nrow(data[is.na(WAZ_drop),])
+total_WHZ <- nrow(data[is.na(WHZ_drop),])
+HAZ_exclude <- nrow(data[HAZ_exclude == 1,])
+WAZ_exclude <- nrow(data[WAZ_exclude == 1,])
+WHZ_exclude <- nrow(data[WHZ_exclude == 1,])
+
+drop_table <- data.table( x = c('Total Rows', 'HAZ drop', 'WAZ drop', 'WHZ drop', 'HAZ after drop', 'WAZ after drop', 'WHZ after drop', 'HAZ exclude', 'WAZ exclude', 'WHZ exclude'),
+                          y = c(total_obs, HAZ_drop, WAZ_drop, WHZ_drop, total_HAZ, total_WAZ, total_WHZ, HAZ_exclude, WAZ_exclude, WHZ_exclude))
+
+fwrite(drop_table, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/dropped_rows_summary.csv"))
+
 # #Add Somalia data
 # data<-rbind(data,somalia, fill=T)      
 
