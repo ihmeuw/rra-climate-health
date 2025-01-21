@@ -957,7 +957,7 @@ data_gbd <- copy(data)
 # data_gbd[nid == 19046, int_year := 1996]  
 
 
-write.csv(data_gbd, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/", module_date, ".csv"))
+write.csv(data_gbd, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/cgf_data_prep.csv"))
 
 rm(data_gbd)   
 
