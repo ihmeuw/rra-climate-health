@@ -7,7 +7,7 @@ rm(list = ls())
 pacman::p_load(readr,dplyr)
 
 ## Reading in CGF and wealth data
-cgf <- setDT(read_csv('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/2025_01_16.csv'))
+cgf <- setDT(read_csv('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/cgf_data_prep.csv'))
 wealth <- setDT(read_csv('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_ALL_compiled_processed_point_and_polygon.csv'))
 
 
