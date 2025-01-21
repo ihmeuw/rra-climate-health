@@ -945,10 +945,10 @@ fwrite(drop_table, paste0(l, "/rapidresponse/pub/population/modeling/climate_mal
 
 # Save a reference before subsetting to different indicators--necessary so z-score work won't be lost. Also, this is the GBD data.
 
-data_copy <- copy(data)
+# data_copy <- copy(data)
 
 #For GBD, fixing years we adjusted to get into geospatial's 2000 bucket:
-data_gbd <- copy(data)   
+# data_gbd <- copy(data)   
 # data_gbd[nid == 5827, start_year := 1997]
 # data_gbd[nid == 5827, int_year := 1997]      
 # data_gbd[nid == 46563, start_year := 1996]
@@ -956,10 +956,14 @@ data_gbd <- copy(data)
 # data_gbd[nid == 19046, start_year := 1996]       
 # data_gbd[nid == 19046, int_year := 1996]  
 
+## dropping columns created in extraction that serve no purpose
+colnames(data)
+data[, c("1741:", "176:","1773:","1953:","2054:","226:","227:","2466:","3050:","3051:","3053:","34111:","4322:","4966:","507:","508:","509:","6232:") := NULL]
 
-write.csv(data_gbd, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/cgf_data_prep.csv"))
 
-rm(data_gbd)   
+write.csv(data, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/cgf_data_prep.csv"))
+
+# rm(data_gbd)   
 
 
 #Summaries for dashboard      
