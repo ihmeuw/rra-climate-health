@@ -93,6 +93,7 @@ ggplot(cgf_wealth, aes(x = location_name, fill = presence_category)) +
     legend.title = element_text(size = 10)
   ) + 
   theme(axis.text.x = element_text(size = 5, angle = 90, hjust = 1)) +
+  scale_fill_manual(values = c("coordinates_present" = "blue", "shapefile_present" = "green", "neither_present" = "red")) +
   geom_text_repel(
     data = cgf_wealth %>%
       group_by(location_name) %>%  
