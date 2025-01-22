@@ -101,6 +101,6 @@ ggplot(cgf_wealth, aes(x = location_name, fill = presence_category)) +
     aes(x = location_name, y = n, label = location_name),  
     size = 4,      
     box.padding = 0.35,
-    max.overlaps = 50,
+    max.overlaps = 35,
     inherit.aes = FALSE
   )
