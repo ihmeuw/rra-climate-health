@@ -4,7 +4,7 @@
 
 ## Setup
 rm(list = ls())
-pacman::p_load(readr,dplyr)
+pacman::p_load(readr,dplyr,data.table)
 
 ## Reading in CGF and wealth data
 cgf <- setDT(read_csv('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/cgf_data_prep.csv'))
@@ -26,9 +26,9 @@ cgf <- convert_keys_to_char(cgf, merge_keys_cgf)
 wealth <- convert_keys_to_char(wealth, merge_keys_wealth)
 
 ## Merging
-tmp <- merge(cgf, wealth[, !c('file_path','survey_module','year_start','year_end','year','geospatial_id')], 
-             by.x = c('hh_id','nid','strata','psu_id','ihme_loc_id','survey_name'), 
-             by.y = c('hh_id','nid','strata','psu','iso3','source'), 
+tmp <- merge(cgf, wealth[, !c('file_path','survey_module','year_start','year_end','year','geospatial_id','source')], 
+             by.x = c('hh_id','nid','strata','psu_id','ihme_loc_id'), 
+             by.y = c('hh_id','nid','strata','psu','iso3'), 
              all.x = T)
 
 ## Renaming weight to hhweight for clarity
