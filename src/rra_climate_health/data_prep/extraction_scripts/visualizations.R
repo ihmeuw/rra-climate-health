@@ -104,3 +104,38 @@ ggplot(cgf_wealth, aes(x = location_name, fill = presence_category)) +
     max.overlaps = 35,
     inherit.aes = FALSE
   )
+
+## Visualization 2 ---------------------------------------------
+# For each country, how many data points (rows) are available for that country
+# which have either shapefile or coordinate geo data?
+
+# shapefile set up
+library(sf)
+shapes <- read_sf("/snfs1/WORK/11_geospatial/admin_shapefiles/2023_10_30/lbd_standard_admin_0_simplified.shp")
+head(shapes)
+
+mapview::mapview(shapes)
+
+# Merging sf with data, creating variable to count number of rows that have geo data
+shapes <- shapes %>% 
+  left_join(cgf_wealth, by = c("ADM0_NAME" = "location_name"))
+
+shapes <- shapes %>%
+  group_by(ADM0_NAME) %>%
+  mutate(count_presence = sum(presence_category %in% c("shapefile_present", "both_present", "coordinates_present"))) %>%
+  ungroup()
+
+# Create the plot with a gradient fill based on the count
+plot <- ggplot(data = shapes) +
+  geom_sf(mapping = aes(fill = count_presence)) +  # Use the new count_presence variable for the fill
+  scale_fill_gradient(low = "lightblue", high = "blue", na.value = "white") +  # Define the color gradient
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"),
+        plot.title = element_text(color = "black", size = 15, face = "bold"),
+        legend.position = "right") +  # Changed to "right" to show the gradient
+  coord_sf(ylim = c(-50, 90), datum = NA) + 
+  ggtitle("Data coverage for wealth + CGF microdata where geo data present (shapefile or long/lat)")
+
+print(plot)
