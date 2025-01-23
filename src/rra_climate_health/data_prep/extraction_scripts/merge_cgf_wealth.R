@@ -4,7 +4,7 @@
 
 ## Setup
 rm(list = ls())
-pacman::p_load(readr,dplyr,data.table)
+pacman::p_load(readr,dplyr,data.table,arrow)
 
 ## Reading in CGF and wealth data
 cgf <- setDT(read_csv('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/cgf_data_prep.csv'))
@@ -44,3 +44,4 @@ tmp[, c("latitude", "longitude") := NULL]
 tmp <- setnames(tmp, 'ihme_loc_id', 'iso3')
 
 write.csv(tmp, '/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/merged_cgf_wealth.csv')
+write_parquet(tmp, '/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/merged_cgf_wealth.parquet')
