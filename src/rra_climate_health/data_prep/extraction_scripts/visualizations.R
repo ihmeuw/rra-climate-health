@@ -120,26 +120,30 @@ head(shapes)
 mapview::mapview(shapes)
 
 # Merging sf with data, creating variable to count number of rows that have geo data
-shapes <- shapes %>% 
-  left_join(cgf_wealth, by = c("ADM0_NAME" = "location_name"))
+cgf_wealth_geo <- cgf_wealth[cgf_wealth$presence_category != "neither_present", ]
 
-shapes <- shapes %>%
-  group_by(ADM0_NAME) %>%
-  mutate(count_presence = sum(presence_category %in% c("shapefile_present", "both_present", "coordinates_present"))) %>%
-  ungroup()
+cgf_wealth_geo <- cgf_wealth_geo %>%
+  group_by(location_name) %>%
+  summarise(value = n(), .groups = "drop")
+
+shapes <- shapes %>% 
+  left_join(cgf_wealth_geo, by = c("ADM0_NAME" = "location_name"))
 
 # Create the plot with a gradient fill based on the count
 plot <- ggplot(data = shapes) +
-  geom_sf(mapping = aes(fill = count_presence)) +  # Use the new count_presence variable for the fill
+  geom_sf(mapping = aes(fill = value)) +  # Use the new count_presence variable for the fill
   scale_fill_gradient(low = "lightblue", high = "blue", na.value = "white") +  # Define the color gradient
   theme(panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
         panel.background = element_blank(), 
+        plot.margin = margin(t = 1, r = 10, b = 10, l = 10),
+        plot.title.position = "plot" ,
         axis.line = element_line(colour = "black"),
-        plot.title = element_text(color = "black", size = 15, face = "bold"),
+        plot.title = element_text(color = "black", size = 25, face = "bold"),
         legend.position = "right") +  # Changed to "right" to show the gradient
   coord_sf(ylim = c(-50, 90), datum = NA) + 
-  ggtitle("Data coverage for wealth + CGF microdata where geo data present (shapefile or long/lat)")
+  ggtitle("Data coverage for wealth + CGF microdata where geo data present (shapefile or long/lat)") + 
+  guides(fill = guide_legend(title = "Number of rows"))
 
 print(plot)
 
