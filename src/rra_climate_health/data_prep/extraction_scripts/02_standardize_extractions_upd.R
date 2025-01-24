@@ -1,3 +1,17 @@
+#####################################################################################
+######### Script updated for RRA climate malnutrition analysis ######################
+### Date: 1/24/2025
+### User: khong1 (Kristin Hong) and mayaol (Maya Oleynikova)
+### Function: Compile extracted data from multiple sources.
+### Input: /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_ALL_compiled_all_polygon.csv 
+###         /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_ALL_compiled_point_and_polygon.csv 
+### Output: /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_ALL_compiled_processed_all_polygon.csv 
+###         /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_ALL_compiled_processed_point_and_polygon.csv  
+### Notes: Original comments left below. Adapted from original script found here: https://github.com/ihmeuw/rra-climate-health/blob/feature/raw-extractions/src/rra_climate_health/data_prep/extraction_scripts/archive_unused/wealth/02_standardize_extractions.R
+######################################################################################
+
+######################################################################################
+
 #' @Title: [02_standardize_extractions.R]  
 #' @Authors: Bianca Zlavog 
 #' @contact: zlavogb@uw.edu
@@ -21,6 +35,7 @@
 #' `/ihme/resource_tracking/LSAE_income/1_data_extractions/extracted_ALL_compiled_processed_point_and_polygon.csv`
 #' Processed compiled extracted data in extraction template format for SAE modeling input at
 #' `/ihme/geospatial/lsae/economic_indicators/ldi/input/input_data_extracted_ALL_compiled_processed_all_polygon.csv`
+######################################################################################
 
 ##### Setup
 
@@ -132,19 +147,19 @@ for(point_to_polygon in c(TRUE, FALSE)) {
   # currency is nominal LCU, will convert to 2010 PPP$
   # multiplier is 1 or 1000
 
-  extracted_data_processed_LSMS <- currency_conversion(extracted_data_processed[source == "LSMS"],
-                                                       col.loc = 'iso3',
-                                                       col.value = 'value',
-                                                       currency = 'lcu',
-                                                       col.currency.year = 'base_year',
-                                                       base.year = 2010,
-                                                       base.unit = 'ppp')
-  extracted_data_processed_LSMS[, currency := "PPP"][, base_year := 2010]
-  extracted_data_processed_LSMS[, value := value * multiplier][, multiplier := 1]
-  extracted_data_processed_LSMS[measure == "consumption expenditure", measure := "consumption"]
-
-
-  extracted_data_processed <- rbind(extracted_data_processed[source != "LSMS"], extracted_data_processed_LSMS)
+  # extracted_data_processed_LSMS <- currency_conversion(extracted_data_processed[source == "LSMS"],
+  #                                                      col.loc = 'iso3',
+  #                                                      col.value = 'value',
+  #                                                      currency = 'lcu',
+  #                                                      col.currency.year = 'base_year',
+  #                                                      base.year = 2010,
+  #                                                      base.unit = 'ppp')
+  # extracted_data_processed_LSMS[, currency := "PPP"][, base_year := 2010]
+  # extracted_data_processed_LSMS[, value := value * multiplier][, multiplier := 1]
+  # extracted_data_processed_LSMS[measure == "consumption expenditure", measure := "consumption"]
+  # 
+  # 
+  # extracted_data_processed <- rbind(extracted_data_processed[source != "LSMS"], extracted_data_processed_LSMS)
 
   
   ##### MICS and DHS
