@@ -1,4 +1,14 @@
 #####################################################################################
+######### Script updated for RRA climate malnutrition analysis ######################
+### Date: 1/24/2025
+### User: khong1 (Kristin Hong) and mayaol (Maya Oleynikova)
+### Function: Consolidate extractions and prepare data child growth failure data, specifically for HIC w/o wealth data
+### Input: /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/hic_only_cgf/
+### Output: /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/hic_only_cgf/hic_cgf_data_prep.csv
+### Notes: Adapted from original script found here: https://stash.ihme.washington.edu/projects/GEOSP/repos/cgf/browse/data_prep/cgf_data_prep.R
+######################################################################################
+
+#####################################################################################
 ## Author: Rebecca Stubbs
 ## Modified by: Brandon Pickering, Alice Lazzar-Atwood
 ## Date: August 1, 2017
