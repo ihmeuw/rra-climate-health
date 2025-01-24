@@ -35,13 +35,14 @@ wealth <- wealth %>%
 
 ## Merging
 tmp <- merge(cgf, wealth[, !c('file_path','survey_module','year_start','year_end','year','geospatial_id','source')], 
-             by.x = c('hh_id','nid','strata','psu','ihme_loc_id','hhweight'), 
-             by.y = c('hh_id','nid','strata','psu','iso3','weight'), 
+             by.x = c('hh_id','nid','strata','psu','ihme_loc_id'), 
+             by.y = c('hh_id','nid','strata','psu','iso3'), 
              all.x = T)
 
 
-# ## Renaming weight to hhweight for clarity
-# tmp <- setnames(tmp, 'weight', 'hhweight')
+## Combining hhweight
+tmp[, hhweight := coalesce(hhweight, weight)]
+tmp[, 'weight' := NULL]
 
 ## Combining lat/latitude and long/longitude columns together
 tmp[, lat := coalesce(lat, latitude)]
