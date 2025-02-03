@@ -44,7 +44,7 @@ if (Sys.info()["sysname"] == "Linux") {
 }
 
 
-source(paste0(h, "/indicators/1_retrospective/1_GDP_LDI/LSAE/helper_functions.R"))
+source(paste0(h, "/repos/indicators/1_retrospective/1_GDP_LDI/02_subnational_LSAE/helper_functions.R"))
 
 modeling_shapefile_version <- get_LSAE_location_versions()
 modeling_shapefile_version <- modeling_shapefile_version[
@@ -65,9 +65,9 @@ global_admin1_sf <- sf::st_read(global_admin1_shapefile_fp)
 ## Load and read all files ##
 #############################
 
-mics_path <- "/ihme/resource_tracking/LSAE_income/0_preprocessing/MICS/extractions/"
+mics_path <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/wealth"
 mics_files <- list.files(path = mics_path, pattern = "*.dta", recursive = T, ignore.case = T)
-mics_hh_files <- paste0(mics_path, mics_files)
+mics_hh_files <- paste0(mics_path,"/", mics_files)
 
 #read in all extracted surveys and combine###
 mics_extracts <- lapply(mics_hh_files,function(i){
@@ -378,6 +378,15 @@ for(stable_nid in stable_shapefile_nids) {
 }
 mics_all <- rbind(mics_all[!nid %in% stable_shapefile_nids], stable_shapefile_fill_all)
 
+#### STOPPING HERE FOR NOW, TO PREVENT FURTHER AGGREGATION
+columns_to_remove <- c("location_name", "sharefile_type", 
+                       "source_location_id", "source_location_type", 
+                       "currency_detail", "currency", "notes", 
+                       "geomatching_notes")
+
+mics_all <- mics_all[, !names(mics_all) %in% columns_to_remove, with = FALSE]
+
+write.csv(mics_all, "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_00_MICS.csv")
 
 ###########################################
 ## Collapse data ##
