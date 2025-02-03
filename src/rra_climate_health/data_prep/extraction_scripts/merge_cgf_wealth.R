@@ -10,6 +10,9 @@ pacman::p_load(readr,dplyr,data.table,arrow)
 cgf <- setDT(read_csv('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/cgf_data_prep.csv'))
 wealth <- setDT(read_csv('/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_ALL_compiled_processed_point_and_polygon.csv'))
 
+# Remove index col
+cgf[, '...1' := NULL]
+
 # Function to convert data types of merge keys to character for consistency in merging
 merge_keys_cgf <- c('hh_id','nid','strata','psu','psu_id')
 merge_keys_wealth <- c('hh_id','nid','strata','psu')
