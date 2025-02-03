@@ -1,4 +1,15 @@
+#####################################################################################
+######### Script updated for RRA climate malnutrition analysis ######################
+### Date: 1/24/2025
+### User: khong1 (Kristin Hong) and mayaol (Maya Oleynikova)
+### Function: Compile extracted data from multiple sources.
+### Input: /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_00_DHS.csv
+### Output: /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_ALL_compiled_all_polygon.csv 
+###         /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_ALL_compiled_point_and_polygon.csv 
+### Notes: Original comments left below. Adapted from original script found here: https://github.com/ihmeuw/rra-climate-health/blob/feature/raw-extractions/src/rra_climate_health/data_prep/extraction_scripts/archive_unused/wealth/01_compile_data_sources.R
+######################################################################################
 
+######################################################################################
 #' @Title: [01_compile_data_sources.R]  
 #' @Authors: Kayleigh Bhangdia and Bianca Zlavog 
 #' @contact: bhangdia@uw.edu; zlavogb@uw.edu
@@ -22,7 +33,7 @@
 #' and changelogs tracking changes at
 #' `/ihme/resource_tracking/LSAE_income/1_data_extractions/changelogs/changelog_compiled_all_polygon_[datestamp].csv`
 #' `/ihme/resource_tracking/LSAE_income/1_data_extractions/changelogs/changelog_compiled_point_and_polygon_[datestamp].csv`
-
+######################################################################################
 
 ##### Setup
 

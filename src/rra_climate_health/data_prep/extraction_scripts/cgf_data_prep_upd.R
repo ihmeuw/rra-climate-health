@@ -1,4 +1,14 @@
 #####################################################################################
+######### Script updated for RRA climate malnutrition analysis ######################
+### Date: 1/24/2025
+### User: khong1 (Kristin Hong) and mayaol (Maya Oleynikova)
+### Function: Consolidate extractions and prepare data child growth failure data
+### Input: /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions
+### Output: /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/cgf_data_prep.csv
+### Notes: Adapted from original script found here: https://stash.ihme.washington.edu/projects/GEOSP/repos/cgf/browse/data_prep/cgf_data_prep.R
+######################################################################################
+
+#####################################################################################
 ## Author: Rebecca Stubbs
 ## Modified by: Brandon Pickering, Alice Lazzar-Atwood
 ## Date: August 1, 2017
@@ -106,10 +116,11 @@ module_date <- Sys.Date()
 module_date <- gsub("-", "_", module_date)  
 
 input_data_csv<-paste0(l,"rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/", all.files)
-input_data_csv <- input_data_csv[grep(("archive"), input_data_csv, invert = TRUE)]
+input_data_csv <- input_data_csv[grep("archive", input_data_csv, invert = TRUE)]
 input_data_csv <- input_data_csv[grep("dta", input_data_csv, invert = TRUE)]
 input_data_csv <- input_data_csv[grep("wealth", input_data_csv, invert = TRUE)]
 input_data_csv <- input_data_csv[grep("excluded", input_data_csv, invert = TRUE)]
+input_data_csv <- input_data_csv[grep("hic_only_cgf", input_data_csv, invert = TRUE)]
 
 #######################################################################################################################################################
 ## 2.) PREPARE RAW EXTRACT DATA: Read in data, calculate age, define geospatial id, 
@@ -161,18 +172,18 @@ data[, age_cat_2:= "0-5"]
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ## (1) we take geospatial_id as PSU (we just need a unique cluster identifier)
-data[,orig.psu:=psu]
-data[,psu:=geospatial_id]
+# data[,orig.psu:=psu]
+# data[,psu:=geospatial_id]
 
 ## unless there are more psus than geospatial_id - than take psu back (should only be an issue for early extracts)
 na.geo <- aggregate(is.na(geospatial_id) ~ nid, data, mean)
-na.psu <- aggregate(is.na(orig.psu) ~ nid, data, mean)
+na.psu <- aggregate(is.na(psu) ~ nid, data, mean)
 colnames(na.geo)[2] <- "nas.g"
 colnames(na.psu)[2] <- "nas.p"
 nas <- merge(na.geo, na.psu)
 use.psu <- nas$nid[which(nas$nas.g > nas$nas.p)]
 psu.r <- which(data$nid %in% use.psu)
-data[psu.r, 'psu'] <- data[psu.r, 'orig.psu']
+# data[psu.r, 'psu'] <- data[psu.r, 'orig.psu']
 
 ## (2) if there are more household weights than pweights,we use those instead
 # na.pweight  <- aggregate(is.na(pweight) ~ nid, data, mean)
@@ -1146,106 +1157,106 @@ write.csv(data, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnut
 #   # Seperate data into points and polys for the collapse!
 #   
 #   point_data <- all_data[point==1, ]
-  # poly_data <- all_data[point==0, ]
-  
-  ########################################################################################################################################################
-  # PART 1: COLLAPSE POINT DATA - Collapse point data by geography, splitting by sex if desired
-  ########################################################################################################################################################
-  
-  ## Process point_data as you normally would, collapsing to cluster means. Let's call this new dt point_data_collapsed.
-  ## sum() for binomial indicators or mean() for Gaussian indicators
-  # 
-  # 
-  # point_collapse <- function(ind, point_data, sex){
-  #   
-  #   if(sex=='m'){
-  #     point_data <- point_data[sex==1,]
-  #   } else if(sex=='f'){
-  #     point_data <- point_data[sex==0,]
-  #   }
-  #   
-  #   # Point collapse 
-  #   if (!(ind %in% c('wasting_mod_who','overweight_mod_who', 'normal_mod_who'))){
-  #     point_data[point==1 & is.na(pweight), pweight := 1]
-  #     
-  #     all_point_data <- point_data[ ,list(N = sum(N), var = sum(get(ind), na.rm = TRUE), pweight_sum = sum(pweight, na.rm = TRUE)), by=c('source', 'start_year','latitude','longitude','country', 'nid')]
-  #     setnames(all_point_data, "var", ind)
-  #     all_point_data <- all_point_data[!is.na(latitude)]
-  #     all_point_data <- all_point_data[!is.na(longitude)]
-  #     all_point_data$point <- 1
-  #     setnames(all_point_data, 'nid', 'svy_id')  
-  #   } # Closes the point collapse for non-scaled indicators
-  #   
-  #   fwrite(all_point_data, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
-  # } # Closes the point collapse function
-  
-  
-  
-  ##############################################################################################################################################
-  # PART 2: COLLAPSE POLYGON DATA - Collapse data by survey and polygon
-  ##############################################################################################################################################
-  # 
-  # # Per Damaris, since we're no longer dropping problem strata, we're just going to remove all rows missing pweights in the poly data
-  # poly_data <- poly_data[!is.na(pweight),]
-  # 
-  # # Dropping polygons with only 1 observation  
-  # poly_data_test <- copy(poly_data)
-  # poly_data_test <- poly_data_test[, list(N=sum(N)), by=c('source', 'start_year', 'country', 'location_code', 'shapefile' )]
-  # poly_data_bad <- poly_data_test[N==1, ]
-  # 
-  # if(length(poly_data_bad[, source]) > 0) {
-  #   message("This many polygons have 1 observation so will be dropped:")
-  #   print(table(poly_data_bad[, source], poly_data_bad[, start_year]))
-  #   ##    poly_data_test[, N:= NULL]
-  #   poly_data <- merge(poly_data, poly_data_test, by=c('start_year', 'country', 'location_code', 'shapefile', 'source'))
-  #   poly_data <- poly_data[N.x != N.y, ] ## n.x and n.y are equal where both are 1, i.e. where poly had one cluster
-  #   setnames(poly_data, 'N.x', 'N') ## set the original N col back
-  #   poly_data[, N.y := NULL] ## remove the summed N col
-  # }
-  # 
-  # ## setnames(poly_data, 'country', 'iso3') ## AOZ edit: these "countries" are iso3. should the be full country names?
-  # poly_surveys <- unique(poly_data[, nid])
-  # 
-  # 
-  # poly_collapse <- function(ind, poly_data, sex){
-  #   
-  #   if(sex=='m'){
-  #     poly_data <- poly_data[sex==1,]
-  #   } else if(sex=='f'){
-  #     poly_data <- poly_data[sex==0,]
-  #   }
-  #   
-  #   ####Kish's  collapse  
-  #   
-  #   # The polygon collapse 
-  #   if (!(ind %in% c('wasting_mod_who','overweight_mod_who', 'normal_mod_who'))){
-  #     collapsed_dat2 <- poly_data %>%
-  #       mutate(pweight2 = pweight^2) %>%
-  #       group_by(country, location_code, shapefile, source, nid) %>%
-  #       summarise(mean = weighted.mean(get(ind), w = pweight, na.rm = TRUE),
-  #                 n_eff = ((sum(pweight, na.rm = TRUE))^2)/(sum(pweight2, na.rm = TRUE)),
-  #                 pweight_sum = sum(pweight, na.rm = TRUE),
-  #                 start_year=floor(weighted.mean(start_year, w=N)))
-  #     
-  #     all_poly_data<-data.frame(collapsed_dat2)
-  #     all_poly_data[[ind]] <- round(all_poly_data$mean * all_poly_data$n_eff)
-  #     # names(all_poly_data)[names(all_poly_data) == 'var'] <- get("ind")  
-  #     all_poly_data$N <- round(all_poly_data$n_eff)
-  #     all_poly_data$point <- 0
-  #     all_poly_data <- subset( all_poly_data, select = -c(mean, n_eff ) )
-  #     setnames(all_poly_data, 'nid', 'svy_id')
-  #   } # Closes polygon collapse for non-scaled indicators
-  #   
-  #   poly_data_collapsed <- copy(all_poly_data)
-  #   poly_data_collapsed <- as.data.table(poly_data_collapsed)
-  #   
-  #   
-  #   # write the collapsed data to a folder to use for resampling!
-  #   fwrite(poly_data_collapsed, paste0(l,'/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
-  # } # Closes the polygon collapse function
-  # 
-  
-  # Collapse stuff!
+# poly_data <- all_data[point==0, ]
+
+########################################################################################################################################################
+# PART 1: COLLAPSE POINT DATA - Collapse point data by geography, splitting by sex if desired
+########################################################################################################################################################
+
+## Process point_data as you normally would, collapsing to cluster means. Let's call this new dt point_data_collapsed.
+## sum() for binomial indicators or mean() for Gaussian indicators
+# 
+# 
+# point_collapse <- function(ind, point_data, sex){
+#   
+#   if(sex=='m'){
+#     point_data <- point_data[sex==1,]
+#   } else if(sex=='f'){
+#     point_data <- point_data[sex==0,]
+#   }
+#   
+#   # Point collapse 
+#   if (!(ind %in% c('wasting_mod_who','overweight_mod_who', 'normal_mod_who'))){
+#     point_data[point==1 & is.na(pweight), pweight := 1]
+#     
+#     all_point_data <- point_data[ ,list(N = sum(N), var = sum(get(ind), na.rm = TRUE), pweight_sum = sum(pweight, na.rm = TRUE)), by=c('source', 'start_year','latitude','longitude','country', 'nid')]
+#     setnames(all_point_data, "var", ind)
+#     all_point_data <- all_point_data[!is.na(latitude)]
+#     all_point_data <- all_point_data[!is.na(longitude)]
+#     all_point_data$point <- 1
+#     setnames(all_point_data, 'nid', 'svy_id')  
+#   } # Closes the point collapse for non-scaled indicators
+#   
+#   fwrite(all_point_data, paste0(l, "/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed", topic, "/", ind, "/all_point_data_", sex, "_", module_date, ".csv"))
+# } # Closes the point collapse function
+
+
+
+##############################################################################################################################################
+# PART 2: COLLAPSE POLYGON DATA - Collapse data by survey and polygon
+##############################################################################################################################################
+# 
+# # Per Damaris, since we're no longer dropping problem strata, we're just going to remove all rows missing pweights in the poly data
+# poly_data <- poly_data[!is.na(pweight),]
+# 
+# # Dropping polygons with only 1 observation  
+# poly_data_test <- copy(poly_data)
+# poly_data_test <- poly_data_test[, list(N=sum(N)), by=c('source', 'start_year', 'country', 'location_code', 'shapefile' )]
+# poly_data_bad <- poly_data_test[N==1, ]
+# 
+# if(length(poly_data_bad[, source]) > 0) {
+#   message("This many polygons have 1 observation so will be dropped:")
+#   print(table(poly_data_bad[, source], poly_data_bad[, start_year]))
+#   ##    poly_data_test[, N:= NULL]
+#   poly_data <- merge(poly_data, poly_data_test, by=c('start_year', 'country', 'location_code', 'shapefile', 'source'))
+#   poly_data <- poly_data[N.x != N.y, ] ## n.x and n.y are equal where both are 1, i.e. where poly had one cluster
+#   setnames(poly_data, 'N.x', 'N') ## set the original N col back
+#   poly_data[, N.y := NULL] ## remove the summed N col
+# }
+# 
+# ## setnames(poly_data, 'country', 'iso3') ## AOZ edit: these "countries" are iso3. should the be full country names?
+# poly_surveys <- unique(poly_data[, nid])
+# 
+# 
+# poly_collapse <- function(ind, poly_data, sex){
+#   
+#   if(sex=='m'){
+#     poly_data <- poly_data[sex==1,]
+#   } else if(sex=='f'){
+#     poly_data <- poly_data[sex==0,]
+#   }
+#   
+#   ####Kish's  collapse  
+#   
+#   # The polygon collapse 
+#   if (!(ind %in% c('wasting_mod_who','overweight_mod_who', 'normal_mod_who'))){
+#     collapsed_dat2 <- poly_data %>%
+#       mutate(pweight2 = pweight^2) %>%
+#       group_by(country, location_code, shapefile, source, nid) %>%
+#       summarise(mean = weighted.mean(get(ind), w = pweight, na.rm = TRUE),
+#                 n_eff = ((sum(pweight, na.rm = TRUE))^2)/(sum(pweight2, na.rm = TRUE)),
+#                 pweight_sum = sum(pweight, na.rm = TRUE),
+#                 start_year=floor(weighted.mean(start_year, w=N)))
+#     
+#     all_poly_data<-data.frame(collapsed_dat2)
+#     all_poly_data[[ind]] <- round(all_poly_data$mean * all_poly_data$n_eff)
+#     # names(all_poly_data)[names(all_poly_data) == 'var'] <- get("ind")  
+#     all_poly_data$N <- round(all_poly_data$n_eff)
+#     all_poly_data$point <- 0
+#     all_poly_data <- subset( all_poly_data, select = -c(mean, n_eff ) )
+#     setnames(all_poly_data, 'nid', 'svy_id')
+#   } # Closes polygon collapse for non-scaled indicators
+#   
+#   poly_data_collapsed <- copy(all_poly_data)
+#   poly_data_collapsed <- as.data.table(poly_data_collapsed)
+#   
+#   
+#   # write the collapsed data to a folder to use for resampling!
+#   fwrite(poly_data_collapsed, paste0(l,'/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/4_collapsed', ind,'/collapsed_polys_', sex, "_", module_date, '.csv'))
+# } # Closes the polygon collapse function
+# 
+
+# Collapse stuff!
 #   
 #   if(sex_split==TRUE){
 #     point_collapse(ind, point_data,"m")

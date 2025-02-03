@@ -1,3 +1,14 @@
+#####################################################################################
+######### Script updated for RRA climate malnutrition analysis ######################
+### Date: 1/24/2025
+### User: khong1 (Kristin Hong) and mayaol (Maya Oleynikova)
+### Function: Consolidate wealth extractions and process wealth/geo data (cleaning, geomatching)
+### Input: /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/1_raw_extractions/wealth
+### Output: /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/data_01_06_2025/2_initial_processing/extracted_00_DHS.csv
+### Notes: Original comments left below. Adapted from original script found here: https://github.com/ihmeuw/rra-climate-health/blob/feature/raw-extractions/src/rra_climate_health/data_prep/extraction_scripts/archive_unused/wealth/00_DHS_c_extract_data.R
+######################################################################################
+
+######################################################################################
 #' @Title: [00_DHS_extract_data.R]  
 #' @Authors: Bianca Zlavog, Audrey Serfes
 #' @contact: zlavogb@uw.edu, aserfe@uw.edu
@@ -15,6 +26,7 @@
 #' and identical archive file at
 #' `/ihme/resource_tracking/LSAE_income/1_data_extractions/archive/extracted_DHS_point_and_polygon_[datestamp].csv`
 #' `/ihme/resource_tracking/LSAE_income/1_data_extractions/archive/extracted_DHS_all_polygon_[datestamp].csv`
+######################################################################################
 
 ##### Setup
 rm(list = ls())
@@ -114,8 +126,8 @@ dhs_extracts[nid == 19001, geospatial_id := admin_1]
 
 #We only want these specific columns for total consumption and total income if available. Add sum columns at later date.
 dhs_extracts <- dhs_extracts[, c("nid", "ihme_loc_id", "year_start",  "year_end", "int_year", 
-                                   "survey_module", "file_path" ,"strata" ,"psu", "hhweight" ,"wealth_score", "quintiles", 
-                                   "geospatial_id","hh_id")]
+                                 "survey_module", "file_path" ,"strata" ,"psu", "hhweight" ,"wealth_score", "quintiles", 
+                                 "geospatial_id","hh_id")]
 
 
 ###############################################
@@ -167,7 +179,7 @@ dhs_extracts[nid %in% c(529017, 529525), geospatial_id := psu]
 
 # Merge extracted dataset and geography dataset together
 dhs_all <- merge(sae_mbg_bind, dhs_extracts, by.x=c("nid", "iso3", "geospatial_id"),
-                  by.y=c("nid", "ihme_loc_id", "geospatial_id"), all.x=F, all.y=T, allow.cartesian = T)
+                 by.y=c("nid", "ihme_loc_id", "geospatial_id"), all.x=F, all.y=T, allow.cartesian = T)
 
 # Hotfix where the geocodebook is missing an entry that is available in the survey GPS file
 dhs_all[nid == 529525 & geospatial_id == "7_258", lat := -2.947942][nid == 529525 & geospatial_id == "7_258", long := 11.025596]
@@ -330,7 +342,7 @@ dhs_long_ad2_fill[, location_id := location_id_fill_ad2][, location_id_fill_ad2 
 dhs_fill <- rbind(dhs_long_ad1_fill, dhs_long_ad2_fill)
 dhs_long_before <- copy(dhs_long)
 dhs_long <- dhs_long[!(grepl("lbd_standard_admin_1", shapefile) & is.na(location_id) & !is.na(location_code)) & 
-                     !(grepl("lbd_standard_admin_2", shapefile) & is.na(location_id) & !is.na(location_code))]
+                       !(grepl("lbd_standard_admin_2", shapefile) & is.na(location_id) & !is.na(location_code))]
 dhs_long <- rbind(dhs_long, dhs_fill)
 validate_merge_nrows(dhs_long_before, dhs_long)
 
@@ -340,7 +352,7 @@ stable_shapefile_nids <- unique(dhs_long[shapefile_type=="stable"]$nid) # none
 #### STOPPING HERE FOR NOW, TO PREVENT FURTHER AGGREGATION
 # Removing any empty columns, then exporting
 columns_to_remove <- c("location_name", "sharefile_type", 
-                        "source_location_id", "source_location_type", 
+                       "source_location_id", "source_location_type", 
                        "currency_detail", "currency", "notes", 
                        "geomatching_notes")
 
@@ -381,7 +393,7 @@ dpoly <- dpoly[, .(value = weighted.mean(value, w=weight), sd_weighted = sqrt(wt
                by = .(iso3, nid, source, year, shapefile, location_code, data_type, location_id, file_path, location_name, location_type,source_location_type, source_location_id, measure, denominator, multiplier, value_type, currency, base_year, currency_detail, geomatching_notes, notes, initials)]
 dpoint_to_poly <- as.data.table(dpoint_to_poly)
 dpoint_to_poly <- dpoint_to_poly[, .(value = weighted.mean(value, w=weight), sd_weighted = sqrt(wtd.var(value, weights = weight, na.rm = TRUE)), sd_unweighted = sd(value, na.rm = TRUE), N_households = .N),
-               by = .(iso3, nid, source, year, shapefile, location_code, data_type, location_id, file_path, location_name, location_type,source_location_type, source_location_id, measure, denominator, multiplier, value_type, currency, base_year, currency_detail, geomatching_notes, notes, initials)]
+                                 by = .(iso3, nid, source, year, shapefile, location_code, data_type, location_id, file_path, location_name, location_type,source_location_type, source_location_id, measure, denominator, multiplier, value_type, currency, base_year, currency_detail, geomatching_notes, notes, initials)]
 
 # Combine dpoint and dpoly back together
 dhs_long <- rbindlist(list(dpoint, dpoly), fill=T)
@@ -399,13 +411,13 @@ nrow(dhs_long_to_poly[is.na(sd_unweighted)]) + nrow(dhs_long_to_poly[is.na(sd_we
 
 #Select columns for final dataset
 dhs_long <- dhs_long[, c("nid", "source", "data_type", "file_path", "year", "iso3", "location_id", "location_type", "location_name", 
-                       "source_location_type",  "source_location_id", "lat",  "long", "location_code",  "shapefile", "measure", "denominator",
-                       "multiplier", "value", "sd_weighted", "sd_unweighted", "value_type", "currency", "base_year", "N_households",
-                       "currency_detail", "notes", "geomatching_notes", "initials")]
+                         "source_location_type",  "source_location_id", "lat",  "long", "location_code",  "shapefile", "measure", "denominator",
+                         "multiplier", "value", "sd_weighted", "sd_unweighted", "value_type", "currency", "base_year", "N_households",
+                         "currency_detail", "notes", "geomatching_notes", "initials")]
 dhs_long_to_poly <- dhs_long_to_poly[, c("nid", "source", "data_type", "file_path", "year", "iso3", "location_id", "location_type", "location_name", 
-                       "source_location_type",  "source_location_id", "location_code",  "shapefile", "measure", "denominator",
-                       "multiplier", "value", "sd_weighted", "sd_unweighted", "value_type", "currency", "base_year", "N_households",
-                       "currency_detail", "notes", "geomatching_notes", "initials")][, c("lat", "long") := NA]
+                                         "source_location_type",  "source_location_id", "location_code",  "shapefile", "measure", "denominator",
+                                         "multiplier", "value", "sd_weighted", "sd_unweighted", "value_type", "currency", "base_year", "N_households",
+                                         "currency_detail", "notes", "geomatching_notes", "initials")][, c("lat", "long") := NA]
 
 # ## NEXT UP: Pull from dhs_all the psu, strata, hh_weight and hh_id columns and merge onto dhs_long and dhs_long_to_poly
 # dhs_merge <- dhs_all[, .(nid, strata, psu, hhweight, hh_id, location_code)]
