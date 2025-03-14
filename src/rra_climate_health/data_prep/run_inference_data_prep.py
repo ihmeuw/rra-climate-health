@@ -27,7 +27,7 @@ def run_ldi_prep_main(
     ldi = pd.read_csv(upstream_paths.LDIPC_SUBNATIONAL_FILEPATH)
     # Fill in missing values with national mean
     national_mean = ldi.groupby(
-        ["year_id", "national_ihme_loc_id", "population_percentile"]
+        ["scenario", "year_id", "national_ihme_loc_id", "population_percentile"]
     ).ldipc.transform("mean")
     null_mask = ldi.ldipc.isna()
     ldi.loc[null_mask, "ldipc"] = national_mean.loc[null_mask]
@@ -45,25 +45,33 @@ def run_ldi_prep_main(
     )
 
     print("Rasterizing LDI data")
+    scenarios = ldi["scenario"].unique().tolist()
     percentiles = ldi["population_percentile"].unique().tolist()
-    for percentile in percentiles:
-        print(f"Rasterizing percentile: {percentile}")
-        p_year_mask = (ldi.population_percentile == percentile) & (ldi.year_id == year)
-        ldi_pc_pd = ldi.loc[p_year_mask].set_index("location_id").ldi_pc_pd
-        ldi_pc_pd = ldi_pc_pd[~ldi_pc_pd.index.duplicated()]
-        shapes = [(shape_map.loc[loc], ldi_pc_pd.loc[loc]) for loc in ldi_pc_pd.index]
-        ldi_arr = rasterize(
-            shapes,
-            out=np.zeros_like(raster_template),
-            transform=raster_template.transform,
-        )
-        ldi_raster = rt.RasterArray(
-            ldi_arr,
-            transform=raster_template.transform,
-            crs=raster_template.crs,
-            no_data_value=np.nan,
-        )
-        cm_data.save_ldi_raster(ldi_raster, year, percentile)
+    for scenario in scenarios:
+        for percentile in percentiles:
+            print(f"Rasterizing percentile: {percentile}")
+            p_scenario_year_mask = (
+                (ldi.population_percentile == percentile)
+                & (ldi.scenario == scenario)
+                & (ldi.year_id == year)
+            )
+            ldi_pc_pd = ldi.loc[p_scenario_year_mask].set_index("location_id").ldi_pc_pd
+            ldi_pc_pd = ldi_pc_pd[~ldi_pc_pd.index.duplicated()]
+            shapes = [
+                (shape_map.loc[loc], ldi_pc_pd.loc[loc]) for loc in ldi_pc_pd.index
+            ]
+            ldi_arr = rasterize(
+                shapes,
+                out=np.zeros_like(raster_template),
+                transform=raster_template.transform,
+            )
+            ldi_raster = rt.RasterArray(
+                ldi_arr,
+                transform=raster_template.transform,
+                crs=raster_template.crs,
+                no_data_value=np.nan,
+            )
+            cm_data.save_ldi_raster(ldi_raster, scenario, year, percentile)
 
 
 @click.command()  # type: ignore[arg-type]

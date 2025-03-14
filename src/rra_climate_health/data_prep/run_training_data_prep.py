@@ -11,6 +11,7 @@ import xarray as xr
 
 import rra_climate_health.cli_options as clio
 from rra_climate_health import paths
+from rra_climate_health.data_prep import upstream_paths
 from rra_climate_health.data import (
     DEFAULT_ROOT,
     ClimateMalnutritionData,
@@ -40,12 +41,6 @@ ELEVATION_FILEPATH = Path(
     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/srtm_elevation.tif"
 )
 
-LDIPC_NATIONAL_FILEPATH = Path(
-    "/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/national_ldipc_estimates.csv"
-)
-LDIPC_SUBNATIONAL_FILEPATH = Path(
-    "/share/resource_tracking/forecasting/poverty/GK_2024_income_distribution_forecasts/income_forecasting_through2100_admin2_final_nocoviddummy_intshift/admin2_ldipc_estimates.csv"
-)
 SDI_PATH = Path("/mnt/share/forecasting/data/7/past/sdi/20240531_gk24/sdi.nc")
 
 SURVEY_DATA_PATHS = {
@@ -618,7 +613,8 @@ def get_ldipc_from_asset_score(
 ) -> pd.DataFrame:
     from scipy.interpolate import PchipInterpolator
 
-    ldi = pd.read_csv(LDIPC_NATIONAL_FILEPATH)
+    ldi = pd.read_csv(upstream_paths.LDIPC_NATIONAL_FILEPATH)
+    ldi = ldi.loc[ldi['scenario'] == 0].drop('scenario', axis=1)
     print(
         f"Converting income from asset score {'not' if not use_weights else ''} using weights, {'not' if not match_distributions else ''} matching distributions"
     )

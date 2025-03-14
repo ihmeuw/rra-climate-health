@@ -5,7 +5,7 @@ holdout:
   proportion: 0.2
   seed: 42
   type: no_holdout
-measure: stunting
+measure: wasting
 predictors:
 - name: intercept
   random_effect: ihme_loc_id

@@ -10,7 +10,7 @@ def transform_column(
     df: pd.DataFrame,
     column: str,
     spec: TransformSpecification,
-) -> tuple[pd.Series[int | float], Binner | Scaler | Masker | None]:
+) -> tuple["pd.Series[int | float]", Binner | Scaler | Masker | None]:
     if spec.type == "binning":
         return bin_column(df, column, spec)
     elif spec.type == "scaling":

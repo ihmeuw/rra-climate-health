@@ -242,19 +242,20 @@ class ClimateMalnutritionData:
     def shared_inputs(self) -> Path:
         return self.root.parent / "input"
 
-    def ldi_path(self, year: int | str, percentile: float | str) -> Path:
-        return self.shared_inputs / "ldi" / f"{year}_{percentile}.tif"
+    def ldi_path(self, scenario: int | str, year: int | str, percentile: float | str) -> Path:
+        return self.shared_inputs / "ldi" / str(scenario) / f"{year}_{percentile}.tif"
 
-    def load_ldi(self, year: int | str, percentile: float | str) -> rt.RasterArray:
-        return rt.load_raster(self.ldi_path(year, percentile))
+    def load_ldi(self, scenario: int | str, year: int | str, percentile: float | str) -> rt.RasterArray:
+        return rt.load_raster(self.ldi_path(scenario, year, percentile))
 
     def save_ldi_raster(
         self,
         ldi: rt.RasterArray,
+        scenario: int | str,
         year: int | str,
         percentile: float | str,
     ) -> None:
-        path = self.ldi_path(year, percentile)
+        path = self.ldi_path(scenario, year, percentile)
         mkdir(path.parent, parents=True, exist_ok=True)
         save_raster(ldi, path)
 
