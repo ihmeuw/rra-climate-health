@@ -25,9 +25,11 @@ def run_ldi_prep_main(
 
     print("Loading LDI data")
     ldi = pd.read_csv(upstream_paths.LDIPC_SUBNATIONAL_FILEPATH)
+    year_col = "year_id" if "year_id" in ldi.columns else "year"
+    nat_col = "national_ihme_loc_id" if "national_ihme_loc_id" in ldi.columns else "iso3"
     # Fill in missing values with national mean
     national_mean = ldi.groupby(
-        ["scenario", "year_id", "national_ihme_loc_id", "population_percentile"]
+        ["scenario",year_col, nat_col, "population_percentile"]
     ).ldipc.transform("mean")
     null_mask = ldi.ldipc.isna()
     ldi.loc[null_mask, "ldipc"] = national_mean.loc[null_mask]
@@ -99,7 +101,7 @@ def run_ldi_prep(output_root: str, year: list[str], queue: str) -> None:
             "queue": queue,
             "cores": 1,
             "memory": "35Gb",
-            "runtime": "1h",
+            "runtime": "4h",
             "project": "proj_rapidresponse",
         },
         max_attempts=1,
