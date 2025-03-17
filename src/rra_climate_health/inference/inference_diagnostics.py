@@ -205,19 +205,19 @@ def create_inference_diagnostics_report(
     elements.append(Paragraph("Inference Diagnostics", styles["Heading1"]))
     elements.append(Spacer(1, 30))
 
-    forecast = cm_data.load_forecast(results_version)
+    # forecast = cm_data.load_forecast(results_version)
 
-    cumulative_differences = get_cumulative_differences(forecast)
-    elements.extend(
-        create_table(cumulative_differences, "Cumulative Differences", as_integers=True)
-    )
-    elements.append(
-        Image(
-            save_plot_to_bytes(plot_forecast_prevalence(forecast, "Prevalence")),
-            width=600,
-            height=450,
-        )
-    )
+    # cumulative_differences = get_cumulative_differences(forecast)
+    # elements.extend(
+    #     create_table(cumulative_differences, "Cumulative Differences", as_integers=True)
+    # )
+    # elements.append(
+    #     Image(
+    #         save_plot_to_bytes(plot_forecast_prevalence(forecast, "Prevalence")),
+    #         width=600,
+    #         height=450,
+    #     )
+    # )
 
     elements.append(Spacer(1, 30))
     elements.append(Paragraph("Model Diagnostics", styles["Heading2"]))
@@ -246,79 +246,19 @@ def create_inference_diagnostics_report(
     doc.build(elements)
 
 
-def load_model(
-    root: Path, measure: str, version: str, age_group_id: int, sex_id: int
-) -> Any:
-    with (root / measure / "models" / version / f"{age_group_id}_{sex_id}.pkl").open(
-        "rb"
-    ) as file:
-        model = pickle.load(file)  # noqa: S301
-    return model
-
-
-def load_random_effects(
-    root: Path,
-    measure: str,
-    version: str,
-    version_label: str,
-    age_group_id: int,
-    sex_id: int,
-    fhs_loc_meta: pd.DataFrame,
-) -> "pd.Series[float]":
-    data = load_model(root, measure, version, age_group_id, sex_id).ranef
-    data["version_label"] = version_label
-    data["age_group_id"] = age_group_id
-    data["sex_id"] = sex_id
-    data["measure"] = measure
-    fhs_loc_meta["ihme_loc_id"] = fhs_loc_meta["ihme_loc_id"].str[:3]
-    data = data.join(fhs_loc_meta.set_index("ihme_loc_id").loc[:, "location_id"])
-
-    return data.set_index(  # type: ignore[no-any-return]
-        ["version_label", "measure", "location_id", "age_group_id", "sex_id"]
-    ).loc[:, "X.Intercept."]
-
-
-def load_prediction(
-    year_id: int,
-    root: Path,
-    measure: str,
-    version: str,
-    version_label: str,
-    scenario: str,
-) -> "pd.Series[float]":
-    data = pd.read_parquet(
-        root / measure / "results" / version / f"{year_id}_{scenario}.parquet"
-    )
-    data["year_id"] = year_id
-    data["version_label"] = version_label
-    data["measure"] = measure
-
-    return (
-        data.set_index(
-            [
-                "version_label",
-                "measure",
-                "location_id",
-                "year_id",
-                "age_group_id",
-                "sex_id",
-            ]
-        )
-        .loc[:, "value"]
-        .sort_index()
-    )
-
-
 def plot_gbd_comparison(  # noqa: PLR0915
     measure: str,
     version_label: str,
     model_version: str,
     results_version: str,
-    scenarios: Sequence[str] = ("ssp119",),
+    scenarios: Sequence[str] = ("ssp126",),
     age_group_ids: Sequence[int] = (4, 5),
     sex_ids: Sequence[int] = (1, 2),
     year_ids: Sequence[int] = tuple(range(2020, 2023)),
+    return_plot_data: bool = False,
 ) -> plt.Figure:  # type: ignore[name-defined]
+    cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT) / measure)
+
     scenarios = list(scenarios)
     age_group_ids = list(age_group_ids)
     sex_ids = list(sex_ids)
@@ -331,29 +271,41 @@ def plot_gbd_comparison(  # noqa: PLR0915
         .reset_index(drop=True)
     )
 
+    fhs_loc_meta["ihme_loc_id"] = fhs_loc_meta["ihme_loc_id"].str[:3]
+
     random_effects_list = []
     predictions_list = []
     for age_group_id in age_group_ids:
         for sex_id in sex_ids:
-            random_effects_list.append(
-                load_random_effects(
-                    root,
-                    measure,
-                    model_version,
-                    version_label,
-                    age_group_id,
-                    sex_id,
-                    fhs_loc_meta,
-                )
-            )
-    for year_id in year_ids:
-        for scenario in scenarios:
-            predictions_list.append(
-                load_prediction(
-                    year_id, root, measure, results_version, version_label, scenario
-                )
-            )
-    predictions = pd.concat(predictions_list).sort_index().rename("pred")
+            temp_re = cm_data.load_submodel_coefficients(model_version, [("age_group_id", age_group_id), ("sex_id", sex_id)])[1]
+
+            temp_re["version_label"] = version_label
+            temp_re["age_group_id"] = age_group_id
+            temp_re["sex_id"] = sex_id
+            temp_re["measure"] = measure
+            temp_re = temp_re.join(fhs_loc_meta.set_index("ihme_loc_id").loc[:, "location_id"])
+
+            temp_re= temp_re.set_index(  # type: ignore[no-any-return]
+                    ["version_label", "measure", "location_id", "age_group_id", "sex_id"]
+            ).loc[:, "X.Intercept."]
+            random_effects_list.append(temp_re)
+
+    prediction = cm_data.load_results_table(results_version, scenarios, year_ids, sex_ids, age_group_ids, 1)
+
+    prediction['version_label'] = version_label
+    prediction['measure'] = measure
+    prediction = prediction.set_index(
+                [
+                    "version_label",
+                    "measure",
+                    "location_id",
+                    "year_id",
+                    "age_group_id",
+                    "sex_id",
+                ]
+            ).loc[:, "value"].sort_index().rename("pred")
+            
+
     random_effects = pd.concat(random_effects_list).sort_index().rename("ranef")
 
     age_metadata = pd.read_parquet(
@@ -376,6 +328,7 @@ def plot_gbd_comparison(  # noqa: PLR0915
         ["measure", "location_id", "year_id", "age_group_id", "sex_id"], as_index=False
     )["mean"].sum()
 
+
     gbd = gbd.merge(population)
     gbd = gbd.merge(
         age_metadata.loc[
@@ -384,25 +337,25 @@ def plot_gbd_comparison(  # noqa: PLR0915
     )
     gbd.loc[gbd["age_group_years_end"] <= 1, "age_group_id"] = 4
     gbd.loc[gbd["age_group_years_start"] >= 1, "age_group_id"] = 5
-    gbd["gbd"] = gbd["mean"] * gbd["population"]
+    gbd['gbd'] = gbd['mean'] * gbd['population']   
     gbd = gbd.groupby(["measure", "location_id", "year_id", "age_group_id", "sex_id"])[  # type: ignore[assignment]
-        "gbd", "population"
+        ["gbd", "population"]
     ].sum()
     gbd["gbd"] /= gbd["population"]
 
     plot_data = (
-        predictions.to_frame()
+        prediction.to_frame()
         .join(gbd)
         .dropna()
         .join(random_effects, how="left")
-        .reorder_levels(predictions.index.names)
+        .reorder_levels(prediction.index.names)
     )
     plot_data["has_raneff"] = plot_data["ranef"].notna()
     plot_data["pred"] *= plot_data["population"]
     plot_data["gbd"] *= plot_data["population"]
     plot_data = plot_data.groupby(  # type: ignore[assignment]
         ["version_label", "measure", "has_raneff", "location_id", "year_id"]
-    )["pred", "gbd", "population"].sum()
+    )[["pred", "gbd", "population"]].sum()
     plot_data["pred"] /= plot_data["population"]
     plot_data["gbd"] /= plot_data["population"]
     plot_data = plot_data.drop("population", axis=1)
@@ -412,6 +365,12 @@ def plot_gbd_comparison(  # noqa: PLR0915
 
     marker = "o"
     fig, ax = plt.subplots(figsize=(7, 5))
+    if measure == "stunting":
+        lim = 0.65
+    elif measure == "wasting":
+        lim = 0.35
+    else:
+        lim = 0.35
 
     label = f"{version_label}"
 
@@ -451,11 +410,13 @@ def plot_gbd_comparison(  # noqa: PLR0915
     ax.plot((0, 1), (0, 1), color="red")
     ax.set_ylabel("Prediction")
     ax.set_xlabel("GBD 2021")
-    ax.set_ylim(0, 0.6)
-    ax.set_xlim(0, 0.6)
+    ax.set_ylim(0, lim)
+    ax.set_xlim(0, lim)
     ax.set_title(label)
     ax.legend()
     fig.tight_layout()
+    if return_plot_data:
+        return fig, plot_data
     return fig
 
 
