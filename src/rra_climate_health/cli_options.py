@@ -14,7 +14,7 @@ _T = TypeVar("_T")
 _P = ParamSpec("_P")
 
 
-VALID_MEASURES = ["wasting", "stunting"]
+VALID_MEASURES = ["wasting", "stunting", "underweight"]
 
 
 def get_choice_callback(
@@ -62,12 +62,12 @@ def with_source_type(
 
 
 VALID_CMIP6_SCENARIOS = [
-    "ssp119",
-    # "ssp126",
+    #"ssp119",
+    "ssp126",
     "ssp245",
     # "ssp370",
     "ssp585",
-    "constant_climate",
+    #"constant_climate",
 ]
 
 
@@ -122,7 +122,7 @@ def with_age_group_id(
     )
 
 
-VALID_PREDICTION_YEARS = [str(year) for year in range(2000, 2101)]
+VALID_PREDICTION_YEARS = [str(year) for year in range(2020, 2024)]
 
 
 def with_year(
@@ -178,6 +178,24 @@ def with_model_version() -> ClickOption[_P, _T]:
         help="The model version to run.",
     )
 
+def with_n_draws() -> ClickOption[_P, _T]:
+    return click.option(
+        "--draws",
+        "-d",
+        type=int,
+        default=1,
+        required=True,
+        help="The number of draws to run.",
+    )
+
+def with_draw() -> ClickOption[_P, _T]:
+    return click.option(
+        "--draw",
+        "-d",
+        type=int,
+        required=True,
+        help="The draw to run.",
+    )
 
 __all__ = [
     "VALID_MEASURES",

@@ -23,11 +23,14 @@ from rra_climate_health.model_specification import (
     PredictorSpecification,
 )
 
+#from memory_profiler import profile
+import gc
+
 FORECASTED_POPULATIONS_FILEPATH_AGGREGATED_AGEGROUPS = "/mnt/share/forecasting/data/7/future/population/20240529_500d_2100_lhc_ref_squeeze_hiv_shocks_covid_all_gbd_7_shifted/population.nc"
 FORECASTED_POPULATIONS_FILEPATH = "/mnt/share/forecasting/data/7/future/population/20240730_GBD2021_500d_hiv_shocks_covid_all_rerun/population.nc"
 CMIP_LDI_SCENARIO_MAP = {
-    "ssp119": "1",
-    # "ssp126",
+    #"ssp119": "1",
+    "ssp126": "1",
     "ssp245": "0",
     # "ssp370",
     "ssp585": "-1",
@@ -39,9 +42,9 @@ def get_categorical_coefficient(
     coefs: "pd.Series[float]",
     variable_name: str,
     variable_value: Any,
-    training_col: "pd.Series[Any]",
+    training_data_types: "pd.Series[Any]",
 ) -> float:
-    expected_value = training_col.dtype.type(variable_value)
+    expected_value = training_data_types[variable_name].type(variable_value) 
     # Regex to extract the value from the categorical predictor coefficients
     pattern = re.compile(rf"C\({variable_name}\)(.+)")
 
@@ -51,7 +54,7 @@ def get_categorical_coefficient(
         if match:
             # Extract the value from the matched string and compare
             extracted_value = match.group(1)
-            extracted_value = training_col.dtype.type(extracted_value)
+            extracted_value = training_data_types[variable_name].type(extracted_value) 
             if extracted_value == expected_value:
                 print(
                     f"Variable '{variable_name}' found with value '{variable_value}' in coefficients."
@@ -129,7 +132,7 @@ def get_intercept_raster(
         raise NotImplementedError(msg)
     return icept_raster
 
-
+#@profile
 def get_nonspatial_predictor_raster(
     pred_spec: PredictorSpecification,
     pred_value: float,
@@ -157,7 +160,7 @@ def get_nonspatial_predictor_raster(
             transform=raster_template.transform,
             crs=raster_template.crs,
             no_data_value=np.nan,
-        )
+        ).astype(np.float32)
     elif not pred_spec.random_effect:
         var_raster = raster_template + var_fixef
     else:
@@ -165,53 +168,96 @@ def get_nonspatial_predictor_raster(
         raise NotImplementedError(msg)
     return var_raster * pred_value  # type: ignore[no-any-return]
 
+#@profile
+def get_transformed_variable_raster(predictor, cm_data, cmip6_scenario, year, raster_template, coefficients, var_info, draw):
+    if predictor.random_effect:
+        msg = "Random slopes not implemented"
+        raise NotImplementedError(msg)
+    
+    transform_func = var_info[predictor.name]["transformer"]
+    beta = coefficients.loc[predictor.name].astype(np.float32)
+    transform_meta = predictor.transform
 
+    if predictor.name == "elevation":
+        v = cm_data.load_elevation().resample_to(raster_template).astype(np.float32)
+        return rt.RasterArray(
+                beta * np.array(transform_func(v)).astype(np.float32),
+                transform=v.transform,
+                crs=v.crs,
+                no_data_value=np.nan,
+        ).astype(np.float32)
+    else:
+        variable = (
+            transform_meta.from_column
+            if hasattr(transform_meta, "from_column")
+            else predictor.name
+        )
+        ds = cm_data.load_climate_raster(variable, cmip6_scenario, year, draw).astype(np.float32)
+
+    rasterize = lambda x: utils.xarray_to_raster(x, nodata=np.nan).resample_to(raster_template).astype(np.float32)
+
+    return rt.RasterArray(
+        beta * np.array(transform_func(rasterize(ds).astype(np.float32))),
+        transform=raster_template.transform,
+        crs=raster_template.crs,
+        no_data_value=np.nan,
+).astype(np.float32)
+
+#@profile
 def get_model_prevalence(  # noqa: C901 PLR0912
-    model: Any,
     spec: ModelSpecification,
     cmip6_scenario: str,
     year: int,
     age_group_id: int,
     sex_id: int,
     cm_data: ClimateMalnutritionData,
-    location_effect_shapes: gpd.GeoDataFrame,
     raster_template: rt.RasterArray,
-    training_data: pd.DataFrame,
+    training_data_version: str,
+    draw: int,
 ) -> rt.RasterArray:
-    coefs = model.coefs["Estimate"]
-    ranefs = model.ranef
+    coefs, ranefs = cm_data.load_submodel_coefficients(spec.version.model, [("age_group_id", age_group_id), ("sex_id", sex_id)])
+    var_info = cm_data.load_model_variable_info(spec.version.model)
+    # coefs = model_metadata["coefficients"]#model.coefs["Estimate"]
+    # ranefs = model_metadata["random_effects"]#model.ranef
+    # var_info = model_metadata["var_info"]
+    training_data_types = cm_data.load_training_data_types(training_data_version)
 
-    partial_estimates = {}
+    # partial_estimates = {}
+    z_accum = np.zeros_like(raster_template) #raster_template.copy()
     for predictor in spec.predictors:
         print(predictor.name)
         if predictor.name == "ldi_pc_pd":
             continue  # deal with after
 
         if predictor.name == "intercept":
-            partial_estimates[predictor.name] = get_intercept_raster(
-                predictor,
-                coefs,
-                ranefs,
-                location_effect_shapes,
-                raster_template,
-            )
+            z_accum = z_accum + cm_data.load_rasterized_intercept(spec.version.model)
+            # partial_estimates[predictor.name] = get_intercept_raster(
+            # z_accum = z_accum + get_intercept_raster(
+            #     predictor,
+            #     coefs,
+            #     ranefs,
+            #     location_effect_shapes,
+            #     raster_template,
+            # )
         elif predictor.name == "year_start":
+            raise NotImplementedError("Year start not implemented")
             # For now. Gotta think of a way for this not to become a long list of if-elses
-            transformed_value = model.var_info[predictor.name]["transformer"](
-                np.array([[year]])
-            )[0][0]
-            partial_estimates[predictor.name] = get_nonspatial_predictor_raster(
-                predictor,
-                transformed_value,
-                coefs,
-                ranefs,
-                location_effect_shapes,
-                raster_template,
-            )
+            # transformed_value = model.var_info[predictor.name]["transformer"](
+            #     np.array([[year]])
+            # )[0][0]
+            # # partial_estimates[predictor.name] = get_nonspatial_predictor_raster(
+            # z_accum = z_accum + get_nonspatial_predictor_raster(
+            #     predictor,
+            #     transformed_value,
+            #     coefs,
+            #     ranefs,
+            #     location_effect_shapes,
+            #     raster_template,
+            # )
         elif predictor.name == "sdi":
             sdi = cm_data.load_rasterized_variable(predictor.name, year)
-            partial_estimates[predictor.name] = rt.RasterArray(
-                coefs.loc["sdi"] * np.array(model.var_info["sdi"]["transformer"](sdi)),
+            z_accum = z_accum + rt.RasterArray(
+                coefs.loc["sdi"] * np.array(var_info["sdi"]["transformer"](sdi)),
                 transform=sdi.transform,
                 crs=sdi.crs,
                 no_data_value=np.nan,
@@ -226,75 +272,60 @@ def get_model_prevalence(  # noqa: C901 PLR0912
                 coefs,
                 predictor.name,
                 age_group_id if predictor.name == "age_group_id" else sex_id,
-                training_data[predictor.name],
+                training_data_types, 
             )
             # Not a raster, but the coefficient applies to the whole raster and can be added to the sum
-            partial_estimates[predictor.name] = category_coef  # type: ignore[assignment]
+            z_accum = z_accum + category_coef # type: ignore[assignment]
         else:
-            if predictor.random_effect:
-                msg = "Random slopes not implemented"
-                raise NotImplementedError(msg)
-
-            if predictor.name == "elevation":
-                v = cm_data.load_elevation()
-            else:
-                transform = predictor.transform
-                variable = (
-                    transform.from_column
-                    if hasattr(transform, "from_column")
-                    else predictor.name
-                )
-                ds = cm_data.load_climate_raster(variable, cmip6_scenario, year)
-                v = utils.xarray_to_raster(ds, nodata=np.nan).resample_to(
-                    raster_template
-                )
-
-            beta = coefs.loc[predictor.name]
-            partial_estimates[predictor.name] = rt.RasterArray(
-                beta * np.array(model.var_info[predictor.name]["transformer"](v)),
-                transform=v.transform,
-                crs=v.crs,
-                no_data_value=np.nan,
-            )
+            z_accum = z_accum + get_transformed_variable_raster(predictor, cm_data, cmip6_scenario, year, raster_template, coefs, var_info, draw)
 
     threshold_flag_varname = next(
         (x.name for x in spec.predictors if x.name.startswith("any")), None
     )
-    if not threshold_flag_varname:
-        msg = "Support for missing threshold flag variable not implemented yet"
-        raise NotImplementedError(msg)
-
-    if spec.extra_terms != [f"{threshold_flag_varname} * ldi_pc_pd"]:
-        msg = "Only threshold variable binary flag and LDI interaction is supported"
-        raise NotImplementedError(msg)
-
-    beta_interaction = (
-        coefs.loc[f"ldi_pc_pd:{threshold_flag_varname}"]
-        / coefs.loc[threshold_flag_varname]
+    threshold_predictor = next(
+        (x for x in spec.predictors if x.name == threshold_flag_varname), None
     )
-    beta_ldi = (
-        beta_interaction * partial_estimates[threshold_flag_varname]
-        + coefs.loc["ldi_pc_pd"]
-    ).to_numpy()
-    z_partial = sum(partial_estimates.values())
+    if not threshold_flag_varname:
+        beta_ldi = coefs.loc["ldi_pc_pd"].astype(np.float32)
+    else:
+        if spec.extra_terms != [f"{threshold_flag_varname} * ldi_pc_pd"]:
+            msg = "Only threshold variable binary flag and LDI interaction is supported"
+            raise NotImplementedError(msg)
+
+        beta_interaction = (
+            coefs.loc[f"ldi_pc_pd:{threshold_flag_varname}"]
+            / coefs.loc[threshold_flag_varname]
+        )
+        beta_ldi = (
+            beta_interaction * get_transformed_variable_raster(threshold_predictor, cm_data, cmip6_scenario, year, raster_template, coefs, var_info, draw)#partial_estimates[threshold_flag_varname]
+            + coefs.loc["ldi_pc_pd"]
+        ).to_numpy().astype(np.float32)
 
     ldi_scenario = CMIP_LDI_SCENARIO_MAP[cmip6_scenario]
+    ldi_version = next((x for x in spec.predictors if x.name == "ldi_pc_pd"), None).version
     prevalence = 0
     for i in range(1, 11):
+        gc.collect()
         print(i)
-        ldi = cm_data.load_ldi(ldi_scenario, year, f"{i / 10.:.1f}")
-
-        z_ldi = rt.RasterArray(
-            beta_ldi * np.array(model.var_info["ldi_pc_pd"]["transformer"](ldi)),
-            transform=ldi.transform,
-            crs=ldi.crs,
-            no_data_value=np.nan,
-        )
-        prevalence += 0.1 * 1 / (1 + np.exp(-(z_partial + z_ldi)))
+        prevalence += 0.1 * 1 / (1 + np.exp(-(z_accum + 
+            get_ldi_z_component(ldi_scenario, year, ldi_version, beta_ldi, var_info, i / 10., cm_data, raster_template))))
 
     return prevalence.astype(np.float32)  # type: ignore[attr-defined,no-any-return]
 
+#@profile
+def get_ldi_z_component(ldi_scenario:str, year:int, ldi_version:str, beta_ldi, var_info, decile, cm_data: ClimateMalnutritionData, raster_template):
+    transform_func = var_info["ldi_pc_pd"]["transformer"]
+    dec_str = f"{decile:.1f}"
 
+    z_ldi = rt.RasterArray(
+        beta_ldi * np.array(transform_func(cm_data.load_ldi_raster(ldi_scenario, year, dec_str, ldi_version)).astype(np.float32)),
+        transform=raster_template.transform,
+        crs=raster_template.crs,
+        no_data_value=np.nan,
+    ).astype(np.float32)
+    return z_ldi
+
+#@profile
 def model_inference_main(
     output_dir: Path,
     measure: str,
@@ -302,11 +333,54 @@ def model_inference_main(
     model_version: str,
     cmip6_scenario: str,
     year: int,
+    sex_id: int,
+    age_group_id: int,
+    draw: int,
 ) -> None:
     cm_data = ClimateMalnutritionData(output_dir / measure)
     spec = cm_data.load_model_specification(model_version)
+    training_data_version = spec.version.training_data
     print("loading raster template and shapes")
     raster_template = cm_data.load_raster_template()
+
+    # We need to produce raster results for each age, sex, year, scenario
+    # Year and scenario are paralellized for, so we deal with age and sex here
+    #training_data = cm_data.load_training_data(spec.version.training_data)
+    # TODO: clean up comments and extra code here
+    results = []
+    #for age_group_id in training_data.age_group_id.unique():
+    #    for sex_id in training_data.sex_id.unique():
+    print(f"Computing prevalence for age {age_group_id} and sex {sex_id}")
+
+    model_prevalence = get_model_prevalence(
+        spec,
+        cmip6_scenario,
+        year,
+        age_group_id,
+        sex_id,
+        cm_data,
+        # model_location_effect_shapes,
+        raster_template,
+        training_data_version,
+        draw,
+    )
+    # cm_data.save_raster_results(
+    #     model_prevalence,
+    #     results_version,
+    #     cmip6_scenario,
+    #     year,
+    #     age_group_id,
+    #     sex_id,
+    # )
+    # results.append(
+    #     {
+    #         "age_group_id": age_group_id,
+    #         "sex_id": sex_id,
+    #         "prediction": model_prevalence,
+    #     }
+    # )
+
+    print("Computing zonal statistics")
     result_shapes = cm_data.load_fhs_shapes(most_detailed_only=False)
     if "lbd_admin2_id" in spec.random_effects:
         model_location_effect_shapes = cm_data.load_lbd_admin2_shapes()
@@ -315,69 +389,31 @@ def model_inference_main(
     print("loading population")
     pop_raster = cm_data.load_population_raster().set_no_data_value(np.nan)
 
-    # We need to produce raster results for each age, sex, year, scenario
-    # Year and scenario are paralellized for, so we deal with age and sex here
-    training_data = cm_data.load_training_data(spec.version.training_data)
-    results = []
-    for age_group_id in training_data.age_group_id.unique():
-        for sex_id in training_data.sex_id.unique():
-            model = cm_data.load_submodel(
-                model_version, [("age_group_id", age_group_id), ("sex_id", sex_id)]
-            )
-            print(f"Computing prevalence for age {age_group_id} and sex {sex_id}")
-
-            model_prevalence = get_model_prevalence(
-                model,
-                spec,
-                cmip6_scenario,
-                year,
-                age_group_id,
-                sex_id,
-                cm_data,
-                model_location_effect_shapes,
-                raster_template,
-                training_data,
-            )
-            cm_data.save_raster_results(
-                model_prevalence,
-                results_version,
-                cmip6_scenario,
-                year,
-                age_group_id,
-                sex_id,
-            )
-            results.append(
-                {
-                    "age_group_id": age_group_id,
-                    "sex_id": sex_id,
-                    "prediction": model_prevalence,
-                }
-            )
-
-    print("Computing zonal statistics")
     shape_map = (
         result_shapes[result_shapes.most_detailed == 1]
         .set_index("loc_id")
         .geometry.to_dict()
     )
     out = []
-    for model_dict in results:
-        count = model_dict["prediction"] * pop_raster
-        for shape_id, shape in shape_map.items():
-            numerator = np.nansum(count.clip(shape).mask(shape))
-            denominator = np.nansum(pop_raster.clip(shape).mask(shape))
-            out.append(
-                (
-                    shape_id,
-                    model_dict["age_group_id"],
-                    model_dict["sex_id"],
-                    numerator / denominator,
-                )
+    count = model_prevalence * pop_raster
+    for shape_id, shape in shape_map.items():
+        numerator = np.nansum(count.clip(shape).mask(shape))
+        denominator = np.nansum(pop_raster.clip(shape).mask(shape))
+        out.append(
+            (
+                shape_id,
+                age_group_id,
+                sex_id,
+                numerator / denominator,
             )
+        )
 
     print("saving results table")
     df = pd.DataFrame(out, columns=["location_id", "age_group_id", "sex_id", "value"])
-    cm_data.save_results_table(df, results_version, cmip6_scenario, year)
+    df["year_id"] = year
+    df["draw"] = draw
+    df["scenario"] = cmip6_scenario
+    cm_data.save_results_table(df, results_version, cmip6_scenario, year, sex_id, age_group_id, draw)
 
 
 def load_population_timeseries(
@@ -428,7 +464,7 @@ def forecast_scenarios(
 ) -> None:
     cm_data = ClimateMalnutritionData(output_dir / measure)
     reference_scenario = "ssp245"
-    inference_scenarios = ["ssp119", "ssp245", "ssp585", "constant_climate"]
+    inference_scenarios = ["ssp126", "ssp245", "ssp585", "constant_climate"]
 
     locs_of_interest = (
         cm_data.load_fhs_hierarchy()
@@ -528,6 +564,9 @@ def forecast_scenarios_task(
 @clio.with_model_version()
 @clio.with_cmip6_scenario()
 @clio.with_year()
+@clio.with_sex_id()
+@clio.with_age_group_id()
+@clio.with_draw()
 def model_inference_task(
     output_root: str,
     measure: str,
@@ -535,6 +574,9 @@ def model_inference_task(
     model_version: str,
     cmip6_scenario: str,
     year: str,
+    sex_id: str,
+    age_group_id: str,
+    draw: str,
 ) -> None:
     """Run model inference."""
     model_inference_main(
@@ -544,6 +586,9 @@ def model_inference_task(
         model_version,
         cmip6_scenario,
         int(year),
+        int(sex_id),
+        int(age_group_id),
+        int(draw)
     )
 
 
@@ -553,20 +598,28 @@ def model_inference_task(
 @clio.with_measure()
 @clio.with_cmip6_scenario(allow_all=True)
 @clio.with_year(allow_all=True)
+@clio.with_sex_id(allow_all=True)
+@clio.with_age_group_id(allow_all=True)
 @clio.with_queue()
+@clio.with_n_draws()
 def model_inference(
     output_root: str,
     model_version: str,
     measure: str,
     cmip6_scenario: list[str],
     year: list[str],
+    sex_id: list[int],
+    age_group_id: list[int],
+    draws: int,
     queue: str,
 ) -> None:
     """Run model inference."""
     cm_data = ClimateMalnutritionData(Path(output_root) / measure)
     results_version = cm_data.new_results_version(model_version)
+    draw_range = list(range(0, draws))
     print(
-        f"Running inference for {measure} using {model_version}. Results version: {results_version}"
+        f"Running inference for {measure} using {model_version}, making {draws} draws. \n \
+        Results version: {results_version}"
     )
 
     jobmon.run_parallel(
@@ -576,6 +629,9 @@ def model_inference(
             "measure": [measure],
             "cmip6-scenario": cmip6_scenario,
             "year": year,
+            "sex-id": sex_id,
+            "age-group-id" : age_group_id,
+            "draw": draw_range,
         },
         task_args={
             "output-root": output_root,
@@ -585,35 +641,36 @@ def model_inference(
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "90Gb",
-            "runtime": "360m",
+            "memory": "32Gb",
+            "runtime": "60m",
             "project": "proj_rapidresponse",
         },
-        max_attempts=1,
+        max_attempts=2,
         log_root=str(cm_data.results / results_version),
     )
 
-    jobmon.run_parallel(
-        runner="sttask",
-        task_name="forecast",
-        node_args={
-            "measure": [measure],
-        },
-        task_args={
-            "output-root": output_root,
-            "model-version": model_version,
-            "results-version": results_version,
-        },
-        task_resources={
-            "queue": queue,
-            "cores": 2,
-            "memory": "30Gb",
-            "runtime": "30m",
-            "project": "proj_rapidresponse",
-        },
-        max_attempts=1,
-        log_root=str(cm_data.results / results_version),
-    )
+    # jobmon.run_parallel(
+    #     runner="sttask",
+    #     task_name="forecast",
+    #     node_args={
+    #         "measure": [measure],
+    #     },
+    #     task_args={
+    #         "output-root": output_root,
+    #         "model-version": model_version,
+    #         "results-version": results_version,
+    #     },
+    #     task_resources={
+    #         "queue": queue,
+    #         "cores": 2,
+    #         "memory": "30Gb",
+    #         "runtime": "30m",
+    #         "project": "proj_rapidresponse",
+    #     },
+    #     max_attempts=1,
+    #     log_root=str(cm_data.results / results_version),
+    # )
     print(
         f"Inference complete, results can be found at {cm_data.results / results_version}"
     )
+
