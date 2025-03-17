@@ -4,6 +4,7 @@ from typing import Any
 
 import click
 import pandas as pd
+import rasterra as rt
 from pymer4.models.Lmer import Lmer
 from rra_tools import jobmon
 
@@ -13,45 +14,8 @@ from rra_climate_health.model_specification import (
     ModelSpecification,
 )
 from rra_climate_health.transforms import transform_column
+from rra_climate_health import utils
 
-
-def prepare_model_data(
-    raw_model_data: pd.DataFrame,
-    model_spec: ModelSpecification,
-) -> tuple[pd.DataFrame, dict[str, Any]]:
-    # Do all required data transformations
-    transformed_data = {}
-    var_info = {}
-    for var, transform_spec in model_spec.transform_map.items():
-        transformed, transformer = transform_column(raw_model_data, var, transform_spec)
-        transformed_data[var] = transformed
-        var_info[var] = {
-            "transformer": transformer,
-            "transform_spec": transform_spec,
-        }
-
-    df = pd.DataFrame(transformed_data)
-
-    if model_spec.grid_predictors:
-        grid_spec: dict[str, Any] = model_spec.grid_predictors.grid_spec
-        grid_vars = grid_spec["grid_order"]
-        df["grid_cell"] = df[grid_vars].astype(str).apply("_".join, axis=1)
-
-        grid_spec["grid_definition_categorical"] = (
-            df[grid_vars + ["grid_cell"]].drop_duplicates().sort_values(grid_vars)
-        )
-        grid_spec["grid_definition"] = grid_spec["grid_definition_categorical"].astype(
-            str
-        )
-        var_info["grid_cell"] = grid_spec
-
-    for random_effect in model_spec.random_effects:
-        if random_effect not in df:
-            df[random_effect] = raw_model_data[random_effect]
-
-    df[model_spec.measure] = raw_model_data[model_spec.measure]
-
-    return df, var_info
 
 
 def model_training_main(
@@ -82,7 +46,7 @@ def model_training_main(
         msg = f"Null values found in raw data for {null_mask.sum()} rows"
         print(msg)
 
-    df, var_info = prepare_model_data(raw_df, model_spec)
+    df, var_info = cm_data.prepare_model_data(raw_df, model_spec)
 
     raw_df = raw_df.loc[subset_mask].reset_index(drop=True)
     df = df.loc[subset_mask].reset_index(drop=True)
@@ -105,6 +69,9 @@ def model_training_main(
     model.submodel = submodel
 
     cm_data.save_model(model, model_version, submodel)
+    icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
+    cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
+    
 
 
 @click.command()  # type: ignore[arg-type]
@@ -185,7 +152,7 @@ def model_training(
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "20Gb",
+            "memory": "60Gb",
             "runtime": "4h",
             "project": "proj_rapidresponse",
         },
@@ -194,3 +161,4 @@ def model_training(
     )
 
     print("Model training complete. Results can be found at", version_root)
+
