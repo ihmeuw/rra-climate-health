@@ -437,6 +437,7 @@ def run_training_data_prep_main(  # noqa: PLR0915
     gbd_cgf_data = gbd_cgf_data.dropna(subset=["lat", "long"], how="any")
 
     # For the GBD NIDs that need wealth information, attempt to get it
+    gbd_nids_need_wealth = [x for x in nids_without_wealth if x in wealth_df.nid.unique() and x not in lsae_cgf_data.nid.unique()]
     extra_nids = new_cgf_data_raw.query("nid in @gbd_nids_need_wealth")[
         [
             "nid",
