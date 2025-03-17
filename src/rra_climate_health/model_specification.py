@@ -85,6 +85,7 @@ class PredictorSpecification(BaseModel):
         discriminator="type",
     )
     random_effect: str = ""
+    version: str = ""
 
     @property
     def raw_variables(self) -> list[str]:
@@ -162,6 +163,7 @@ class SubmodelSpecification(BaseModel):
 class VersionSpecification(BaseModel):
     training_data: str
     model: str | None = None
+    description: str | None = None
 
 
 class ModelSpecification(BaseModel):
@@ -171,7 +173,7 @@ class ModelSpecification(BaseModel):
     submodel_vars: list[SubmodelSpecification] | None = None
     predictors: list[PredictorSpecification] = Field(default_factory=list)
     grid_predictors: GridSpecification | None = None
-    extra_terms: list[str]
+    extra_terms: list[str] | None = None
 
     @property
     def random_effects(self) -> list[str]:
@@ -232,11 +234,12 @@ class ModelSpecification(BaseModel):
                     random_effects[predictor.random_effect] = [predictor_repr]
                 formula += f" {predictor_repr}  +"
             else:
-                formula += f" {predictor.name} +"
+                formula += f" {predictor_repr} +"
         for random_effect, variables in random_effects.items():
             formula += f" ({' + '.join(variables)} | {random_effect}) +"
-        for term in self.extra_terms:
-            formula += f" {term} +"
+        if self.extra_terms:
+            for term in self.extra_terms:
+                formula += f" {term} +"
         formula = formula.rstrip(" +")
         return formula
 

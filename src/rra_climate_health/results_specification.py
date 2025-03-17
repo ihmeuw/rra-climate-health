@@ -7,6 +7,7 @@ from pydantic import BaseModel
 class ResultsVersionSpecification(BaseModel):
     model: str
     results: str
+    draws: int = 1
 
 
 class ResultsSpecification(BaseModel):
