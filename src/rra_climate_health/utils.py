@@ -48,7 +48,7 @@ def get_intercept_raster(
     raster_template = cm_data.load_raster_template()
     icept = coefs.loc["(Intercept)"]["Estimate"]
     if pred_spec.random_effect == "ihme_loc_id":
-        fhs_shapes = cm_data.load_fhs_shapes()
+        fhs_shapes = cm_data.load_fhs_shapes(most_detailed_only=False)
         shapes = list(
             ranefs["X.Intercept."]
             .reset_index()
