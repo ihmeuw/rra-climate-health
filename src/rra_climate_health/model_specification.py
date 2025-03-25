@@ -11,6 +11,7 @@ class ScalingStrategy(StrEnum):
     MIN_MAX = "min_max"
     STANDARDIZE = "standardize"
     INNER_NINETY_FIVE = "inner_ninety_five"
+    INFERENCE_INCOME = "inference_income"
 
 
 class ScalingSpecification(BaseModel):
