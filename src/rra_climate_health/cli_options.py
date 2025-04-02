@@ -104,7 +104,7 @@ def with_sex_id(
     )
 
 
-VALID_AGE_GROUP_IDS = ["4", "5"]
+VALID_AGE_GROUP_IDS = ['388', '389', '238', '34']
 
 
 def with_age_group_id(
@@ -122,7 +122,7 @@ def with_age_group_id(
     )
 
 
-VALID_PREDICTION_YEARS = [str(year) for year in range(2020, 2024)]
+VALID_PREDICTION_YEARS = [str(year) for year in range(2000, 2101)]
 
 
 def with_year(
@@ -178,6 +178,15 @@ def with_model_version() -> ClickOption[_P, _T]:
         help="The model version to run.",
     )
 
+def with_wealth_version() -> ClickOption[_P, _T]:
+    return click.option(
+        "--wealth-version",
+        "-w",
+        type=str,
+        required=True,
+        help="The version of wealth (income/consumption) to use.",
+    )
+
 def with_n_draws() -> ClickOption[_P, _T]:
     return click.option(
         "--draws",
@@ -215,4 +224,5 @@ __all__ = [
     "with_results_version",
     "with_model_version",
     "with_queue",
+    "with_wealth_version"
 ]
