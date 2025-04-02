@@ -7,11 +7,14 @@ from pydantic import BaseModel
 class ResultsVersionSpecification(BaseModel):
     model: str
     results: str
-    draws: int = 1
-
 
 class ResultsSpecification(BaseModel):
     version: ResultsVersionSpecification
+    draws: int = 1
+    age_groups: list[int] = []
+    sex_ids: list[int] = []
+    scenarios: list[str] = []
+    years: list[int] = []
 
     @classmethod
     def from_yaml(cls, yaml_path: str | Path) -> "ResultsSpecification":

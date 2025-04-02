@@ -163,9 +163,7 @@ class ClimateMalnutritionData:
         touch(random_effects_filepath, exist_ok=True)
         model.ranef.to_parquet(random_effects_filepath)
 
-        
-
-
+    
     def load_model_family(
         self,
         version: str,
@@ -265,7 +263,13 @@ class ClimateMalnutritionData:
     def results(self) -> Path:
         return self.root / "results"
 
-    def new_results_version(self, model_version: str) -> str:
+    def new_results_version(self, 
+        model_version: str,
+        age_groups: list[int],
+        sex_ids: list[int],
+        years: list[int], 
+        scenarios: list[str],
+        draws: int) -> str:
         run_directory = get_run_directory(self.results)
         mkdir(run_directory)
         # create results specification file
@@ -273,7 +277,12 @@ class ClimateMalnutritionData:
             ResultsSpecification(
                 version=ResultsVersionSpecification(
                     model=model_version, results=run_directory.name
-                )
+                ),
+                draws=draws,
+                age_groups=age_groups,
+                scenarios=scenarios,
+                years=years,
+                sex_ids = sex_ids,
             )
         )
         return run_directory.name
@@ -361,24 +370,20 @@ class ClimateMalnutritionData:
     def shared_inputs(self) -> Path:
         return self.root.parent / "input"
 
-    DEFAULT_LDI_VERSION = "v2"
-
     def load_ldi_distributions(self, geospecificity: str, version: str) -> pd.DataFrame:
         if geospecificity != "national" and geospecificity != "admin2":
             error_message = f"geospecificity must be 'national' or 'admin2', not {geospecificity}"
             raise ValueError(error_message)
-        if version == "":
-            version = self.DEFAULT_LDI_VERSION
-        path = self.shared_inputs / "ldi" / version / f"{geospecificity}_ldipc_estimates_scenarios.csv"
-        return pd.read_csv(path)
+
+        path = self.shared_inputs / "ldi" / version / f"{geospecificity}_estimates.parquet"
+        return pd.read_parquet(path)
 
     def ldi_raster_path(self, scenario: int | str, year: int | str, percentile: float | str, version: str) -> Path:
-        if version == "":
-            version = self.DEFAULT_LDI_VERSION
         return self.shared_inputs / "ldi_raster" / version / str(scenario) / f"{year}_{percentile}.tif"
 
     def load_ldi_raster(self, scenario: int | str, year: int | str, percentile: float | str, version: str) -> rt.RasterArray:
-        return rt.load_raster(self.ldi_raster_path(scenario, year, percentile, version)).astype(np.float32)
+        # Temporary: we don't actually use the scenarios for income/consumption so just use reference/4.5
+        return rt.load_raster(self.ldi_raster_path(0, year, percentile, version)).astype(np.float32)
 
     def save_ldi_raster(
         self,
@@ -386,8 +391,9 @@ class ClimateMalnutritionData:
         scenario: int | str,
         year: int | str,
         percentile: float | str,
+        version: str,
     ) -> None:
-        path = self.ldi_path(scenario, year, percentile)
+        path = self.ldi_raster_path(scenario, year, percentile, version)
         mkdir(path.parent, parents=True, exist_ok=True)
         save_raster(ldi, path)
 
