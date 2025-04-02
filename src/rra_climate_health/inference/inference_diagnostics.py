@@ -498,7 +498,8 @@ def plot_model_heatmaps(model_version: str, measure: str) -> plt.Figure:  # type
     y_labs = [f"{x:.1f}" for x in ldi_bins]
 
     vmin = 0
-    vmax = 0.6 if measure == "stunting" else 0.25
+    vmax_dict = {'stunting': 0.6, 'wasting': 0.25, 'underweight': 0.40}
+    vmax = vmax_dict[measure]
     colorbin_interval = 0.05
     boundaries = np.arange(vmin, vmax + colorbin_interval, colorbin_interval)
     cmap = plt.get_cmap("RdYlBu_r", len(boundaries) - 1)
