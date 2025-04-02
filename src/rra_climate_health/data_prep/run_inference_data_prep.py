@@ -15,6 +15,7 @@ from rra_climate_health.data_prep import upstream_paths
 def run_ldi_prep_main(
     output_root: str | Path,
     year: int,
+    version: str,
 ) -> None:
     """Run LDI data preparation."""
     # Measure doesn't matter for this task
@@ -24,7 +25,7 @@ def run_ldi_prep_main(
     raster_template = cm_data.load_raster_template()
 
     print("Loading LDI data")
-    ldi = pd.read_csv(upstream_paths.LDIPC_SUBNATIONAL_FILEPATH)
+    ldi = cm_data.load_ldi_distributions('admin2', version)
     year_col = "year_id" if "year_id" in ldi.columns else "year"
     nat_col = "national_ihme_loc_id" if "national_ihme_loc_id" in ldi.columns else "iso3"
     # Fill in missing values with national mean
@@ -73,22 +74,24 @@ def run_ldi_prep_main(
                 crs=raster_template.crs,
                 no_data_value=np.nan,
             )
-            cm_data.save_ldi_raster(ldi_raster, scenario, year, percentile)
+            cm_data.save_ldi_raster(ldi_raster, scenario, year, percentile, version)
 
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
 @clio.with_year()
-def run_ldi_prep_task(output_root: str, year: str) -> None:
+@clio.with_wealth_version()
+def run_ldi_prep_task(output_root: str, year: str, wealth_version :str) -> None:
     """Run LDI data preparation."""
-    run_ldi_prep_main(Path(output_root), int(year))
+    run_ldi_prep_main(Path(output_root), int(year), wealth_version)
 
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
 @clio.with_year(allow_all=True)
 @clio.with_queue()
-def run_ldi_prep(output_root: str, year: list[str], queue: str) -> None:
+@clio.with_wealth_version()
+def run_ldi_prep(output_root: str, year: list[str], queue: str, wealth_version: str) -> None:
     """Prep LDI rasters from admin2 data"""
     jobmon.run_parallel(
         runner="sttask",
@@ -96,6 +99,7 @@ def run_ldi_prep(output_root: str, year: list[str], queue: str) -> None:
         node_args={"year": year},
         task_args={
             "output-root": output_root,
+            "wealth-version": wealth_version,
         },
         task_resources={
             "queue": queue,

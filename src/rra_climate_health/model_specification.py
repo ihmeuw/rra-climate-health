@@ -11,12 +11,14 @@ class ScalingStrategy(StrEnum):
     MIN_MAX = "min_max"
     STANDARDIZE = "standardize"
     INNER_NINETY_FIVE = "inner_ninety_five"
-    INFERENCE_INCOME = "inference_income"
 
 
 class ScalingSpecification(BaseModel):
     type: Literal["scaling"] = "scaling"
     strategy: ScalingStrategy = ScalingStrategy.IDENTITY
+    scale_source: str = "data"
+    scale_variable_version: str = ""
+    scale_variable_name: str = ""
 
 
 class BinningCategory(StrEnum):
@@ -99,6 +101,19 @@ class PredictorSpecification(BaseModel):
         if self.transform.type == "binning":
             variables += self.transform.groupby_columns
         return variables
+    
+    @model_validator(mode="after")
+    def fill_scaling_transform_fields(cls, values: "PredictorSpecification"):
+        """
+        If the transform strategy is INFERENCE_CLIMATE or INFERENCE_INCOME
+        then store the predictor name and version on the transform.
+        """
+        transform = values.transform
+        if transform.type == "scaling":
+            if transform.scale_source != "data":
+                transform.scale_variable_name = values.name
+                transform.scale_variable_version = values.version
+        return values
 
 
 class GridSpecification(BaseModel):
