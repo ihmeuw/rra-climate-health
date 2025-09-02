@@ -7,6 +7,11 @@ from pathlib import Path
 FHS_LOCATION_METADATA_FILEPATH = Path(
     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/fhs_location_metadata.parquet"
 )
+
+LBD_ADMIN2_METADATA_FILEPATH = Path(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/lbd_admin2_metadata.parquet"
+)
+
 AGE_SPANS_FILEPATH = Path(
     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/age_spans.parquet"
 )

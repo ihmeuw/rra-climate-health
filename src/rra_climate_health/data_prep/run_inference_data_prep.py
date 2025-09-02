@@ -15,6 +15,7 @@ from rra_climate_health.data_prep import upstream_paths
 def run_ldi_prep_main(
     output_root: str | Path,
     year: int,
+    version: str,
 ) -> None:
     """Run LDI data preparation."""
     # Measure doesn't matter for this task
@@ -24,10 +25,12 @@ def run_ldi_prep_main(
     raster_template = cm_data.load_raster_template()
 
     print("Loading LDI data")
-    ldi = pd.read_csv(upstream_paths.LDIPC_SUBNATIONAL_FILEPATH)
+    ldi = cm_data.load_ldi_distributions('admin2', version)
+    year_col = "year_id" if "year_id" in ldi.columns else "year"
+    nat_col = "national_ihme_loc_id" if "national_ihme_loc_id" in ldi.columns else "iso3"
     # Fill in missing values with national mean
     national_mean = ldi.groupby(
-        ["year_id", "national_ihme_loc_id", "population_percentile"]
+        ["scenario",year_col, nat_col, "population_percentile"]
     ).ldipc.transform("mean")
     null_mask = ldi.ldipc.isna()
     ldi.loc[null_mask, "ldipc"] = national_mean.loc[null_mask]
@@ -45,40 +48,50 @@ def run_ldi_prep_main(
     )
 
     print("Rasterizing LDI data")
+    scenarios = ldi["scenario"].unique().tolist()
     percentiles = ldi["population_percentile"].unique().tolist()
-    for percentile in percentiles:
-        print(f"Rasterizing percentile: {percentile}")
-        p_year_mask = (ldi.population_percentile == percentile) & (ldi.year_id == year)
-        ldi_pc_pd = ldi.loc[p_year_mask].set_index("location_id").ldi_pc_pd
-        ldi_pc_pd = ldi_pc_pd[~ldi_pc_pd.index.duplicated()]
-        shapes = [(shape_map.loc[loc], ldi_pc_pd.loc[loc]) for loc in ldi_pc_pd.index]
-        ldi_arr = rasterize(
-            shapes,
-            out=np.zeros_like(raster_template),
-            transform=raster_template.transform,
-        )
-        ldi_raster = rt.RasterArray(
-            ldi_arr,
-            transform=raster_template.transform,
-            crs=raster_template.crs,
-            no_data_value=np.nan,
-        )
-        cm_data.save_ldi_raster(ldi_raster, year, percentile)
+    for scenario in scenarios:
+        for percentile in percentiles:
+            print(f"Rasterizing percentile: {percentile}")
+            p_scenario_year_mask = (
+                (ldi.population_percentile == percentile)
+                & (ldi.scenario == scenario)
+                & (ldi.year_id == year)
+            )
+            ldi_pc_pd = ldi.loc[p_scenario_year_mask].set_index("location_id").ldi_pc_pd
+            ldi_pc_pd = ldi_pc_pd[~ldi_pc_pd.index.duplicated()]
+            shapes = [
+                (shape_map.loc[loc], ldi_pc_pd.loc[loc]) for loc in ldi_pc_pd.index
+            ]
+            ldi_arr = rasterize(
+                shapes,
+                out=np.zeros_like(raster_template),
+                transform=raster_template.transform,
+            )
+            ldi_raster = rt.RasterArray(
+                ldi_arr,
+                transform=raster_template.transform,
+                crs=raster_template.crs,
+                no_data_value=np.nan,
+            )
+            cm_data.save_ldi_raster(ldi_raster, scenario, year, percentile, version)
 
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
 @clio.with_year()
-def run_ldi_prep_task(output_root: str, year: str) -> None:
+@clio.with_wealth_version()
+def run_ldi_prep_task(output_root: str, year: str, wealth_version :str) -> None:
     """Run LDI data preparation."""
-    run_ldi_prep_main(Path(output_root), int(year))
+    run_ldi_prep_main(Path(output_root), int(year), wealth_version)
 
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
 @clio.with_year(allow_all=True)
 @clio.with_queue()
-def run_ldi_prep(output_root: str, year: list[str], queue: str) -> None:
+@clio.with_wealth_version()
+def run_ldi_prep(output_root: str, year: list[str], queue: str, wealth_version: str) -> None:
     """Prep LDI rasters from admin2 data"""
     jobmon.run_parallel(
         runner="sttask",
@@ -86,12 +99,13 @@ def run_ldi_prep(output_root: str, year: list[str], queue: str) -> None:
         node_args={"year": year},
         task_args={
             "output-root": output_root,
+            "wealth-version": wealth_version,
         },
         task_resources={
             "queue": queue,
             "cores": 1,
             "memory": "35Gb",
-            "runtime": "1h",
+            "runtime": "4h",
             "project": "proj_rapidresponse",
         },
         max_attempts=1,

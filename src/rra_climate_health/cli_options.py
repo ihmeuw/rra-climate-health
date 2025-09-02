@@ -14,7 +14,7 @@ _T = TypeVar("_T")
 _P = ParamSpec("_P")
 
 
-VALID_MEASURES = ["wasting", "stunting"]
+VALID_MEASURES = ["wasting", "stunting", "underweight"]
 
 
 def get_choice_callback(
@@ -62,12 +62,12 @@ def with_source_type(
 
 
 VALID_CMIP6_SCENARIOS = [
-    "ssp119",
-    # "ssp126",
+    #"ssp119",
+    "ssp126",
     "ssp245",
     # "ssp370",
     "ssp585",
-    "constant_climate",
+    #"constant_climate",
 ]
 
 
@@ -104,7 +104,7 @@ def with_sex_id(
     )
 
 
-VALID_AGE_GROUP_IDS = ["4", "5"]
+VALID_AGE_GROUP_IDS = ['388', '389', '238', '34']
 
 
 def with_age_group_id(
@@ -178,6 +178,33 @@ def with_model_version() -> ClickOption[_P, _T]:
         help="The model version to run.",
     )
 
+def with_wealth_version() -> ClickOption[_P, _T]:
+    return click.option(
+        "--wealth-version",
+        "-w",
+        type=str,
+        required=True,
+        help="The version of wealth (income/consumption) to use.",
+    )
+
+def with_n_draws() -> ClickOption[_P, _T]:
+    return click.option(
+        "--draws",
+        "-d",
+        type=int,
+        default=1,
+        required=True,
+        help="The number of draws to run.",
+    )
+
+def with_draw() -> ClickOption[_P, _T]:
+    return click.option(
+        "--draw",
+        "-d",
+        type=int,
+        required=True,
+        help="The draw to run.",
+    )
 
 __all__ = [
     "VALID_MEASURES",
@@ -197,4 +224,5 @@ __all__ = [
     "with_results_version",
     "with_model_version",
     "with_queue",
+    "with_wealth_version"
 ]

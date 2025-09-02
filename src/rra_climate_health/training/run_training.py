@@ -1,8 +1,10 @@
+import itertools
 from pathlib import Path
 from typing import Any
 
 import click
 import pandas as pd
+import rasterra as rt
 from pymer4.models.Lmer import Lmer
 from rra_tools import jobmon
 
@@ -12,53 +14,15 @@ from rra_climate_health.model_specification import (
     ModelSpecification,
 )
 from rra_climate_health.transforms import transform_column
+from rra_climate_health import utils
 
-
-def prepare_model_data(
-    raw_model_data: pd.DataFrame,
-    model_spec: ModelSpecification,
-) -> tuple[pd.DataFrame, dict[str, Any]]:
-    # Do all required data transformations
-    transformed_data = {}
-    var_info = {}
-    for var, transform_spec in model_spec.transform_map.items():
-        transformed, transformer = transform_column(raw_model_data, var, transform_spec)
-        transformed_data[var] = transformed
-        var_info[var] = {
-            "transformer": transformer,
-            "transform_spec": transform_spec,
-        }
-
-    df = pd.DataFrame(transformed_data)
-
-    if model_spec.grid_predictors:
-        grid_spec: dict[str, Any] = model_spec.grid_predictors.grid_spec
-        grid_vars = grid_spec["grid_order"]
-        df["grid_cell"] = df[grid_vars].astype(str).apply("_".join, axis=1)
-
-        grid_spec["grid_definition_categorical"] = (
-            df[grid_vars + ["grid_cell"]].drop_duplicates().sort_values(grid_vars)
-        )
-        grid_spec["grid_definition"] = grid_spec["grid_definition_categorical"].astype(
-            str
-        )
-        var_info["grid_cell"] = grid_spec
-
-    for random_effect in model_spec.random_effects:
-        if random_effect not in df:
-            df[random_effect] = raw_model_data[random_effect]
-
-    df[model_spec.measure] = raw_model_data[model_spec.measure]
-
-    return df, var_info
 
 
 def model_training_main(
     output_root: Path,
     measure: str,
     model_version: str,
-    age_group_id: int,
-    sex_id: int,
+    submodel: list[tuple[str, str]] | None = None,
 ) -> None:
     cm_data = ClimateMalnutritionData(output_root / measure)
     model_spec = cm_data.load_model_specification(model_version)
@@ -69,9 +33,12 @@ def model_training_main(
     full_training_data = full_training_data.reset_index(drop=True)
     full_training_data["intercept"] = 1.0
 
-    subset_mask = (full_training_data.sex_id == sex_id) & (
-        full_training_data.age_group_id == age_group_id
-    )
+    subset_mask = pd.Series(True, index=full_training_data.index)  # noqa: FBT003
+    if submodel:
+        for var, value in submodel:
+            # Convert value to the type of the column in the training data and build subset mask
+            retyped_value = full_training_data[var].dtype.type(value)
+            subset_mask = (full_training_data[var] == retyped_value) & subset_mask
 
     raw_df = full_training_data.loc[:, model_spec.raw_variables]
     null_mask = raw_df.isna().any(axis=1)
@@ -79,7 +46,7 @@ def model_training_main(
         msg = f"Null values found in raw data for {null_mask.sum()} rows"
         print(msg)
 
-    df, var_info = prepare_model_data(raw_df, model_spec)
+    df, var_info = cm_data.prepare_model_data(raw_df, model_spec)
 
     raw_df = raw_df.loc[subset_mask].reset_index(drop=True)
     df = df.loc[subset_mask].reset_index(drop=True)
@@ -87,7 +54,8 @@ def model_training_main(
     # TODO: Test/train split
     print(
         f"Training {model_spec.lmer_formula} for {measure} {model_version} "
-        f"age {age_group_id} sex {sex_id} cols {df.columns}"
+        f"submodel {submodel} cols {df.columns}"
+        f" with {len(df)} rows"
     )
     model = Lmer(model_spec.lmer_formula, data=df, family="binomial")
     model.fit()
@@ -98,30 +66,37 @@ def model_training_main(
         raise ValueError(msg)
     model.var_info = var_info
     model.raw_data = raw_df
+    model.submodel = submodel
 
-    cm_data.save_model(model, model_version, age_group_id, sex_id)
+    cm_data.save_model(model, model_version, submodel)
+    icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
+    cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
+    
 
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
 @clio.with_measure()
 @clio.with_model_version()
-@clio.with_age_group_id()
-@clio.with_sex_id()
+@click.option(
+    "--submodel",
+    "-s",
+    multiple=True,
+    type=(str, str),
+    help="Submodel specification.",
+)
 def model_training_task(
     output_root: str,
     measure: str,
     model_version: str,
-    age_group_id: str,
-    sex_id: str,
+    submodel: list[tuple[str, str]],
 ) -> None:
     """Run model training."""
     model_training_main(
         Path(output_root),
         measure,
         model_version,
-        int(age_group_id),
-        int(sex_id),
+        submodel,
     )
 
 
@@ -146,26 +121,39 @@ def model_training(
     version_root = cm_data.models / model_version
     model_spec.version.model = model_version
     cm_data.save_model_specification(model_spec, model_version)
+    training_data = cm_data.load_training_data(model_spec.version.training_data)
 
-    print("Runing model training for model version", model_version)
+    # Deal with submodels
+    submodel_vars = [var.name for var in (model_spec.submodel_vars or [])]
+    print("Training submodels by:", ", ".join(submodel_vars))
+    submodel_var_values = [training_data[var].unique() for var in submodel_vars]
+    # cross product of all submodel_var_values lists
+    submodel_specs = [
+        list(zip(submodel_vars, values, strict=False))
+        for values in itertools.product(*submodel_var_values)
+    ]
+    submodel_specs_strs = [
+        " --submodel ".join([f"{var} {val}" for var, val in spec])
+        for spec in submodel_specs
+    ]
+    node_args = {"submodel": submodel_specs_strs} if submodel_vars else {}
+    node_args["measure"] = [measure]
+
+    print("Running model training for model version", model_version)
 
     jobmon.run_parallel(
         runner="sttask",
         task_name="training",
-        node_args={
-            "age-group-id": clio.VALID_AGE_GROUP_IDS,
-            "sex-id": clio.VALID_SEX_IDS,
-        },
+        node_args=node_args,  # type: ignore[arg-type]
         task_args={
             "output-root": output_root,
-            "measure": measure,
             "model-version": model_version,
         },
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "20Gb",
-            "runtime": "1h",
+            "memory": "60Gb",
+            "runtime": "4h",
             "project": "proj_rapidresponse",
         },
         max_attempts=1,
@@ -173,3 +161,4 @@ def model_training(
     )
 
     print("Model training complete. Results can be found at", version_root)
+
