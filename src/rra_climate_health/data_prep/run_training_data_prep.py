@@ -37,6 +37,10 @@ SURVEY_DATA_ROOT = Path(
     "/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data"
 )
 
+ANEMIA_ROOT = Path(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/anemia/"
+)
+
 SDI_PATH = Path("/mnt/share/forecasting/data/7/past/sdi/20240531_gk24/sdi.nc")
 #/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/wasting_stunting_combined_2024-10-11.csv
 SURVEY_DATA_PATHS = {
@@ -51,6 +55,7 @@ SURVEY_DATA_PATHS = {
         "DHS": WEALTH_DATA_ROOT / "DHS_wealth.parquet",
         "MICS": WEALTH_DATA_ROOT / "MICS_wealth.parquet",
     },
+    "anemia": ANEMIA_ROOT / "anemia_2024-11-01.csv",
 }
 
 DATA_SOURCE_TYPE = {"stunting": "cgf", "wasting": "cgf", "underweight":"cgf", "low_adult_bmi": "bmi"}
