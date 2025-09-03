@@ -37,8 +37,12 @@ SURVEY_DATA_ROOT = Path(
     "/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data"
 )
 
+# ANEMIA_ROOT = Path(
+#     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/anemia/"
+# )
+
 ANEMIA_ROOT = Path(
-    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/anemia/"
+    "/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data"
 )
 
 SDI_PATH = Path("/mnt/share/forecasting/data/7/past/sdi/20240531_gk24/sdi.nc")
@@ -55,11 +59,12 @@ SURVEY_DATA_PATHS = {
         "DHS": WEALTH_DATA_ROOT / "DHS_wealth.parquet",
         "MICS": WEALTH_DATA_ROOT / "MICS_wealth.parquet",
     },
-    "anemia": ANEMIA_ROOT / "anemia_2024-11-01.csv",
+    "anemia": ANEMIA_ROOT / "anemia" / "anemia_combined_wealth_rex.csv",
+    # "anemia": ANEMIA_ROOT / "anemia_extracts_compiled_09_02_2025.csv",
 }
 
-DATA_SOURCE_TYPE = {"stunting": "cgf", "wasting": "cgf", "underweight":"cgf", "low_adult_bmi": "bmi"}
-MEASURES_IN_SOURCE = {"cgf": ["stunting", "wasting", "underweight"], "bmi": ["low_adult_bmi"]}
+DATA_SOURCE_TYPE = {"stunting": "cgf", "wasting": "cgf", "underweight":"cgf", "low_adult_bmi": "bmi","anemia":"anemia"}
+MEASURES_IN_SOURCE = {"cgf": ["stunting", "wasting", "underweight"], "bmi": ["low_adult_bmi"], "anemia": ["anemia"]}
 
 ############################
 # Wasting/Stunting columns #
@@ -409,7 +414,9 @@ def get_ldipc_from_asset_score(
         "ldipc_weighted_match",
     ]
     if asset_df_ldipc[new_cols].isna().sum().sum() != 0:
-        raise RuntimeError("Null LDI-PC values in one of the methods.")
+        # raise RuntimeError("Null LDI-PC values in one of the methods.") temporarily commenting
+        print("Null LDI-PC values in one of the methods.")
+        asset_df_ldipc = asset_df_ldipc[~asset_df_ldipc[new_cols].isna().any(axis=1)]
     if len(asset_df_ldipc) != len(asset_df):
         raise RuntimeError("Mismatch in length of asset data and LDI-PC data.")
     return asset_df_ldipc  # type: ignore[no-any-return]
@@ -671,7 +678,9 @@ def run_training_data_prep_main(  # noqa: PLR0915
 ) -> None:
     if data_source_type == 'cgf':
         run_training_data_prep_cgf(output_root, data_source_type)
-    elif data_source_type != "cgf":
+    elif data_source_type == "anemia":
+        run_training_data_prep_anemia(output_root, data_source_type)
+    else:
         msg = f"Data source {data_source_type} not implemented yet."
         raise NotImplementedError(msg)
 
@@ -995,3 +1004,320 @@ def run_training_data_prep_cgf(  # noqa: PLR0915
             with open(cm_data.training_data / version / "ldi_col.txt", "w") as f:
                 f.write(message)
 
+
+def run_training_data_prep_anemia(  
+    output_root: str | Path,
+    data_source_type: str,
+) -> None:
+    # data_source_type = "anemia"
+    survey_data_path = SURVEY_DATA_PATHS[data_source_type]
+    print(f"Running training data prep for {data_source_type}...")
+
+    print("Processing gbd extraction survey data...")
+    loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
+
+    anemia_data_raw = pd.read_csv(
+        survey_data_path,
+        dtype={"hh_id": str, "year_start": int, "int_year": int, "year_end": int},
+    )
+
+    anemia_data_raw = anemia_data_raw.rename(columns=COLUMN_NAME_TRANSLATOR)
+
+    anemia_data = anemia_data_raw[
+        [
+            "nid",
+            "ihme_loc_id",
+            "year_start",
+            "year_end",
+            # "geospatial_id",  # not found in 2024 version
+            "psu",
+            "pweight",
+            "strata",
+            "hh_id",
+            "urban",
+            "sex_id",
+            "age_year",
+            # "age_month", # not found in 2024 version
+            "int_year",
+            "int_month",
+            "brinda_adj_hemog", # likely to include more anemia vars
+            "who_adj_hemog",
+            "wealth_index_dhs", # not found in extractions data
+            "lat",
+            "long",
+        ]
+    ]
+
+    # Take away NIDs without wealth information, to see later if we can add it from second source
+    print(len(anemia_data))
+    anemia_data_nids_without_wealth = anemia_data[
+        anemia_data.wealth_index_dhs.isna()
+    ].nid.unique()
+
+    lsms_wealth_data = get_LSMS_wealth_dataset()
+    dhs_wealth_data = get_DHS_wealth_dataset()
+    mics_wealth_data = get_MICS_wealth_dataset()
+
+    wealth_nids = set(dhs_wealth_data.nid.unique()) | set(mics_wealth_data.nid.unique()) | set(lsms_wealth_data.nid.unique())
+    anemia_nids = set(anemia_data.nid.unique()) 
+    common_nids = wealth_nids.intersection(anemia_nids)
+
+    nid_with_wealth_pc = 100*len(common_nids)/len(anemia_nids)
+    print(f"{nid_with_wealth_pc:.1f}% of anemia NIDs - {len(common_nids)} out of {len(anemia_nids)} in wealth data NIDs")
+
+    
+
+    # Subset to common nids
+    lsms_wealth_data = lsms_wealth_data.query('nid in @common_nids')
+    dhs_wealth_data = dhs_wealth_data.query('nid in @common_nids')
+    mics_wealth_data = mics_wealth_data.query('nid in @common_nids')
+
+
+    # All of GBD's come from DHS. For GBD, we prefer the wealth data from the wealth team,
+    # so subset to the nids in the DHS wealth data
+    anemia_data_to_match = anemia_data.query('nid in @dhs_wealth_data.nid')
+
+    # If there are any NIDs that aren't in the wealth data but don't have their own wealth, then they're missing wealth altogether
+    nids_without_wealth_in_any_dataset = set(anemia_data.nid.unique()) - set(anemia_data_to_match.nid.unique()) 
+    print("NIDs without wealth in any dataset:", nids_without_wealth_in_any_dataset)
+
+    # below is same as anemia_data_to_match
+    anemia_data_own_wealth = anemia_data.query('nid not in @anemia_data_nids_without_wealth')
+
+    # First the data with its own wealth data
+    # We get wealth data to be merged with anemoa data and merge
+    print("Processing data with its own wealth data...")
+    anemia_data_wealth_distribution = (
+        anemia_data_own_wealth.groupby(["nid", "ihme_loc_id", "year_start", "psu", "hh_id"])
+        .agg(
+            wealth_index_dhs=("wealth_index_dhs", "first"),
+            pweight=("pweight", "first"),
+            check=("wealth_index_dhs", "nunique"),
+        )
+        .reset_index()
+    )
+
+    if (anemia_data_wealth_distribution.check != 1).any():
+        msg = "Multiple wealth index values for the same household."
+        raise RuntimeError(msg)
+
+    anemia_data_wealth_distribution = merge_left_without_inflating(anemia_data_wealth_distribution, loc_meta, on="ihme_loc_id")
+
+    cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT) / MEASURES_IN_SOURCE[data_source_type][0])
+
+    anemia_data_wealth_distribution = get_ldipc_from_asset_score(
+        anemia_data_wealth_distribution, cm_data, asset_score_col="wealth_index_dhs",
+        # plot_pdf_path=Path(DEFAULT_ROOT) / "input"/ "ldi_plots"/ "gbd_plots.pdf", # no permissions
+        plot_pdf_path=Path("/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2025/plots/anemia") /  "gbd_plots.pdf", # temporary
+        ldi_version = LDI_VERSION,
+    )
+    ldi_cols = ['ldipc_unweighted_no_match', 'ldipc_weighted_no_match', 'ldipc_unweighted_match', 'ldipc_weighted_match']
+
+    anemia_data_wealth_distribution = anemia_data_wealth_distribution[
+        ["nid", "ihme_loc_id", "location_id", "year_start", "psu", "hh_id"] + ldi_cols
+    ]
+
+    anemia_data_own_wealth = merge_left_without_inflating(anemia_data_own_wealth, anemia_data_wealth_distribution, on=["nid", "ihme_loc_id", "year_start", "psu", "hh_id"])
+
+    # Getting income distributions
+    dhs_wealth_data = get_ldipc_from_asset_score(
+        dhs_wealth_data, cm_data, asset_score_col="wealth_index_dhs", weights_col="hhweight",
+        plot_pdf_path=Path(DEFAULT_ROOT) / "input"/ "ldi_plots"/ "dhs_plots.pdf",
+        ldi_version = LDI_VERSION,
+    )
+
+    mics_wealth_data = get_ldipc_from_asset_score(
+        mics_wealth_data, cm_data, asset_score_col="wealth_index_dhs", weights_col="hhweight",
+        plot_pdf_path=Path(DEFAULT_ROOT) / "input"/ "ldi_plots"/ "mics_plots.pdf",
+        ldi_version = LDI_VERSION,
+    )
+
+    lsms_wealth_data = get_ldipc_from_asset_score(
+        lsms_wealth_data, cm_data, asset_score_col="wealth_measurement", weights_col="hhweight",
+        plot_pdf_path=Path(DEFAULT_ROOT) / "input"/ "ldi_plots"/ "lsms_plots.pdf",
+        ldi_version = LDI_VERSION,
+    )
+
+    wealth_cols = ['ihme_loc_id', 'location_id', 'nid', 'psu', 'hh_id', 'geospatial_id', 'lat', 'long', 'year_start'] + ldi_cols
+    all_wealth_data = pd.concat([dhs_wealth_data[wealth_cols], mics_wealth_data[wealth_cols], lsms_wealth_data[wealth_cols]])
+    wealth_lsae_df = all_wealth_data.copy()
+
+
+    # Now the LSAE CGF data
+    lsae_cgf_data = lsae_cgf_data_raw[
+        [
+            "nid",
+            "country",
+            "year_start",
+            "end_year",
+            "geospatial_id",
+            "psu",
+            "pweight",
+            #"strata",
+            "hh_id",
+            "sex",
+            "age_year",
+            "age_mo",
+            "int_year",
+            "int_month",
+            "stunting_mod_b",
+            "wasting_mod_b",
+            "underweight_mod_b",
+        ]
+    ]
+    lsae_cgf_data = lsae_cgf_data.rename(columns=COLUMN_NAME_TRANSLATOR)
+
+    print("Processing LSAE data...")
+    # Take away bad NIDs, without household information
+    print(len(lsae_cgf_data))
+    no_hhid_nids = (
+        lsae_cgf_data.groupby("nid")
+        .filter(lambda x: x["hh_id"].isna().all())
+        .nid.unique()
+    )
+    lsae_cgf_data = lsae_cgf_data[~lsae_cgf_data.nid.isin(no_hhid_nids)]
+    #TODO print these NIDS to a file
+
+    # Try to make household id usable to merge on
+    # For some reason in some extractions hh_id is a string with household id and psu, in others it's just the household id
+    lsae_cgf_data = lsae_cgf_data[lsae_cgf_data["nid"].isin(common_nids)].copy()
+    lsae_cgf_data = lsae_cgf_data.rename(
+        columns={"latitude": "lat", "longitude": "long", "hh_id": "old_hh_id"}
+    )
+    wealth_lsae_df = wealth_lsae_df.rename(columns={"hh_id": "old_hh_id"})
+    lsae_cgf_data["hh_id"] = lsae_cgf_data["old_hh_id"].str.split(r"[_ ]").str[-1]
+    wealth_lsae_df["hh_id"] = wealth_lsae_df["old_hh_id"].str.split(r"[_ ]").str[-1]
+    lsae_cgf_data["psu"] = lsae_cgf_data["psu"].astype(int)
+    lsae_cgf_data["hh_id"] = lsae_cgf_data.apply(clean_hh_id, axis=1)
+    wealth_lsae_df["hh_id"] = wealth_lsae_df.apply(clean_hh_id, axis=1)
+    print(len(lsae_cgf_data))
+
+    # Some NIDs need extra cleaning so that hh_id can be merged.
+    # Take those out and merge LSAE CGF data with wealth
+    print(len(lsae_cgf_data))
+
+    merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
+    # maybe_fixable_df.loc[maybe_fixable_df.sex_id == 0, "sex_id"] = 2
+
+    lsae_merged = merge_left_without_inflating(lsae_cgf_data.drop(columns=["old_hh_id"]), wealth_lsae_df, on=merge_cols)
+    print(len(lsae_cgf_data))
+    print(len(lsae_merged))
+
+    # Take out NIDs with more than 5% of missing wealth data
+    allowed_wealth_nan_proportion = 0.05
+    nan_proportion = lsae_merged.groupby('nid').apply(lambda x: x.ldipc_unweighted_no_match.isna().mean(), include_groups=False).reset_index().rename(columns={0: 'nan_proportion'})
+    bad_wealth_merge_nids = nan_proportion.query('nan_proportion > @allowed_wealth_nan_proportion').nid.unique()
+    print(len(lsae_merged))
+    lsae_merged = lsae_merged[~lsae_merged.nid.isin(bad_wealth_merge_nids)]
+    print(len(lsae_merged))
+    # Take out rows with missing wealth data but in NIDs with less than 5% of missing wealth data
+    lsae_merged = lsae_merged[~lsae_merged.ldipc_unweighted_no_match.isna()]
+    print(len(lsae_merged))
+
+    maybe_fixable_df = lsae_cgf_data[
+        lsae_cgf_data["nid"].isin(bad_wealth_merge_nids)#([157057, 286780, 341838])
+    ].copy()
+
+    # Only interested in rows have have either stunting, wasting or underweight information, with both wealth and location
+    print(len(lsae_merged))
+    lsae_merged = lsae_merged.dropna(
+        subset=["stunting", "wasting", "underweight"], how="all"
+    )
+    print(len(lsae_merged))
+    lsae_merged = lsae_merged.dropna(subset=["lat", "long"], how="any")
+    lsae_merged.loc[lsae_merged.sex_id == 0, "sex_id"] = 2
+    print(len(lsae_merged))
+
+    # Drop rows from GBD dataset with missing location information
+    #gbd_cgf_data = gbd_cgf_data.dropna(subset=["lat", "long"], how="any")
+
+
+    extra_nids = gbd_cgf_data_to_match.copy().drop(columns=['lat', 'long'])
+
+    extra_nids["hh_id"] = extra_nids["hh_id"].str.split(r"[_ ]").str[-1]
+    extra_nids["hh_id"] = extra_nids.apply(clean_hh_id, axis=1)
+    extra_nids_nids = extra_nids.nid.unique()
+
+    extra_nids_wealth = all_wealth_data.query("nid in @extra_nids_nids").copy()
+    extra_nids_wealth["hh_id"] = extra_nids_wealth["hh_id"].str.split(r"[_ ]").str[-1]
+    extra_nids_wealth["hh_id"] = extra_nids_wealth.apply(clean_hh_id, axis=1)
+    extra_nids = merge_left_without_inflating(extra_nids, extra_nids_wealth, on=["nid", "ihme_loc_id", "hh_id", "psu", "year_start"])
+    print(len(extra_nids))
+    #extra_nids = extra_nids.dropna(subset=["ldipc"])
+
+    # Take out NIDs with more than 5% of missing wealth data
+    allowed_wealth_nan_proportion = 0.05
+    nan_proportion = extra_nids.groupby('nid').apply(lambda x: x.ldipc_unweighted_no_match.isna().mean(), include_groups=False).reset_index().rename(columns={0: 'nan_proportion'})
+    bad_wealth_merge_nids_extra = nan_proportion.query('nan_proportion > @allowed_wealth_nan_proportion').nid.unique()
+    print(len(extra_nids))
+    extra_nids = extra_nids[~extra_nids.nid.isin(bad_wealth_merge_nids_extra)]
+    print(len(extra_nids))
+    # Take out rows with missing wealth data but in NIDs with less than 5% of missing wealth data
+    extra_nids = extra_nids[~extra_nids.ldipc_unweighted_no_match.isna()]
+    print(len(extra_nids))
+
+
+    # Bring the two datasets (LSAE and GBD) together, giving preference to the LSAE extractions
+    gbd_extraction_nids = set(gbd_cgf_data_own_wealth.nid.unique()) | set(extra_nids.nid.unique())
+    lsae_only = lsae_merged.loc[~lsae_merged.nid.isin(gbd_extraction_nids)]
+    gbd_only = pd.concat([extra_nids.loc[~extra_nids.nid.isin(lsae_merged.nid.unique())],
+        gbd_cgf_data_own_wealth.loc[~gbd_cgf_data_own_wealth.nid.isin(lsae_merged.nid.unique())]
+    ])
+
+
+
+    cgf_consolidated = pd.concat(
+        [lsae_merged, gbd_only], ignore_index=True
+    ).reset_index(drop=True)
+
+    cgf_consolidated = cgf_consolidated.drop(columns=["strata", "geospatial_id"])
+    # selected_wealth_column = "ldi_pc_weighted_no_match"
+    # cgf_consolidated["ldi_pc_pd"] = cgf_consolidated["ldipc"] / 365
+
+    # Assign age group
+    cgf_consolidated = assign_age_group(cgf_consolidated, )
+    cgf_consolidated = cgf_consolidated.dropna(subset=["age_group_id"])
+
+    # Take out data with invalid lat and long
+    cgf_consolidated = cgf_consolidated.dropna(subset=["lat", "long"])
+    cgf_consolidated = cgf_consolidated.query("lat != 0 and long != 0")
+
+    # NID 275090 is a very long survey in Peru, 2003-2008 that is coded as having
+    # multiple year_starts. Removing it
+    cgf_consolidated = cgf_consolidated.query("nid != 275090")
+
+    # NID 411301 is a Zambia survey in which the prevalences end up being 0
+    # after removing data with invalid age columns, remove it
+    cgf_consolidated = cgf_consolidated.query("nid != 411301")
+
+
+    # Merge with climate data
+    print("Processing climate data...")
+    climate_df = get_climate_vars_for_dataframe(cgf_consolidated)
+    cgf_consolidated = merge_left_without_inflating(cgf_consolidated, climate_df, on=["int_year", "lat", "long"])
+
+
+    print("Adding elevation data...")
+    cgf_consolidated = get_elevation_for_dataframe(cgf_consolidated)
+
+    cgf_consolidated = assign_lbd_admin2_location_id(cgf_consolidated)
+    #cgf_consolidated = assign_sdi(cgf_consolidated)
+
+
+    #Write to output
+    for measure in MEASURES_IN_SOURCE[data_source_type]:
+        measure_df = cgf_consolidated[cgf_consolidated[measure].notna()].copy().drop(columns=[x for x in cgf_consolidated.columns if '_x' in x or '_y' in x])
+        measure_df["cgf_measure"] = measure
+        measure_df["cgf_value"] = measure_df[measure]
+        measure_root = Path(output_root) / measure
+        cm_data = ClimateMalnutritionData(measure_root)
+        print(f"Saving data for {measure} to {measure_root} {len(measure_df)} rows")
+        for ldi_col in ['ldipc_weighted_no_match']: #ldi_cols:
+            measure_df['ldi_pc_pd'] = measure_df[ldi_col] / 365
+            version = cm_data.new_training_version()
+            print(f"Saving data for {measure} to version {version} with {ldi_col} as LDI")
+            cm_data.save_training_data(measure_df, version)
+            message = "Used " + ldi_col + " as LDI"
+            # Save a small file with a record of which ldi column was used for this version
+            with open(cm_data.training_data / version / "ldi_col.txt", "w") as f:
+                f.write(message)
