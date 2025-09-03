@@ -37,12 +37,8 @@ SURVEY_DATA_ROOT = Path(
     "/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data"
 )
 
-# ANEMIA_ROOT = Path(
-#     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/anemia/"
-# )
-
 ANEMIA_ROOT = Path(
-    "/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data"
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/anemia/"
 )
 
 SDI_PATH = Path("/mnt/share/forecasting/data/7/past/sdi/20240531_gk24/sdi.nc")
@@ -59,8 +55,7 @@ SURVEY_DATA_PATHS = {
         "DHS": WEALTH_DATA_ROOT / "DHS_wealth.parquet",
         "MICS": WEALTH_DATA_ROOT / "MICS_wealth.parquet",
     },
-    "anemia": ANEMIA_ROOT / "anemia" / "anemia_combined_wealth_rex.csv",
-    # "anemia": ANEMIA_ROOT / "anemia_extracts_compiled_09_02_2025.csv",
+    "anemia": ANEMIA_ROOT / "anemia_extracts_compiled_09_02_2025.csv",
 }
 
 DATA_SOURCE_TYPE = {"stunting": "cgf", "wasting": "cgf", "underweight":"cgf", "low_adult_bmi": "bmi","anemia":"anemia"}
@@ -414,9 +409,7 @@ def get_ldipc_from_asset_score(
         "ldipc_weighted_match",
     ]
     if asset_df_ldipc[new_cols].isna().sum().sum() != 0:
-        # raise RuntimeError("Null LDI-PC values in one of the methods.") temporarily commenting
-        print("Null LDI-PC values in one of the methods.")
-        asset_df_ldipc = asset_df_ldipc[~asset_df_ldipc[new_cols].isna().any(axis=1)]
+        raise RuntimeError("Null LDI-PC values in one of the methods.") 
     if len(asset_df_ldipc) != len(asset_df):
         raise RuntimeError("Mismatch in length of asset data and LDI-PC data.")
     return asset_df_ldipc  # type: ignore[no-any-return]
@@ -659,6 +652,8 @@ def run_training_data_prep(output_root: str, source_type: str) -> None:
     run_training_data_prep_main(output_root, source_type)
 
 def clean_hh_id(row):
+    if pd.isna(row['hh_id']):
+        return row['hh_id']
     hh_id_str = str(row['hh_id'])
     geo_str = str(row['geospatial_id'])
     # Match one or more leading zeros followed by the geospatial_id at the start
@@ -668,6 +663,7 @@ def clean_hh_id(row):
     # Strip remaining leading zeros and handle empty results
     cleaned = cleaned.lstrip('0') or '0'
     return cleaned
+
 
 
 output_root = DEFAULT_ROOT
@@ -1017,36 +1013,106 @@ def run_training_data_prep_anemia(
     loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
 
     anemia_data_raw = pd.read_csv(
-        survey_data_path,
-        dtype={"hh_id": str, "year_start": int, "int_year": int, "year_end": int},
+        survey_data_path
     )
-
-    anemia_data_raw = anemia_data_raw.rename(columns=COLUMN_NAME_TRANSLATOR)
 
     anemia_data = anemia_data_raw[
         [
             "nid",
             "ihme_loc_id",
+            'survey_name',
             "year_start",
             "year_end",
-            # "geospatial_id",  # not found in 2024 version
-            "psu",
+            'urban',
+            "geospatial_id",  
+            "psu_id",
             "pweight",
             "strata",
             "hh_id",
-            "urban",
+            "line_id",
             "sex_id",
             "age_year",
-            # "age_month", # not found in 2024 version
+            "age_month", 
             "int_year",
-            "int_month",
-            "brinda_adj_hemog", # likely to include more anemia vars
-            "who_adj_hemog",
-            "wealth_index_dhs", # not found in extractions data
-            "lat",
-            "long",
+            'anemia_anemic_brinda',
+            'anemia_mod_sev_brinda',
+            'latnum', 
+            'longnum',
         ]
     ]
+
+    anemia_data = anemia_data.rename(columns=COLUMN_NAME_TRANSLATOR)
+
+    anemia_data["old_hh_id"] = anemia_data["hh_id"]
+
+
+    def clean_hh_id(row):
+        if pd.isna(row['hh_id_v2']):
+            return row['hh_id_v2']
+        hh_id_str = str(row['hh_id_v2'])
+        geo_str = str(row['geospatial_id'])
+        # Match one or more leading zeros followed by the geospatial_id at the start
+        pattern = r'^0+' + re.escape(geo_str)
+        # Remove the matched pattern (if found)
+        cleaned = re.sub(pattern, '', hh_id_str)
+        # Strip remaining leading zeros and handle empty results
+        cleaned = cleaned.lstrip('0') or '0'
+        return cleaned
+
+    def clean_hh_id_anemia(row):
+        hh_id = row['hh_id']
+        geo_str = str(row['geospatial_id'])
+
+        if pd.isna(hh_id):
+            return hh_id
+
+        # Convert to string and trim leading/trailing whitespace
+        hh_id = str(hh_id).strip()
+
+        # Replace multiple spaces with a single space
+        hh_id = re.sub(r'\s{2,}', ' ', hh_id)
+
+        # If the hh_id is already clean (no spaces or underscores), return it
+        if len(re.split(r"[_ ]", hh_id)) == 1:
+            return float(hh_id)
+
+        # Handle cases with spaces or underscores
+        if " " in hh_id:
+            hh_id = hh_id.split(" ")[-1]
+        elif "_" in hh_id:
+            hh_id = hh_id.split("_")[-1]
+
+        # Match and remove leading zeros followed by the geospatial_id
+        pattern = r'^0+' + re.escape(geo_str)
+        hh_id = re.sub(pattern, '', hh_id)
+
+        # Strip remaining leading zeros and handle empty results
+        hh_id = hh_id.lstrip('0') or '0'
+
+        return float(hh_id)  # Return as float to handle NAs
+
+    anemia_data["hh_id"] = anemia_data["hh_id"].apply(clean_hh_id_anemia)
+
+    assert len(anemia_data[anemia_data["hh_id"].isna()]) == len(anemia_data[anemia_data["old_hh_id"].isna()]), "NAs introduced by cleaning"
+
+    # anemia_data["hh_id_v2"] = anemia_data["old_hh_id"].str.split(r"[_ ]").str[-1]
+
+    # anemia_data[(anemia_data["hh_id"].isna()) & (anemia_data["hh_id_v2"].notna())]
+    # anemia_data[(anemia_data["hh_id"].notna()) & (anemia_data["hh_id_v2"].isna())]
+
+    # anemia_data["psu"] = anemia_data["psu"].astype(int)
+    # anemia_data["hh_id_v2"] = anemia_data.apply(clean_hh_id, axis=1)
+
+    # len(anemia_data[anemia_data["hh_id_v2"].isna()])
+    # len(anemia_data[anemia_data["hh_id"].isna()])
+    # len(anemia_data[anemia_data["old_hh_id"].isna()])
+
+    # anemia_data = anemia_data[~anemia_data["hh_id"].isna()]
+    # anemia_data["hh_id"] = anemia_data["hh_id"].astype(int)
+    # anemia_data["hh_id"] = anemia_data["hh_id"].astype(str)
+    # anemia_data[(anemia_data["hh_id"]!=anemia_data["hh_id_v2"])][["psu","geospatial_id","hh_id","hh_id_v2","old_hh_id"]]
+
+    # anemia_data[(anemia_data["hh_id"].isna())&(~anemia_data["old_hh_id"].isna())]
 
     # Take away NIDs without wealth information, to see later if we can add it from second source
     print(len(anemia_data))
@@ -1054,9 +1120,32 @@ def run_training_data_prep_anemia(
         anemia_data.wealth_index_dhs.isna()
     ].nid.unique()
 
-    lsms_wealth_data = get_LSMS_wealth_dataset()
-    dhs_wealth_data = get_DHS_wealth_dataset()
-    mics_wealth_data = get_MICS_wealth_dataset()
+    # Prepping wealth dataset
+    dhs_wealth_data_raw = get_DHS_wealth_dataset()
+    dhs_wealth_data = dhs_wealth_data_raw.copy()
+
+    dhs_wealth_data["old_hh_id"] = dhs_wealth_data["hh_id"]
+    dhs_wealth_data["hh_id"] = dhs_wealth_data.apply(clean_hh_id_anemia, axis=1)
+
+    assert len(dhs_wealth_data[dhs_wealth_data["hh_id"].isna()]) == len(dhs_wealth_data[dhs_wealth_data["old_hh_id"].isna()]), "NAs introduced by cleaning"
+
+
+    dhs_wealth_data["hh_id_v2"] = dhs_wealth_data["old_hh_id"].str.split(r"[_ ]").str[-1]
+    dhs_wealth_data["psu"] = dhs_wealth_data["psu"].astype(int)
+    dhs_wealth_data["psu"] = dhs_wealth_data["psu"].astype(str)
+    dhs_wealth_data["hh_id_v2"] = dhs_wealth_data.apply(clean_hh_id, axis=1)
+
+    assert len(dhs_wealth_data[dhs_wealth_data["hh_id_v2"].isna()]) == len(dhs_wealth_data[dhs_wealth_data["old_hh_id"].isna()]), "NAs introduced by cleaning"
+
+    # dhs_wealth_data["hh_id"] = dhs_wealth_data["hh_id"].astype(int)
+    # dhs_wealth_data["hh_id"] = dhs_wealth_data["hh_id"].astype(str)
+
+
+    # dhs_wealth_data[(dhs_wealth_data["hh_id"]!=dhs_wealth_data["hh_id_v2"])&(dhs_wealth_data["psu"]!=dhs_wealth_data["geospatial_id"])]
+
+    dhs_wealth_data["hh_id"] = dhs_wealth_data["hh_id"].astype(int)
+    dhs_wealth_data["hh_id_v1"] = dhs_wealth_data["hh_id_v1"].astype(int)
+    dhs_wealth_data[dhs_wealth_data["hh_id"]!=dhs_wealth_data["hh_id_v1"]][["psu","hh_id","hh_id_v1","old_hh_id"]]
 
     wealth_nids = set(dhs_wealth_data.nid.unique()) | set(mics_wealth_data.nid.unique()) | set(lsms_wealth_data.nid.unique())
     anemia_nids = set(anemia_data.nid.unique()) 
@@ -1065,7 +1154,23 @@ def run_training_data_prep_anemia(
     nid_with_wealth_pc = 100*len(common_nids)/len(anemia_nids)
     print(f"{nid_with_wealth_pc:.1f}% of anemia NIDs - {len(common_nids)} out of {len(anemia_nids)} in wealth data NIDs")
 
-    
+    # Find out percent of anemia nids and hh_ids that can be matched in wealth data
+    dhs_wealth_data['hh_id'] = dhs_wealth_data['hh_id'].apply(clean_dhs_wealth_hh_id)
+    dhs_wealth_data['psu'] = dhs_wealth_data['psu'].astype(int)
+    anemia_data_hhs = anemia_data[["nid","hh_id"]].drop_duplicates() 
+    dhs_wealth_data_hhs = dhs_wealth_data[["nid","hh_id"]].drop_duplicates()
+    dhs_wealth_data_hhs["dhs_wealth_data"] = True
+    merged_hhs = anemia_data_hhs.merge(dhs_wealth_data_hhs, on=["nid","hh_id"], how="left")
+    merged_hhs["dhs_wealth_data"].fillna(False, inplace=True)
+    merged_hhs["dhs_wealth_data"].value_counts()
+
+
+    # remove rows with missing hh_id
+    anemia_data = anemia_data[anemia_data["hh_id"].notna()]
+
+    anemia_data.drop(columns=["old_hh_id"],inplace=True)
+    anemia_data["hh_id"] = anemia_data["hh_id"].astype(int)
+    anemia_data["psu"] = anemia_data["psu"].astype(int)
 
     # Subset to common nids
     lsms_wealth_data = lsms_wealth_data.query('nid in @common_nids')
