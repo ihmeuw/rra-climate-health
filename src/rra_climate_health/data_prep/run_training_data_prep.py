@@ -37,6 +37,10 @@ SURVEY_DATA_ROOT = Path(
     "/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data"
 )
 
+ANEMIA_ROOT = Path(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/anemia/"
+)
+
 SDI_PATH = Path("/mnt/share/forecasting/data/7/past/sdi/20240531_gk24/sdi.nc")
 #/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data/wasting_stunting/wasting_stunting_combined_2024-10-11.csv
 SURVEY_DATA_PATHS = {
@@ -51,10 +55,11 @@ SURVEY_DATA_PATHS = {
         "DHS": WEALTH_DATA_ROOT / "DHS_wealth.parquet",
         "MICS": WEALTH_DATA_ROOT / "MICS_wealth.parquet",
     },
+    "anemia": ANEMIA_ROOT / "anemia_extracts_compiled_09_02_2025.csv",
 }
 
-DATA_SOURCE_TYPE = {"stunting": "cgf", "wasting": "cgf", "underweight":"cgf", "low_adult_bmi": "bmi"}
-MEASURES_IN_SOURCE = {"cgf": ["stunting", "wasting", "underweight"], "bmi": ["low_adult_bmi"]}
+DATA_SOURCE_TYPE = {"stunting": "cgf", "wasting": "cgf", "underweight":"cgf", "low_adult_bmi": "bmi","anemia":"anemia"}
+MEASURES_IN_SOURCE = {"cgf": ["stunting", "wasting", "underweight"], "bmi": ["low_adult_bmi"], "anemia": ["anemia_anemic_brinda","anemia_mod_sev_brinda"]}
 
 ############################
 # Wasting/Stunting columns #
@@ -404,7 +409,7 @@ def get_ldipc_from_asset_score(
         "ldipc_weighted_match",
     ]
     if asset_df_ldipc[new_cols].isna().sum().sum() != 0:
-        raise RuntimeError("Null LDI-PC values in one of the methods.")
+        raise RuntimeError("Null LDI-PC values in one of the methods.") 
     if len(asset_df_ldipc) != len(asset_df):
         raise RuntimeError("Mismatch in length of asset data and LDI-PC data.")
     return asset_df_ldipc  # type: ignore[no-any-return]
@@ -554,9 +559,10 @@ def get_LSMS_wealth_dataset() -> pd.DataFrame:
     return df
 
 
-def assign_age_group(df: pd.DataFrame) -> pd.DataFrame:
+def assign_age_group(df: pd.DataFrame,indicator="cgf") -> pd.DataFrame:
     age_group_spans = pd.read_parquet(paths.AGE_SPANS_FILEPATH)
-    age_group_spans = age_group_spans.query("age_group_id in [388, 389, 238, 34]")
+    if indicator=='cgf':
+        age_group_spans = age_group_spans.query("age_group_id in [388, 389, 238, 34]")
     df["age_group_id"] = np.nan
     for _, row in age_group_spans.iterrows():
         df.loc[
@@ -647,6 +653,8 @@ def run_training_data_prep(output_root: str, source_type: str) -> None:
     run_training_data_prep_main(output_root, source_type)
 
 def clean_hh_id(row):
+    if pd.isna(row['hh_id']):
+        return row['hh_id']
     hh_id_str = str(row['hh_id'])
     geo_str = str(row['geospatial_id'])
     # Match one or more leading zeros followed by the geospatial_id at the start
@@ -657,6 +665,37 @@ def clean_hh_id(row):
     cleaned = cleaned.lstrip('0') or '0'
     return cleaned
 
+def clean_hh_id_anemia(row):
+    hh_id = row['hh_id']
+    geo_str = str(row['geospatial_id'])
+
+    if pd.isna(hh_id):
+        return hh_id
+
+    # Convert to string and trim leading/trailing whitespace
+    hh_id = str(hh_id).strip()
+
+    # Replace multiple spaces with a single space
+    hh_id = re.sub(r'\s{2,}', ' ', hh_id)
+
+    # If the hh_id is already clean (no spaces or underscores), return it
+    if (len(re.split(r"[_ ]", hh_id)) == 1) and not (hh_id.startswith('0')):
+        return float(hh_id)
+
+    # Handle cases with spaces or underscores
+    if " " in hh_id:
+        hh_id = hh_id.split(" ")[-1]
+    elif "_" in hh_id:
+        hh_id = hh_id.split("_")[-1]
+
+    # Match and remove leading zeros followed by the geospatial_id
+    pattern = r'^0+' + re.escape(geo_str)
+    hh_id = re.sub(pattern, '', hh_id)
+
+    # Strip remaining leading zeros and handle empty results
+    hh_id = hh_id.lstrip('0') or '0'
+
+    return float(hh_id)  # Return as float to handle NAs
 
 output_root = DEFAULT_ROOT
 data_source_type = "cgf"
@@ -666,7 +705,9 @@ def run_training_data_prep_main(  # noqa: PLR0915
 ) -> None:
     if data_source_type == 'cgf':
         run_training_data_prep_cgf(output_root, data_source_type)
-    elif data_source_type != "cgf":
+    elif data_source_type == "anemia":
+        run_training_data_prep_anemia(output_root, data_source_type)
+    else:
         msg = f"Data source {data_source_type} not implemented yet."
         raise NotImplementedError(msg)
 
@@ -990,3 +1031,171 @@ def run_training_data_prep_cgf(  # noqa: PLR0915
             with open(cm_data.training_data / version / "ldi_col.txt", "w") as f:
                 f.write(message)
 
+
+def run_training_data_prep_anemia(  
+    output_root: str | Path,
+    data_source_type: str,
+) -> None:
+    # data_source_type = "anemia"
+    survey_data_path = SURVEY_DATA_PATHS[data_source_type]
+    print(f"Running training data prep for {data_source_type}...")
+
+    print("Processing gbd extraction survey data...")
+    loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
+
+    anemia_data_raw = pd.read_csv(
+        survey_data_path
+    )
+
+    anemia_data = anemia_data_raw[
+        [
+            "nid",
+            "ihme_loc_id",
+            'survey_name',
+            "year_start",
+            "year_end",
+            'urban',
+            "geospatial_id",  
+            "psu_id",
+            "pweight",
+            "strata",
+            "hh_id",
+            "line_id",
+            "sex_id",
+            "age_year",
+            "age_month", 
+            "int_year",
+            'anemia_anemic_brinda',
+            'anemia_mod_sev_brinda',
+            'latnum', 
+            'longnum',
+        ]
+    ]
+
+    anemia_data = anemia_data.rename(columns=COLUMN_NAME_TRANSLATOR)
+
+    anemia_data["old_hh_id"] = anemia_data["hh_id"]
+
+    anemia_data["hh_id"] = anemia_data.apply(clean_hh_id_anemia, axis=1)
+
+    assert len(anemia_data[anemia_data["hh_id"].isna()]) == len(anemia_data[anemia_data["old_hh_id"].isna()]), "NAs introduced by cleaning"
+
+    # Prepping wealth dataset
+    dhs_wealth_data_raw = get_DHS_wealth_dataset()
+    dhs_wealth_data = dhs_wealth_data_raw.copy()
+
+    cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT)/'anemia')
+    dhs_wealth_data = get_ldipc_from_asset_score(
+            dhs_wealth_data, cm_data, asset_score_col="wealth_index_dhs", weights_col="hhweight",
+            plot_pdf_path=Path(DEFAULT_ROOT) / "input"/ "ldi_plots"/ "dhs_plots.pdf",
+            ldi_version = LDI_VERSION,
+        )
+
+    dhs_wealth_data["old_hh_id"] = dhs_wealth_data["hh_id"]
+    dhs_wealth_data["hh_id"] = dhs_wealth_data.apply(clean_hh_id_anemia, axis=1)
+
+    assert len(dhs_wealth_data[dhs_wealth_data["hh_id"].isna()]) == len(dhs_wealth_data[dhs_wealth_data["old_hh_id"].isna()]), "NAs introduced by cleaning"
+
+    missing_hh_rows = anemia_data[anemia_data['hh_id'].isna()]
+    print(f"Dropping {len(missing_hh_rows)} rows from anemia data with missing hh_id")
+    anemia_data = anemia_data[anemia_data["hh_id"].notna()]
+
+    # Find out percent of anemia nids and hh_ids that can be matched in wealth data
+    merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
+    anemia_data['hh_id'] = anemia_data['hh_id'].astype(int)
+    dhs_wealth_data['hh_id'] = dhs_wealth_data['hh_id'].astype(int)
+    anemia_data['psu'] = anemia_data['psu'].astype(int)
+    dhs_wealth_data['psu'] = dhs_wealth_data['psu'].astype(int)
+
+    wealth_nids = set(dhs_wealth_data.nid.unique()) 
+    anemia_nids = set(anemia_data.nid.unique()) 
+    common_nids = wealth_nids.intersection(anemia_nids)
+
+    nid_with_wealth_pc = 100*len(common_nids)/len(anemia_nids)
+    print(f"{nid_with_wealth_pc:.1f}% of anemia NIDs - {len(common_nids)} out of "
+          f"{len(anemia_nids)} in wealth data NIDs")
+
+    dhs_wealth_data = dhs_wealth_data.query("nid in @anemia_nids")
+
+    anemia_data.drop(columns=["old_hh_id"],inplace=True)
+    dhs_wealth_data.drop(columns=["old_hh_id"],inplace=True)
+
+    # Merge data
+    anemia_data_wealth = merge_left_without_inflating(anemia_data, dhs_wealth_data.drop(columns=['geospatial_id', 'strata', 'lat', 'long']), on=merge_cols)
+
+    #Calculate proportion of NA and filter out nids with too much wealth missingness (bad merges)
+    merged_na_props = (anemia_data_wealth.groupby(['nid']).ldipc_weighted_no_match.count() / anemia_data_wealth.groupby(['nid']).ldipc_weighted_no_match.size())
+    merged_nids = merged_na_props[merged_na_props > 0.95].index.to_list()
+    anemia_df = anemia_data_wealth.query("nid in @merged_nids").copy()
+    dropped_too_missingness = len(anemia_data_wealth) - len(anemia_df)
+
+    # drop other unmerged
+    unmergable_rows = anemia_df[anemia_df['wealth_index_dhs'].isna()]
+    anemia_df = anemia_df[anemia_df['wealth_index_dhs'].notna()]
+
+    # Assign age group
+    before_rows = len(anemia_df)
+    anemia_df = assign_age_group(anemia_df,indicator="anemia" )
+    anemia_df = anemia_df.dropna(subset=["age_group_id"])
+    dropped_due_to_age = before_rows - len(anemia_df)
+
+    # Take out data with invalid lat and long
+    before_rows = len(anemia_df)
+    anemia_df = anemia_df.dropna(subset=["lat", "long"])
+    anemia_df = anemia_df.query("lat != 0 and long != 0")
+    dropped_due_to_coords = before_rows - len(anemia_df)
+
+    # NID 275090 is a very long survey in Peru, 2003-2008 that is coded as having
+    # multiple year_starts. Removing it.
+    # NID 411301 is a Zambia survey in which the prevalences end up being 0
+    # after removing data with invalid age columns, remove it.
+    problematic_nids = [275090, 411301]
+    before_rows = len(anemia_df)
+    anemia_df = anemia_df.query("nid not in @problematic_nids")
+    dropped_problematic_nids = before_rows - len(anemia_df)
+
+    # missing outcome variables
+    measure_columns = MEASURES_IN_SOURCE[data_source_type]
+    rows_with_na_outcomes = anemia_df[measure_columns].isna().any(axis=1).sum()
+    rows_with_na_outcomes = int(rows_with_na_outcomes)
+
+    full_data_rows = len(anemia_df)-rows_with_na_outcomes
+    print(f"Data contains {full_data_rows:,} "
+          f"rows out of raw {len(anemia_data_raw):,}. "
+          f"Dropped data includes:\n"
+          f" - {len(missing_hh_rows):,} with missing hh_id in raw data\n"
+          f" - {dropped_too_missingness:,} that were dropped due to excessive missingness\n"
+          f' - {len(unmergable_rows):,} that further failed to merge on "nid", "ihme_loc_id", "hh_id", "psu", "year_start" variables\n'
+          f" - {dropped_due_to_age:,} due to age groups not found among 388, 389, 238, 34\n"
+          f" - {dropped_due_to_coords:,} due to invalid lat and long values\n"
+          f" - {dropped_problematic_nids:,} due to problematic NIDs\n"
+          f" - {rows_with_na_outcomes:,} with missing outcome variables ({measure_columns})\n"
+          )
+
+    # Merge with climate data
+    print("Processing climate data...")
+    climate_vars = get_climate_vars_for_dataframe(anemia_df)
+    anemia_df = merge_left_without_inflating(anemia_df, climate_vars, on=["int_year", "lat", "long"])
+
+    print("Adding elevation data...")
+    anemia_df = get_elevation_for_dataframe(anemia_df)
+
+    anemia_df = assign_lbd_admin2_location_id(anemia_df)
+
+    #Write to output
+    for measure in MEASURES_IN_SOURCE[data_source_type]:
+        measure_df = anemia_df[anemia_df[measure].notna()].copy()
+        measure_df["measure"] = measure
+        measure_df["value"] = measure_df[measure]
+        measure_root = Path(output_root) / measure
+        cm_data = ClimateMalnutritionData(measure_root)
+        print(f"Saving data for {measure} to {measure_root} {len(measure_df)} rows")
+        for ldi_col in ['ldipc_weighted_no_match']: #ldi_cols:
+            measure_df['ldi_pc_pd'] = measure_df[ldi_col] / 365
+            version = cm_data.new_training_version()
+            print(f"Saving data for {measure} to version {version} with {ldi_col} as LDI")
+            cm_data.save_training_data(measure_df, version)
+            message = "Used " + ldi_col + " as LDI"
+            # Save a small file with a record of which ldi column was used for this version
+            with open(cm_data.training_data / version / "ldi_col.txt", "w") as f:
+                f.write(message)
