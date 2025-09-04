@@ -559,9 +559,10 @@ def get_LSMS_wealth_dataset() -> pd.DataFrame:
     return df
 
 
-def assign_age_group(df: pd.DataFrame) -> pd.DataFrame:
+def assign_age_group(df: pd.DataFrame,indicator="cgf") -> pd.DataFrame:
     age_group_spans = pd.read_parquet(paths.AGE_SPANS_FILEPATH)
-    age_group_spans = age_group_spans.query("age_group_id in [388, 389, 238, 34]")
+    if indicator=='cgf':
+        age_group_spans = age_group_spans.query("age_group_id in [388, 389, 238, 34]")
     df["age_group_id"] = np.nan
     for _, row in age_group_spans.iterrows():
         df.loc[
@@ -1134,7 +1135,7 @@ def run_training_data_prep_anemia(
 
     # Assign age group
     before_rows = len(anemia_df)
-    anemia_df = assign_age_group(anemia_df, )
+    anemia_df = assign_age_group(anemia_df,indicator="anemia" )
     anemia_df = anemia_df.dropna(subset=["age_group_id"])
     dropped_due_to_age = before_rows - len(anemia_df)
 
