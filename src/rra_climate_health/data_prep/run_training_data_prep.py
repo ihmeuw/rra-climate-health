@@ -1129,8 +1129,8 @@ def run_training_data_prep_anemia(
     dropped_too_missingness = len(anemia_data_wealth) - len(anemia_df)
 
     # drop other unmerged
-    unmergable_rows = anemia_data_wealth[anemia_data_wealth['wealth_index_dhs'].isna()]
-    anemia_data_wealth = anemia_data_wealth[anemia_data_wealth['wealth_index_dhs'].notna()]
+    unmergable_rows = anemia_df[anemia_df['wealth_index_dhs'].isna()]
+    anemia_df = anemia_df[anemia_df['wealth_index_dhs'].notna()]
 
     # Assign age group
     before_rows = len(anemia_df)
