@@ -664,7 +664,37 @@ def clean_hh_id(row):
     cleaned = cleaned.lstrip('0') or '0'
     return cleaned
 
+def clean_hh_id_anemia(row):
+    hh_id = row['hh_id']
+    geo_str = str(row['geospatial_id'])
 
+    if pd.isna(hh_id):
+        return hh_id
+
+    # Convert to string and trim leading/trailing whitespace
+    hh_id = str(hh_id).strip()
+
+    # Replace multiple spaces with a single space
+    hh_id = re.sub(r'\s{2,}', ' ', hh_id)
+
+    # If the hh_id is already clean (no spaces or underscores), return it
+    if (len(re.split(r"[_ ]", hh_id)) == 1) and not (hh_id.startswith('0')):
+        return float(hh_id)
+
+    # Handle cases with spaces or underscores
+    if " " in hh_id:
+        hh_id = hh_id.split(" ")[-1]
+    elif "_" in hh_id:
+        hh_id = hh_id.split("_")[-1]
+
+    # Match and remove leading zeros followed by the geospatial_id
+    pattern = r'^0+' + re.escape(geo_str)
+    hh_id = re.sub(pattern, '', hh_id)
+
+    # Strip remaining leading zeros and handle empty results
+    hh_id = hh_id.lstrip('0') or '0'
+
+    return float(hh_id)  # Return as float to handle NAs
 
 output_root = DEFAULT_ROOT
 data_source_type = "cgf"
@@ -1045,168 +1075,62 @@ def run_training_data_prep_anemia(
 
     anemia_data["old_hh_id"] = anemia_data["hh_id"]
 
-
-    def clean_hh_id(row):
-        if pd.isna(row['hh_id_v2']):
-            return row['hh_id_v2']
-        hh_id_str = str(row['hh_id_v2'])
-        geo_str = str(row['geospatial_id'])
-        # Match one or more leading zeros followed by the geospatial_id at the start
-        pattern = r'^0+' + re.escape(geo_str)
-        # Remove the matched pattern (if found)
-        cleaned = re.sub(pattern, '', hh_id_str)
-        # Strip remaining leading zeros and handle empty results
-        cleaned = cleaned.lstrip('0') or '0'
-        return cleaned
-
-    def clean_hh_id_anemia(row):
-        hh_id = row['hh_id']
-        geo_str = str(row['geospatial_id'])
-
-        if pd.isna(hh_id):
-            return hh_id
-
-        # Convert to string and trim leading/trailing whitespace
-        hh_id = str(hh_id).strip()
-
-        # Replace multiple spaces with a single space
-        hh_id = re.sub(r'\s{2,}', ' ', hh_id)
-
-        # If the hh_id is already clean (no spaces or underscores), return it
-        if len(re.split(r"[_ ]", hh_id)) == 1:
-            return float(hh_id)
-
-        # Handle cases with spaces or underscores
-        if " " in hh_id:
-            hh_id = hh_id.split(" ")[-1]
-        elif "_" in hh_id:
-            hh_id = hh_id.split("_")[-1]
-
-        # Match and remove leading zeros followed by the geospatial_id
-        pattern = r'^0+' + re.escape(geo_str)
-        hh_id = re.sub(pattern, '', hh_id)
-
-        # Strip remaining leading zeros and handle empty results
-        hh_id = hh_id.lstrip('0') or '0'
-
-        return float(hh_id)  # Return as float to handle NAs
-
-    anemia_data["hh_id"] = anemia_data["hh_id"].apply(clean_hh_id_anemia)
+    anemia_data["hh_id"] = anemia_data.apply(clean_hh_id_anemia, axis=1)
 
     assert len(anemia_data[anemia_data["hh_id"].isna()]) == len(anemia_data[anemia_data["old_hh_id"].isna()]), "NAs introduced by cleaning"
-
-    # anemia_data["hh_id_v2"] = anemia_data["old_hh_id"].str.split(r"[_ ]").str[-1]
-
-    # anemia_data[(anemia_data["hh_id"].isna()) & (anemia_data["hh_id_v2"].notna())]
-    # anemia_data[(anemia_data["hh_id"].notna()) & (anemia_data["hh_id_v2"].isna())]
-
-    # anemia_data["psu"] = anemia_data["psu"].astype(int)
-    # anemia_data["hh_id_v2"] = anemia_data.apply(clean_hh_id, axis=1)
-
-    # len(anemia_data[anemia_data["hh_id_v2"].isna()])
-    # len(anemia_data[anemia_data["hh_id"].isna()])
-    # len(anemia_data[anemia_data["old_hh_id"].isna()])
-
-    # anemia_data = anemia_data[~anemia_data["hh_id"].isna()]
-    # anemia_data["hh_id"] = anemia_data["hh_id"].astype(int)
-    # anemia_data["hh_id"] = anemia_data["hh_id"].astype(str)
-    # anemia_data[(anemia_data["hh_id"]!=anemia_data["hh_id_v2"])][["psu","geospatial_id","hh_id","hh_id_v2","old_hh_id"]]
-
-    # anemia_data[(anemia_data["hh_id"].isna())&(~anemia_data["old_hh_id"].isna())]
-
-    # Take away NIDs without wealth information, to see later if we can add it from second source
-    print(len(anemia_data))
-    anemia_data_nids_without_wealth = anemia_data[
-        anemia_data.wealth_index_dhs.isna()
-    ].nid.unique()
 
     # Prepping wealth dataset
     dhs_wealth_data_raw = get_DHS_wealth_dataset()
     dhs_wealth_data = dhs_wealth_data_raw.copy()
+
+    cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT)/'anemia')
+    dhs_wealth_data = get_ldipc_from_asset_score(
+            dhs_wealth_data, cm_data, asset_score_col="wealth_index_dhs", weights_col="hhweight",
+            plot_pdf_path=Path("/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2025/plots/anemia") /  "gbd_plots.pdf", # temporary
+            ldi_version = LDI_VERSION,
+        )
 
     dhs_wealth_data["old_hh_id"] = dhs_wealth_data["hh_id"]
     dhs_wealth_data["hh_id"] = dhs_wealth_data.apply(clean_hh_id_anemia, axis=1)
 
     assert len(dhs_wealth_data[dhs_wealth_data["hh_id"].isna()]) == len(dhs_wealth_data[dhs_wealth_data["old_hh_id"].isna()]), "NAs introduced by cleaning"
 
+    missing_hh_rows = anemia_data[anemia_data['hh_id'].isna()]
+    print(f"Dropping {len(missing_hh_rows)} rows from anemia data with missing hh_id")
+    anemia_data = anemia_data[anemia_data["hh_id"].notna()]
 
-    dhs_wealth_data["hh_id_v2"] = dhs_wealth_data["old_hh_id"].str.split(r"[_ ]").str[-1]
-    dhs_wealth_data["psu"] = dhs_wealth_data["psu"].astype(int)
-    dhs_wealth_data["psu"] = dhs_wealth_data["psu"].astype(str)
-    dhs_wealth_data["hh_id_v2"] = dhs_wealth_data.apply(clean_hh_id, axis=1)
+    # Find out percent of anemia nids and hh_ids that can be matched in wealth data
+    merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
+    anemia_data['hh_id'] = anemia_data['hh_id'].astype(int)
+    dhs_wealth_data['hh_id'] = dhs_wealth_data['hh_id'].astype(int)
+    anemia_data['psu'] = anemia_data['psu'].astype(int)
+    dhs_wealth_data['psu'] = dhs_wealth_data['psu'].astype(int)
 
-    assert len(dhs_wealth_data[dhs_wealth_data["hh_id_v2"].isna()]) == len(dhs_wealth_data[dhs_wealth_data["old_hh_id"].isna()]), "NAs introduced by cleaning"
-
-    # dhs_wealth_data["hh_id"] = dhs_wealth_data["hh_id"].astype(int)
-    # dhs_wealth_data["hh_id"] = dhs_wealth_data["hh_id"].astype(str)
-
-
-    # dhs_wealth_data[(dhs_wealth_data["hh_id"]!=dhs_wealth_data["hh_id_v2"])&(dhs_wealth_data["psu"]!=dhs_wealth_data["geospatial_id"])]
-
-    dhs_wealth_data["hh_id"] = dhs_wealth_data["hh_id"].astype(int)
-    dhs_wealth_data["hh_id_v1"] = dhs_wealth_data["hh_id_v1"].astype(int)
-    dhs_wealth_data[dhs_wealth_data["hh_id"]!=dhs_wealth_data["hh_id_v1"]][["psu","hh_id","hh_id_v1","old_hh_id"]]
-
-    wealth_nids = set(dhs_wealth_data.nid.unique()) | set(mics_wealth_data.nid.unique()) | set(lsms_wealth_data.nid.unique())
+    wealth_nids = set(dhs_wealth_data.nid.unique()) 
     anemia_nids = set(anemia_data.nid.unique()) 
     common_nids = wealth_nids.intersection(anemia_nids)
 
     nid_with_wealth_pc = 100*len(common_nids)/len(anemia_nids)
-    print(f"{nid_with_wealth_pc:.1f}% of anemia NIDs - {len(common_nids)} out of {len(anemia_nids)} in wealth data NIDs")
+    print(f"{nid_with_wealth_pc:.1f}% of anemia NIDs - {len(common_nids)} out of "
+          f"{len(anemia_nids)} in wealth data NIDs")
 
-    # Find out percent of anemia nids and hh_ids that can be matched in wealth data
-    dhs_wealth_data['hh_id'] = dhs_wealth_data['hh_id'].apply(clean_dhs_wealth_hh_id)
-    dhs_wealth_data['psu'] = dhs_wealth_data['psu'].astype(int)
-    anemia_data_hhs = anemia_data[["nid","hh_id"]].drop_duplicates() 
-    dhs_wealth_data_hhs = dhs_wealth_data[["nid","hh_id"]].drop_duplicates()
-    dhs_wealth_data_hhs["dhs_wealth_data"] = True
-    merged_hhs = anemia_data_hhs.merge(dhs_wealth_data_hhs, on=["nid","hh_id"], how="left")
-    merged_hhs["dhs_wealth_data"].fillna(False, inplace=True)
-    merged_hhs["dhs_wealth_data"].value_counts()
-
-
-    # remove rows with missing hh_id
-    anemia_data = anemia_data[anemia_data["hh_id"].notna()]
+    dhs_wealth_data = dhs_wealth_data.query("nid in @anemia_nids")
 
     anemia_data.drop(columns=["old_hh_id"],inplace=True)
-    anemia_data["hh_id"] = anemia_data["hh_id"].astype(int)
-    anemia_data["psu"] = anemia_data["psu"].astype(int)
+    dhs_wealth_data.drop(columns=["old_hh_id"],inplace=True)
 
-    # Subset to common nids
-    lsms_wealth_data = lsms_wealth_data.query('nid in @common_nids')
-    dhs_wealth_data = dhs_wealth_data.query('nid in @common_nids')
-    mics_wealth_data = mics_wealth_data.query('nid in @common_nids')
+    # Merge data
+    anemia_data_wealth = merge_left_without_inflating(anemia_data, dhs_wealth_data.drop(columns=['geospatial_id','lat', 'long']), on=merge_cols)
 
+    unmergable_rows = anemia_data_wealth[anemia_data_wealth['wealth_index_dhs'].isna()]
+    merge_percent = 100*len(anemia_data_wealth[anemia_data_wealth['wealth_index_dhs'].notna()])/len(anemia_data_raw)
 
-    # All of GBD's come from DHS. For GBD, we prefer the wealth data from the wealth team,
-    # so subset to the nids in the DHS wealth data
-    anemia_data_to_match = anemia_data.query('nid in @dhs_wealth_data.nid')
+    print(f"{len(anemia_data_wealth[anemia_data_wealth['wealth_index_dhs'].notna()]):,} "
+          f"rows out of {len(anemia_data_raw):,}  merged ({merge_percent:.1f}%). "
+          f"Unmergeable includes {len(missing_hh_rows):,} with missing hh_id in raw "
+          f"data, and {len(unmergable_rows):,} that failed to merge on "
+          '"nid", "ihme_loc_id", "hh_id", "psu", "year_start" variables')
 
-    # If there are any NIDs that aren't in the wealth data but don't have their own wealth, then they're missing wealth altogether
-    nids_without_wealth_in_any_dataset = set(anemia_data.nid.unique()) - set(anemia_data_to_match.nid.unique()) 
-    print("NIDs without wealth in any dataset:", nids_without_wealth_in_any_dataset)
-
-    # below is same as anemia_data_to_match
-    anemia_data_own_wealth = anemia_data.query('nid not in @anemia_data_nids_without_wealth')
-
-    # First the data with its own wealth data
-    # We get wealth data to be merged with anemoa data and merge
-    print("Processing data with its own wealth data...")
-    anemia_data_wealth_distribution = (
-        anemia_data_own_wealth.groupby(["nid", "ihme_loc_id", "year_start", "psu", "hh_id"])
-        .agg(
-            wealth_index_dhs=("wealth_index_dhs", "first"),
-            pweight=("pweight", "first"),
-            check=("wealth_index_dhs", "nunique"),
-        )
-        .reset_index()
-    )
-
-    if (anemia_data_wealth_distribution.check != 1).any():
-        msg = "Multiple wealth index values for the same household."
-        raise RuntimeError(msg)
-
-    anemia_data_wealth_distribution = merge_left_without_inflating(anemia_data_wealth_distribution, loc_meta, on="ihme_loc_id")
 
     cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT) / MEASURES_IN_SOURCE[data_source_type][0])
 
