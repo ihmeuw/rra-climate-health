@@ -7,6 +7,7 @@ import re
 import click
 import geopandas as gpd
 import numpy as np
+import os
 import pandas as pd
 import rioxarray
 import xarray as xr
@@ -37,8 +38,8 @@ SURVEY_DATA_ROOT = Path(
     "/mnt/team/integrated_analytics/pub/goalkeepers/goalkeepers_2024/data"
 )
 
-ANEMIA_ROOT = Path(
-    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/anemia/"
+EXTRACTIONS_ROOT = Path(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/"
 )
 
 SDI_PATH = Path("/mnt/share/forecasting/data/7/past/sdi/20240531_gk24/sdi.nc")
@@ -55,7 +56,10 @@ SURVEY_DATA_PATHS = {
         "DHS": WEALTH_DATA_ROOT / "DHS_wealth.parquet",
         "MICS": WEALTH_DATA_ROOT / "MICS_wealth.parquet",
     },
-    "anemia": ANEMIA_ROOT / "anemia_extracts_compiled_09_02_2025.csv",
+    "anemia": EXTRACTIONS_ROOT / "anemia" / "anemia_extracts_compiled_09_02_2025.csv",
+    "child_mortality": {
+        'dem_br': EXTRACTIONS_ROOT / "dem_br",
+    }
 }
 
 DATA_SOURCE_TYPE = {"stunting": "cgf", "wasting": "cgf", "underweight":"cgf", "low_adult_bmi": "bmi","anemia":"anemia"}
@@ -665,7 +669,10 @@ def clean_hh_id(row):
     cleaned = cleaned.lstrip('0') or '0'
     return cleaned
 
-def clean_hh_id_anemia(row):
+def clean_hh_id_v2(row):
+    """
+    Function to clean household IDs (hh_id) for anemia and child mortality data.
+    """
     hh_id = row['hh_id']
     geo_str = str(row['geospatial_id'])
 
@@ -1036,11 +1043,11 @@ def run_training_data_prep_anemia(
     output_root: str | Path,
     data_source_type: str,
 ) -> None:
-    # data_source_type = "anemia"
+
     survey_data_path = SURVEY_DATA_PATHS[data_source_type]
     print(f"Running training data prep for {data_source_type}...")
 
-    print("Processing gbd extraction survey data...")
+    print("Processing extraction survey data...")
     loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
 
     anemia_data_raw = pd.read_csv(
@@ -1076,7 +1083,7 @@ def run_training_data_prep_anemia(
 
     anemia_data["old_hh_id"] = anemia_data["hh_id"]
 
-    anemia_data["hh_id"] = anemia_data.apply(clean_hh_id_anemia, axis=1)
+    anemia_data["hh_id"] = anemia_data.apply(clean_hh_id_v2, axis=1)
 
     assert len(anemia_data[anemia_data["hh_id"].isna()]) == len(anemia_data[anemia_data["old_hh_id"].isna()]), "NAs introduced by cleaning"
 
@@ -1092,7 +1099,7 @@ def run_training_data_prep_anemia(
         )
 
     dhs_wealth_data["old_hh_id"] = dhs_wealth_data["hh_id"]
-    dhs_wealth_data["hh_id"] = dhs_wealth_data.apply(clean_hh_id_anemia, axis=1)
+    dhs_wealth_data["hh_id"] = dhs_wealth_data.apply(clean_hh_id_v2, axis=1)
 
     assert len(dhs_wealth_data[dhs_wealth_data["hh_id"].isna()]) == len(dhs_wealth_data[dhs_wealth_data["old_hh_id"].isna()]), "NAs introduced by cleaning"
 
@@ -1153,6 +1160,189 @@ def run_training_data_prep_anemia(
     before_rows = len(anemia_df)
     anemia_df = anemia_df.query("nid not in @problematic_nids")
     dropped_problematic_nids = before_rows - len(anemia_df)
+
+    # missing outcome variables
+    measure_columns = MEASURES_IN_SOURCE[data_source_type]
+    rows_with_na_outcomes = anemia_df[measure_columns].isna().any(axis=1).sum()
+    rows_with_na_outcomes = int(rows_with_na_outcomes)
+
+    full_data_rows = len(anemia_df)-rows_with_na_outcomes
+    print(f"Data contains {full_data_rows:,} "
+          f"rows out of raw {len(anemia_data_raw):,}. "
+          f"Dropped data includes:\n"
+          f" - {len(missing_hh_rows):,} with missing hh_id in raw data\n"
+          f" - {dropped_too_missingness:,} that were dropped due to excessive missingness\n"
+          f' - {len(unmergable_rows):,} that further failed to merge on "nid", "ihme_loc_id", "hh_id", "psu", "year_start" variables\n'
+          f" - {dropped_due_to_age:,} due to age groups not found among 388, 389, 238, 34\n"
+          f" - {dropped_due_to_coords:,} due to invalid lat and long values\n"
+          f" - {dropped_problematic_nids:,} due to problematic NIDs\n"
+          f" - {rows_with_na_outcomes:,} with missing outcome variables ({measure_columns})\n"
+          )
+
+    # Merge with climate data
+    print("Processing climate data...")
+    climate_vars = get_climate_vars_for_dataframe(anemia_df)
+    anemia_df = merge_left_without_inflating(anemia_df, climate_vars, on=["int_year", "lat", "long"])
+
+    print("Adding elevation data...")
+    anemia_df = get_elevation_for_dataframe(anemia_df)
+
+    anemia_df = assign_lbd_admin2_location_id(anemia_df)
+
+    #Write to output
+    for measure in MEASURES_IN_SOURCE[data_source_type]:
+        measure_df = anemia_df[anemia_df[measure].notna()].copy()
+        measure_df["measure"] = measure
+        measure_df["value"] = measure_df[measure]
+        measure_root = Path(output_root) / measure
+        cm_data = ClimateMalnutritionData(measure_root)
+        print(f"Saving data for {measure} to {measure_root} {len(measure_df)} rows")
+        for ldi_col in ['ldipc_weighted_no_match']: #ldi_cols:
+            measure_df['ldi_pc_pd'] = measure_df[ldi_col] / 365
+            version = cm_data.new_training_version()
+            print(f"Saving data for {measure} to version {version} with {ldi_col} as LDI")
+            cm_data.save_training_data(measure_df, version)
+            message = "Used " + ldi_col + " as LDI"
+            # Save a small file with a record of which ldi column was used for this version
+            with open(cm_data.training_data / version / "ldi_col.txt", "w") as f:
+                f.write(message)
+
+def concat_valid_extractions(file_path:str) -> pd.DataFrame:
+    # Concatenate all valid extraction files into a single DataFrame
+    extraction_files = [f for f in os.listdir(file_path) if f.endswith(".csv")]
+    dfs = []
+    for f in extraction_files:
+        df = pd.read_csv(os.path.join(file_path, f), low_memory=False)
+        df['source_file'] = f  # Keep track of the source file
+        # Perform any necessary validation on the DataFrame
+        dfs.append(df)
+
+    return pd.concat(dfs, ignore_index=True)
+
+def check_columns(df: pd.DataFrame,module: str) -> pd.DataFrame:
+    if module=="dem_br":
+        # concatenated data contains 2 versions of hh_id, psu_id and strata_id
+        df.drop(columns="hhid",inplace=True) # duplicate to hh_id
+        
+        # give preverance to psu over psu_id, which is sometimes not integerable.
+        # e.g. psu_id= "0_15", psu = 6. psu_id values for which psu is na are 
+        # also not clear enough to fill for missing values. 
+        df.drop(columns="psu_id",inplace=True)
+
+        # same with strata and strata_id
+        df.drop(columns="strata_id",inplace=True)
+    return df
+
+def run_training_data_prep_child_mortality(  
+    output_root: str | Path,
+    data_source_type: str,
+    module: str
+) -> None:
+    # data_source_type = "child_mortality"
+    # module = "dem_br"
+    survey_data_path = SURVEY_DATA_PATHS[data_source_type][module]
+    print(f"Running training data prep for {data_source_type}...")
+
+    print("Processing extraction survey data...")
+    loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
+
+    data_raw = concat_valid_extractions(
+        survey_data_path
+    )
+    print(f"Total rows in concatenated raw data: {len(data_raw):,}")
+    df = data_raw.copy()
+    df = check_columns(df,module)
+
+    # drop rows with missing key variables
+    rows_before_na_drop = len(df)
+    key_vars = ['nid', 'psu', 'strata', 'hh_id', 'geospatial_id','latitude', 'longitude', 'child_alive']
+    df.dropna(subset=key_vars, inplace=True)
+    na_rows_dropped = rows_before_na_drop - len(df)
+    print(f"Dropped {na_rows_dropped:,} rows with missing key variables: {key_vars}")
+    for var in key_vars:
+        print(f"- {var}: {data_raw[var].isna().sum():,} missing values")
+
+    df = df.rename(columns=COLUMN_NAME_TRANSLATOR)
+
+    df["old_hh_id"] = df["hh_id"]
+    df["hh_id"] = df.apply(clean_hh_id_v2, axis=1)
+
+    assert len(df[df["hh_id"].isna()]) == len(df[df["old_hh_id"].isna()]), "NAs introduced by cleaning"
+    df.drop(columns=["old_hh_id"],inplace=True)
+
+    df["nid"] = df["nid"].astype(int)
+    df["psu"] = df["psu"].astype(int)
+    df["hh_id"] = df["hh_id"].astype(int)
+    df["strata"] = df["strata"].astype(int)
+    df["geospatial_id"] = df["geospatial_id"].astype(int)
+    # df["line_id"] = df["line_id"].astype(int) # errors - check if needed
+    # df["sex_id"] = df["sex_id"].astype(int) # errors - check if needed
+
+    # Prepping wealth dataset
+    dhs_wealth_data_raw = get_DHS_wealth_dataset()
+    dhs_wealth_data = dhs_wealth_data_raw.copy()
+
+    cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT)/'anemia')
+    dhs_wealth_data = get_ldipc_from_asset_score(
+            dhs_wealth_data, cm_data, asset_score_col="wealth_index_dhs", weights_col="hhweight",
+            # plot_pdf_path=Path(DEFAULT_ROOT) / "input"/ "ldi_plots"/ "dhs_plots.pdf",
+            ldi_version = LDI_VERSION,
+        )
+
+    dhs_wealth_data["old_hh_id"] = dhs_wealth_data["hh_id"]
+    dhs_wealth_data["hh_id"] = dhs_wealth_data.apply(clean_hh_id_v2, axis=1)
+
+    assert len(dhs_wealth_data[dhs_wealth_data["hh_id"].isna()]) == len(dhs_wealth_data[dhs_wealth_data["old_hh_id"].isna()]), "NAs introduced by cleaning"
+
+    # Find out percent of anemia nids and hh_ids that can be matched in wealth data
+    merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
+    dhs_wealth_data['hh_id'] = dhs_wealth_data['hh_id'].astype(int)
+    dhs_wealth_data['psu'] = dhs_wealth_data['psu'].astype(int)
+
+    wealth_nids = set(dhs_wealth_data.nid.unique()) 
+    df_nids = set(df.nid.unique()) 
+    common_nids = wealth_nids.intersection(df_nids)
+
+    nid_with_wealth_pc = 100*len(common_nids)/len(df_nids)
+    print(f"{nid_with_wealth_pc:.1f}% of df NIDs - {len(common_nids)} out of "
+          f"{len(df_nids)} in wealth data NIDs")
+
+    dhs_wealth_data = dhs_wealth_data.query("nid in @df_nids")
+    dhs_wealth_data.drop(columns=["old_hh_id"],inplace=True)
+
+    # Merge data
+    df_wealth = merge_left_without_inflating(df, dhs_wealth_data.drop(columns=['geospatial_id', 'strata', 'lat', 'long','hh_weight']), on=merge_cols)
+
+    #Calculate proportion of NA and filter out nids with too much wealth missingness (bad merges)
+    merged_na_props = (df_wealth.groupby(['nid']).ldipc_weighted_no_match.count() / df_wealth.groupby(['nid']).ldipc_weighted_no_match.size())
+    merged_nids = merged_na_props[merged_na_props > 0.95].index.to_list()
+    df_merged = df_wealth.query("nid in @merged_nids").copy()
+    dropped_too_missingness = len(df_wealth) - len(df_merged)
+
+    # drop other unmerged
+    unmergable_rows = df_merged[df_merged['wealth_index_dhs'].isna()]
+    df_merged = df_merged[df_merged['wealth_index_dhs'].notna()]
+
+    # Assign age group
+    before_rows = len(df_merged)
+    df_merged = assign_age_group(df_merged,indicator="child_mortality" )
+    df_merged = df_merged.dropna(subset=["age_group_id"])
+    dropped_due_to_age = before_rows - len(anemia_df)
+
+    # Take out data with invalid lat and long
+    before_rows = len(df_merged)
+    df_merged = df_merged.dropna(subset=["lat", "long"])
+    df_merged = df_merged.query("lat != 0 and long != 0")
+    dropped_due_to_coords = before_rows - len(df_merged)
+
+    # NID 275090 is a very long survey in Peru, 2003-2008 that is coded as having
+    # multiple year_starts. Removing it.
+    # NID 411301 is a Zambia survey in which the prevalences end up being 0
+    # after removing data with invalid age columns, remove it.
+    problematic_nids = [275090, 411301]
+    before_rows = len(df_merged)
+    df_merged = df_merged.query("nid not in @problematic_nids")
+    dropped_problematic_nids = before_rows - len(df_merged)
 
     # missing outcome variables
     measure_columns = MEASURES_IN_SOURCE[data_source_type]
