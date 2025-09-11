@@ -713,11 +713,14 @@ data_source_type = "cgf"
 def run_training_data_prep_main(  # noqa: PLR0915
     output_root: str | Path,
     data_source_type: str,
+    module: str = None,
 ) -> None:
     if data_source_type == 'cgf':
         run_training_data_prep_cgf(output_root, data_source_type)
     elif data_source_type == "anemia":
         run_training_data_prep_anemia(output_root, data_source_type)
+    elif data_source_type == "child_mortality":
+        run_training_data_prep_child_mortality(output_root, data_source_type, module=module)
     else:
         msg = f"Data source {data_source_type} not implemented yet."
         raise NotImplementedError(msg)
@@ -1270,9 +1273,6 @@ def run_training_data_prep_child_mortality(
         ]
     )
 
-
-    # data_source_type = "child_mortality"
-    # module = "dem_br"
     survey_data_path = SURVEY_DATA_PATHS[data_source_type][module]
     logging.info(f"Running training data prep for {data_source_type}...")
 
@@ -1441,11 +1441,11 @@ def run_training_data_prep_child_mortality(
         measure_df["value"] = measure_df[measure]
         measure_root = Path(output_root) / measure
         cm_data = ClimateMalnutritionData(measure_root)
-        print(f"Saving data for {measure} to {measure_root} {len(measure_df)} rows")
+        logging.info(f"Saving data for {measure} to {measure_root} {len(measure_df)} rows")
         for ldi_col in ['ldipc_weighted_no_match']: #ldi_cols:
             measure_df['ldi_pc_pd'] = measure_df[ldi_col] / 365
             version = cm_data.new_training_version()
-            print(f"Saving data for {measure} to version {version} with {ldi_col} as LDI")
+            logging.info(f"Saving data for {measure} to version {version} with {ldi_col} as LDI")
             cm_data.save_training_data(measure_df, version)
             message = "Used " + ldi_col + " as LDI"
             # Save a small file with a record of which ldi column was used for this version
