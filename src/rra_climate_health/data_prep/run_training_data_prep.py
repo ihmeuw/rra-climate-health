@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import click
 import geopandas as gpd
+import logging
 import numpy as np
 import os
 import pandas as pd
@@ -63,7 +64,7 @@ SURVEY_DATA_PATHS = {
 }
 
 DATA_SOURCE_TYPE = {"stunting": "cgf", "wasting": "cgf", "underweight":"cgf", "low_adult_bmi": "bmi","anemia":"anemia"}
-MEASURES_IN_SOURCE = {"cgf": ["stunting", "wasting", "underweight"], "bmi": ["low_adult_bmi"], "anemia": ["anemia_anemic_brinda","anemia_mod_sev_brinda"]}
+MEASURES_IN_SOURCE = {"cgf": ["stunting", "wasting", "underweight"], "bmi": ["low_adult_bmi"], "anemia": ["anemia_anemic_brinda","anemia_mod_sev_brinda"],"child_mortality":["child_alive"]}
 
 ############################
 # Wasting/Stunting columns #
@@ -565,9 +566,12 @@ def get_LSMS_wealth_dataset() -> pd.DataFrame:
 
 def assign_age_group(df: pd.DataFrame,indicator="cgf") -> pd.DataFrame:
     age_group_spans = pd.read_parquet(paths.AGE_SPANS_FILEPATH)
-    if indicator=='cgf':
+    if indicator in ['cgf','child_mortality']:
         age_group_spans = age_group_spans.query("age_group_id in [388, 389, 238, 34]")
     df["age_group_id"] = np.nan
+    if (indicator=='child_mortality') & ('age_year' not in df.columns):
+        # aod_months should replace age_month for child_alive==0
+        df['age_year'] = df['age_month'] / 12 # keep as float
     for _, row in age_group_spans.iterrows():
         df.loc[
             (df.age_year >= row.age_group_years_start.round(5))
@@ -1233,23 +1237,52 @@ def check_columns(df: pd.DataFrame,module: str) -> pd.DataFrame:
         df.drop(columns="strata_id",inplace=True)
     return df
 
+def get_age_month_at_year_end(row):
+    """ 
+    For child mortality, we want to know the age in months at the end of the 
+    observation year. If the child died during that year, we return the age at 
+    death.
+    """
+    obs_year = row["years_to_expand"]
+    birth_year = row["birth_year"]
+    birth_month = row["birth_month"]
+    age_month = row["age_month"]
+
+    age_months_at_year_end = (obs_year + 1 - birth_year) * 12 - birth_month
+    return min(age_month, age_months_at_year_end) 
+
 def run_training_data_prep_child_mortality(  
     output_root: str | Path,
     data_source_type: str,
     module: str
 ) -> None:
+
+    # Set up logging
+    dataprep_log_path = Path(output_root) / data_source_type / module / "data_prep_log.txt"
+    os.makedirs(dataprep_log_path.parent, exist_ok=True)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=[
+            logging.FileHandler(dataprep_log_path, mode="w"),  
+            logging.StreamHandler()  
+        ]
+    )
+
+
     # data_source_type = "child_mortality"
     # module = "dem_br"
     survey_data_path = SURVEY_DATA_PATHS[data_source_type][module]
-    print(f"Running training data prep for {data_source_type}...")
+    logging.info(f"Running training data prep for {data_source_type}...")
 
-    print("Processing extraction survey data...")
+    logging.info("Processing extraction survey data...")
     loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
 
     data_raw = concat_valid_extractions(
         survey_data_path
     )
-    print(f"Total rows in concatenated raw data: {len(data_raw):,}")
+    logging.info(f"Total rows in concatenated raw data: {len(data_raw):,}")
     df = data_raw.copy()
     df = check_columns(df,module)
 
@@ -1258,9 +1291,9 @@ def run_training_data_prep_child_mortality(
     key_vars = ['nid', 'psu', 'strata', 'hh_id', 'geospatial_id','latitude', 'longitude', 'child_alive']
     df.dropna(subset=key_vars, inplace=True)
     na_rows_dropped = rows_before_na_drop - len(df)
-    print(f"Dropped {na_rows_dropped:,} rows with missing key variables: {key_vars}")
+    logging.info(f"Dropped {na_rows_dropped:,} rows with missing key variables: {key_vars}")
     for var in key_vars:
-        print(f"- {var}: {data_raw[var].isna().sum():,} missing values")
+        logging.info(f"- {var}: {data_raw[var].isna().sum():,} missing values")
 
     df = df.rename(columns=COLUMN_NAME_TRANSLATOR)
 
@@ -1275,8 +1308,6 @@ def run_training_data_prep_child_mortality(
     df["hh_id"] = df["hh_id"].astype(int)
     df["strata"] = df["strata"].astype(int)
     df["geospatial_id"] = df["geospatial_id"].astype(int)
-    # df["line_id"] = df["line_id"].astype(int) # errors - check if needed
-    # df["sex_id"] = df["sex_id"].astype(int) # errors - check if needed
 
     # Prepping wealth dataset
     dhs_wealth_data_raw = get_DHS_wealth_dataset()
@@ -1304,7 +1335,7 @@ def run_training_data_prep_child_mortality(
     common_nids = wealth_nids.intersection(df_nids)
 
     nid_with_wealth_pc = 100*len(common_nids)/len(df_nids)
-    print(f"{nid_with_wealth_pc:.1f}% of df NIDs - {len(common_nids)} out of "
+    logging.info(f"{nid_with_wealth_pc:.1f}% of df NIDs - {len(common_nids)} out of "
           f"{len(df_nids)} in wealth data NIDs")
 
     dhs_wealth_data = dhs_wealth_data.query("nid in @df_nids")
@@ -1318,63 +1349,94 @@ def run_training_data_prep_child_mortality(
     merged_nids = merged_na_props[merged_na_props > 0.95].index.to_list()
     df_merged = df_wealth.query("nid in @merged_nids").copy()
     dropped_too_missingness = len(df_wealth) - len(df_merged)
+    logging.info(f"Dropped {dropped_too_missingness:,} rows from {len(df_wealth):,} due to excessive wealth missingness in NIDs")
+
+    # age_month is months since birth at time of interview.
 
     # drop other unmerged
+    before_rows = len(df_merged)
     unmergable_rows = df_merged[df_merged['wealth_index_dhs'].isna()]
     df_merged = df_merged[df_merged['wealth_index_dhs'].notna()]
+    logging.info(f"Dropped {before_rows - len(df_merged):,} rows that further failed to merge on 'nid', 'ihme_loc_id', 'hh_id', 'psu', 'year_start' variables")
 
     # Assign age group
     before_rows = len(df_merged)
-    df_merged = assign_age_group(df_merged,indicator="child_mortality" )
-    df_merged = df_merged.dropna(subset=["age_group_id"])
-    dropped_due_to_age = before_rows - len(anemia_df)
+
+    # replace age_month with aod_months for rows with child_alive==0
+    df_merged.loc[df_merged.child_alive==0, 'age_month'] = df_merged.loc[df_merged.child_alive==0, 'aod_months']
+
+    # drop data with no age_month
+    df_merged = df_merged[df_merged['age_month'].notna()]
+    logging.info(f"Dropped {before_rows - len(df_merged):,} rows with missing age_month or aod_months")
+
+    # create list of years between birth year and year that the age_month lands on.
+    df_merged["year_of_recorded_age"] = (df_merged["birth_year"]*12+df["birth_month"] + df_merged["age_month"]) // 12
+    df_merged["year_of_recorded_age"] = df_merged["year_of_recorded_age"].astype(int)
+    df_merged["birth_year"] = df_merged["birth_year"].astype(int)
+
+    df_merged["years_to_expand"] = df_merged.apply(lambda x: [y for y in range(x["birth_year"],x["year_of_recorded_age"]+1)], axis=1)
+    # explode data on years_to_expand
+    df_exploded = df_merged.explode("years_to_expand") 
+    df_exploded["age_month_at_year_end"] = df_exploded.apply(get_age_month_at_year_end, axis=1)
+    # override age_month
+    df_exploded["age_month"] = df_exploded["age_month_at_year_end"]
+    logging.info(f"Exploded data to {len(df_exploded):,} rows by expanding on years between child birth and either age of death or age at interview")
+
+    df_exploded = assign_age_group(df_exploded,indicator="child_mortality" )
+    before_dropping_unused_age_groups = len(df_exploded)
+    df_exploded = df_exploded.dropna(subset=["age_group_id"])
+    dropped_due_to_age = before_dropping_unused_age_groups - len(df_exploded)
+    logging.info(f"Dropped {dropped_due_to_age:,} rows due to age groups not found among 388, 389, 238, 34")
+
+    df_exploded["age_group_id"] = df_exploded["age_group_id"].astype(int)
+    df_exploded["age_group_id_agg"] = df_exploded["age_group_id_agg"].astype(int)
+    df_exploded["age_year"] = df_exploded["age_year"].astype(int)
+    df_exploded["age_month_at_year_end"] = df_exploded["age_month_at_year_end"].astype(int)
+    # override int_year, used to get climate vars
+    df_exploded.rename(columns={"years_to_expand": "int_year"}, inplace=True)
+
+    # for rows with child_alive==0, replace with child_alive=1 if int_year < year_of_recorded_age
+    df_exploded["child_alive"] = df_exploded["child_alive"].astype(int)
+    df_exploded.loc[(df_exploded.child_alive==0) & (df_exploded.int_year < df_exploded.year_of_recorded_age), 'child_alive'] = 1
+
 
     # Take out data with invalid lat and long
-    before_rows = len(df_merged)
-    df_merged = df_merged.dropna(subset=["lat", "long"])
-    df_merged = df_merged.query("lat != 0 and long != 0")
-    dropped_due_to_coords = before_rows - len(df_merged)
+    before_rows = len(df_exploded)
+    df_exploded = df_exploded.dropna(subset=["lat", "long"])
+    df_exploded = df_exploded.query("lat != 0 and long != 0")
+    dropped_due_to_coords = before_rows - len(df_exploded)
+    logging.info(f"Dropped {dropped_due_to_coords:,} rows due to invalid lat and long values")
 
     # NID 275090 is a very long survey in Peru, 2003-2008 that is coded as having
     # multiple year_starts. Removing it.
     # NID 411301 is a Zambia survey in which the prevalences end up being 0
     # after removing data with invalid age columns, remove it.
     problematic_nids = [275090, 411301]
-    before_rows = len(df_merged)
-    df_merged = df_merged.query("nid not in @problematic_nids")
-    dropped_problematic_nids = before_rows - len(df_merged)
+    before_rows = len(df_exploded)
+    df_exploded = df_exploded.query("nid not in @problematic_nids")
+    dropped_problematic_nids = before_rows - len(df_exploded)
+    logging.info(f"Dropped {dropped_problematic_nids:,} rows due to problematic NIDs: {problematic_nids}")
 
     # missing outcome variables
     measure_columns = MEASURES_IN_SOURCE[data_source_type]
-    rows_with_na_outcomes = anemia_df[measure_columns].isna().any(axis=1).sum()
+    rows_with_na_outcomes = df_exploded[measure_columns].isna().any(axis=1).sum()
     rows_with_na_outcomes = int(rows_with_na_outcomes)
+    logging.info(f"Dropped {rows_with_na_outcomes:,} rows with missing outcome variables ({measure_columns})")
 
-    full_data_rows = len(anemia_df)-rows_with_na_outcomes
-    print(f"Data contains {full_data_rows:,} "
-          f"rows out of raw {len(anemia_data_raw):,}. "
-          f"Dropped data includes:\n"
-          f" - {len(missing_hh_rows):,} with missing hh_id in raw data\n"
-          f" - {dropped_too_missingness:,} that were dropped due to excessive missingness\n"
-          f' - {len(unmergable_rows):,} that further failed to merge on "nid", "ihme_loc_id", "hh_id", "psu", "year_start" variables\n'
-          f" - {dropped_due_to_age:,} due to age groups not found among 388, 389, 238, 34\n"
-          f" - {dropped_due_to_coords:,} due to invalid lat and long values\n"
-          f" - {dropped_problematic_nids:,} due to problematic NIDs\n"
-          f" - {rows_with_na_outcomes:,} with missing outcome variables ({measure_columns})\n"
-          )
 
     # Merge with climate data
-    print("Processing climate data...")
-    climate_vars = get_climate_vars_for_dataframe(anemia_df)
-    anemia_df = merge_left_without_inflating(anemia_df, climate_vars, on=["int_year", "lat", "long"])
+    logging.info("Processing climate data...")
+    climate_vars = get_climate_vars_for_dataframe(df_exploded)
+    df_climate = merge_left_without_inflating(df_exploded, climate_vars, on=["int_year", "lat", "long"])
 
-    print("Adding elevation data...")
-    anemia_df = get_elevation_for_dataframe(anemia_df)
+    logging.info("Adding elevation data...")
+    df_climate = get_elevation_for_dataframe(df_climate)
 
-    anemia_df = assign_lbd_admin2_location_id(anemia_df)
+    df_climate = assign_lbd_admin2_location_id(df_climate)
 
     #Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
-        measure_df = anemia_df[anemia_df[measure].notna()].copy()
+        measure_df = df_climate[df_climate[measure].notna()].copy()
         measure_df["measure"] = measure
         measure_df["value"] = measure_df[measure]
         measure_root = Path(output_root) / measure
