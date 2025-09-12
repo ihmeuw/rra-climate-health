@@ -653,12 +653,13 @@ def assign_sdi(df: pd.DataFrame, year_col: str = "year_start") -> pd.DataFrame:
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
-@clio.with_source_type(allow_all=False)
-def run_training_data_prep(output_root: str, source_type: str) -> None:
+@clio.with_source_type(allow_all=True)
+@click.option("--module", default=None, help="Specify the module (e.g., 'dem_br').")
+def run_training_data_prep(output_root: str, source_type: str, module: str = None) -> None:
     """Run training data prep."""
     print(f"Running training data prep for {source_type}...")
     # for src in source_type:
-    run_training_data_prep_main(output_root, source_type)
+    run_training_data_prep_main(output_root, source_type, module=module)
 
 def clean_hh_id(row):
     if pd.isna(row['hh_id']):
@@ -707,23 +708,6 @@ def clean_hh_id_v2(row):
     hh_id = hh_id.lstrip('0') or '0'
 
     return float(hh_id)  # Return as float to handle NAs
-
-output_root = DEFAULT_ROOT
-data_source_type = "cgf"
-def run_training_data_prep_main(  # noqa: PLR0915
-    output_root: str | Path,
-    data_source_type: str,
-    module: str = None,
-) -> None:
-    if data_source_type == 'cgf':
-        run_training_data_prep_cgf(output_root, data_source_type)
-    elif data_source_type == "anemia":
-        run_training_data_prep_anemia(output_root, data_source_type)
-    elif data_source_type == "child_mortality":
-        run_training_data_prep_child_mortality(output_root, data_source_type, module=module)
-    else:
-        msg = f"Data source {data_source_type} not implemented yet."
-        raise NotImplementedError(msg)
 
 
 def run_training_data_prep_cgf(  # noqa: PLR0915
@@ -1451,3 +1435,23 @@ def run_training_data_prep_child_mortality(
             # Save a small file with a record of which ldi column was used for this version
             with open(cm_data.training_data / version / "ldi_col.txt", "w") as f:
                 f.write(message)
+
+
+output_root = DEFAULT_ROOT
+def run_training_data_prep_main(  # noqa: PLR0915
+    output_root: str | Path,
+    data_source_type: str,
+    module: str = None,
+) -> None:
+    if data_source_type == 'cgf':
+        run_training_data_prep_cgf(output_root, data_source_type)
+    elif data_source_type == "anemia":
+        run_training_data_prep_anemia(output_root, data_source_type)
+    elif data_source_type == "child_mortality":
+        run_training_data_prep_child_mortality(output_root, data_source_type, module=module)
+    else:
+        msg = f"Data source {data_source_type} not implemented yet."
+        raise NotImplementedError(msg)
+
+if __name__ == "__main__":
+    run_training_data_prep()

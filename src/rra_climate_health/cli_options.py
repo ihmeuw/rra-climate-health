@@ -44,6 +44,8 @@ def with_measure(
 
 VALID_SOURCE_TYPES = [
     "cgf",
+    "anemia",
+    "child_mortality",
 ]
 
 
