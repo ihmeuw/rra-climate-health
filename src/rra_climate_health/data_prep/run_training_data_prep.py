@@ -1377,7 +1377,7 @@ def run_training_data_prep_child_mortality(
     df_exploded["age_year"] = df_exploded["age_year"].astype(int)
     df_exploded["age_month_at_year_end"] = df_exploded["age_month_at_year_end"].astype(int)
     # override int_year, used to get climate vars
-    df_exploded.rename(columns={"years_to_expand": "int_year"}, inplace=True)
+    df_exploded["int_year"] = df_exploded["years_to_expand"].astype(int)
 
     # for rows with child_alive==0, replace with child_alive=1 if int_year < year_of_recorded_age
     df_exploded["child_alive"] = df_exploded["child_alive"].astype(int)
@@ -1412,7 +1412,7 @@ def run_training_data_prep_child_mortality(
     logging.info("Processing climate data...")
     climate_vars = get_climate_vars_for_dataframe(df_exploded)
     df_climate = merge_left_without_inflating(df_exploded, climate_vars, on=["int_year", "lat", "long"])
-
+      
     logging.info("Adding elevation data...")
     df_climate = get_elevation_for_dataframe(df_climate)
 
@@ -1421,15 +1421,18 @@ def run_training_data_prep_child_mortality(
     #Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
         measure_df = df_climate[df_climate[measure].notna()].copy()
-        measure_df["measure"] = measure
+        measure_df["measure"] = data_source_type
         measure_df["value"] = measure_df[measure]
-        measure_root = Path(output_root) / measure
+        measure_root = Path(output_root) / data_source_type
+        os.makedirs(measure_root, exist_ok=True,mode=0o777)
+        os.makedirs(Path(measure_root) / "training_data", exist_ok=True,mode=0o777)
         cm_data = ClimateMalnutritionData(measure_root)
-        logging.info(f"Saving data for {measure} to {measure_root} {len(measure_df)} rows")
+        logging.info(f"Saving data for {data_source_type} to {measure_root} {len(measure_df)} rows")
         for ldi_col in ['ldipc_weighted_no_match']: #ldi_cols:
             measure_df['ldi_pc_pd'] = measure_df[ldi_col] / 365
             version = cm_data.new_training_version()
-            logging.info(f"Saving data for {measure} to version {version} with {ldi_col} as LDI")
+            os.makedirs(Path(measure_root) / "training_data" / version, exist_ok=True, mode=0o777)
+            logging.info(f"Saving data for {data_source_type} to version {version} with {ldi_col} as LDI")
             cm_data.save_training_data(measure_df, version)
             message = "Used " + ldi_col + " as LDI"
             # Save a small file with a record of which ldi column was used for this version
