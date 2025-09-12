@@ -1326,7 +1326,7 @@ def run_training_data_prep_child_mortality(
     dhs_wealth_data.drop(columns=["old_hh_id"],inplace=True)
 
     # Merge data
-    df_wealth = merge_left_without_inflating(df, dhs_wealth_data.drop(columns=['geospatial_id', 'strata', 'lat', 'long','hh_weight']), on=merge_cols)
+    df_wealth = merge_left_without_inflating(df, dhs_wealth_data.drop(columns=['geospatial_id', 'strata', 'lat', 'long','hhweight']), on=merge_cols)
 
     #Calculate proportion of NA and filter out nids with too much wealth missingness (bad merges)
     merged_na_props = (df_wealth.groupby(['nid']).ldipc_weighted_no_match.count() / df_wealth.groupby(['nid']).ldipc_weighted_no_match.size())
@@ -1354,7 +1354,7 @@ def run_training_data_prep_child_mortality(
     logging.info(f"Dropped {before_rows - len(df_merged):,} rows with missing age_month or aod_months")
 
     # create list of years between birth year and year that the age_month lands on.
-    df_merged["year_of_recorded_age"] = (df_merged["birth_year"]*12+df["birth_month"] + df_merged["age_month"]) // 12
+    df_merged["year_of_recorded_age"] = (df_merged["birth_year"]*12+df_merged["birth_month"] + df_merged["age_month"]) // 12
     df_merged["year_of_recorded_age"] = df_merged["year_of_recorded_age"].astype(int)
     df_merged["birth_year"] = df_merged["birth_year"].astype(int)
 
