@@ -1252,7 +1252,7 @@ def run_training_data_prep_anemia(
     logging.info("Processing extraction survey data...")
     loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
 
-    anemia_data_raw = pd.read_csv(survey_data_path)
+    anemia_data_raw = pd.read_csv(survey_data_path, low_memory=False)
 
     anemia_data = anemia_data_raw[
         [
@@ -1299,7 +1299,6 @@ def run_training_data_prep_anemia(
         cm_data,
         asset_score_col="wealth_index_dhs",
         weights_col="hhweight",
-        plot_pdf_path=Path(DEFAULT_ROOT) / "input" / "ldi_plots" / "dhs_plots.pdf",
         ldi_version=LDI_VERSION,
     )
 
