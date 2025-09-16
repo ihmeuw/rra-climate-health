@@ -1562,11 +1562,15 @@ def run_training_data_prep_child_mortality(
     ), "NAs introduced by cleaning"
     df.drop(columns=["old_hh_id"], inplace=True)
 
-    df["nid"] = df["nid"].astype(int)
-    df["psu"] = df["psu"].astype(int)
-    df["hh_id"] = df["hh_id"].astype(int)
-    df["strata"] = df["strata"].astype(int)
-    df["geospatial_id"] = df["geospatial_id"].astype(int)
+    # update variable data types
+    int_cols = [
+        "nid",
+        "psu",
+        "hh_id",
+        "strata",
+        "geospatial_id",
+    ]
+    df[int_cols] = df[int_cols].astype("int")
 
     # Prepping wealth dataset
     dhs_wealth_data_raw = get_DHS_wealth_dataset()
@@ -1713,9 +1717,8 @@ def run_training_data_prep_child_mortality(
 
     # NID 275090 is a very long survey in Peru, 2003-2008 that is coded as having
     # multiple year_starts. Removing it.
-    # NID 411301 is a Zambia survey in which the prevalences end up being 0
-    # after removing data with invalid age columns, remove it.
-    problematic_nids = [275090, 411301]
+    # NID 411301 - updated: not in BR data extractions
+    problematic_nids = [275090]
     before_rows = len(df_exploded)
     df_exploded = df_exploded.query("nid not in @problematic_nids")
     dropped_problematic_nids = before_rows - len(df_exploded)
@@ -1748,16 +1751,13 @@ def run_training_data_prep_child_mortality(
         measure_df = df_climate[df_climate[measure].notna()].copy()
         measure_df["measure"] = measure
         measure_df["value"] = measure_df[measure]
-        measure_root = Path(output_root) / measure
-        cm_data = ClimateMalnutritionData(measure_root)
         logging.info(
-            f"Saving data for {data_source_type} to {measure_root} {len(measure_df)} rows"
+            f"Saving data for {measure} to {output_path_version} {len(measure_df)} rows"
         )
         for ldi_col in ["ldipc_weighted_no_match"]:  # ldi_cols:
             measure_df["ldi_pc_pd"] = measure_df[ldi_col] / 365
-            version = cm_data.new_training_version()
             logging.info(
-                f"Saving data for {data_source_type} to version {version} with {ldi_col} as LDI"
+                f"Saving data for {measure} to version {version} with {ldi_col} as LDI"
             )
             cm_data.save_training_data(measure_df, version)
             message = "Used " + ldi_col + " as LDI"
