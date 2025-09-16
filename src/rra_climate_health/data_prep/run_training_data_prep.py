@@ -1425,6 +1425,8 @@ def run_training_data_prep_anemia(
         measure_df["measure"] = measure
         measure_df["value"] = measure_df[measure]
         measure_root = Path(output_root) / measure
+        os.makedirs(measure_root, exist_ok=True, mode=0o777)
+        os.makedirs(Path(measure_root) / "training_data", exist_ok=True, mode=0o777)
         cm_data = ClimateMalnutritionData(measure_root)
         logging.info(
             f"Saving data for {measure} to {measure_root} {len(measure_df)} rows"
@@ -1432,6 +1434,11 @@ def run_training_data_prep_anemia(
         for ldi_col in ["ldipc_weighted_no_match"]:  # ldi_cols:
             measure_df["ldi_pc_pd"] = measure_df[ldi_col] / 365
             version = cm_data.new_training_version()
+            os.makedirs(
+                Path(measure_root) / "training_data" / version,
+                exist_ok=True,
+                mode=0o777,
+            )
             logging.info(
                 f"Saving data for {measure} to version {version} with {ldi_col} as LDI"
             )
