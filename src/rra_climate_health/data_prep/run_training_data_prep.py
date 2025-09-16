@@ -80,7 +80,7 @@ DATA_SOURCE_TYPE = {
 MEASURES_IN_SOURCE = {
     "cgf": ["stunting", "wasting", "underweight"],
     "bmi": ["low_adult_bmi"],
-    "anemia": ["anemia_anemic_brinda", "anemia_mod_sev_brinda"],
+    "anemia": ["anemia"],
     "child_mortality": ["child_alive"],
 }
 
@@ -1231,11 +1231,20 @@ def run_training_data_prep_anemia(
     data_source_type: str,
 ) -> None:
 
-    # Set up logging
-    dataprep_log_path = (
-        Path(output_root) / data_source_type / "anemia" / "data_prep_log.txt"
+    # Set up logging and versioned output path
+    measure_root = Path(output_root) / data_source_type
+    os.makedirs(Path(measure_root) / "training_data", exist_ok=True, mode=0o777)
+    cm_data = ClimateMalnutritionData(measure_root)
+    version = cm_data.new_training_version()
+    output_path_version = Path(measure_root) / "training_data" / version
+    os.makedirs(
+        output_path_version,
+        exist_ok=True,
+        mode=0o777,
     )
-    os.makedirs(dataprep_log_path.parent, exist_ok=True)
+
+    # Set up logging
+    dataprep_log_path = Path(output_path_version) / "data_prep_log.txt"
 
     logging.basicConfig(
         level=logging.INFO,
@@ -1278,6 +1287,9 @@ def run_training_data_prep_anemia(
             "longnum",
         ]
     ]
+
+    # Using anemia_anemic_brinda as outcome variable and renaming to'anemia'
+    anemia_data = anemia_data.rename(columns={"anemia_anemic_brinda": "anemia"})
 
     anemia_data = anemia_data.rename(columns=COLUMN_NAME_TRANSLATOR)
 
@@ -1365,9 +1377,7 @@ def run_training_data_prep_anemia(
     anemia_df = assign_age_group(anemia_df, indicator="anemia")
     anemia_df = anemia_df.dropna(subset=["age_group_id"])
     dropped_due_to_age = before_rows - len(anemia_df)
-    logging.info(
-        f"Dropped {dropped_due_to_age:,} rows due to age groups not found among 388, 389, 238, 34"
-    )
+    logging.info(f"Dropped {dropped_due_to_age:,} rows due to age groups not found")
 
     # Take out data with invalid lat and long
     before_rows = len(anemia_df)
@@ -1380,9 +1390,8 @@ def run_training_data_prep_anemia(
 
     # NID 275090 is a very long survey in Peru, 2003-2008 that is coded as having
     # multiple year_starts. Removing it.
-    # NID 411301 is a Zambia survey in which the prevalences end up being 0
-    # after removing data with invalid age columns, remove it.
-    problematic_nids = [275090, 411301]
+    # NID 411301 - update: not problematic for anemia
+    problematic_nids = [275090]
     before_rows = len(anemia_df)
     anemia_df = anemia_df.query("nid not in @problematic_nids")
     dropped_problematic_nids = before_rows - len(anemia_df)
@@ -1395,17 +1404,18 @@ def run_training_data_prep_anemia(
 
     full_data_rows = len(anemia_df) - rows_with_na_outcomes
     logging.info(
-        f"Data contains {full_data_rows:,} "
-        f"rows out of raw {len(anemia_data_raw):,}. "
-        f"Dropped data includes:\n"
-        f" - {len(missing_hh_rows):,} with missing hh_id in raw data\n"
-        f" - {dropped_too_missingness:,} that were dropped due to excessive missingness\n"
-        f' - {len(unmergable_rows):,} that further failed to merge on "nid", "ihme_loc_id", "hh_id", "psu", "year_start" variables\n'
-        f" - {dropped_due_to_age:,} due to age groups not found among 388, 389, 238, 34\n"
-        f" - {dropped_due_to_coords:,} due to invalid lat and long values\n"
-        f" - {dropped_problematic_nids:,} due to problematic NIDs\n"
-        f" - {rows_with_na_outcomes:,} with missing outcome variables ({measure_columns})\n"
+        f"Dropped {rows_with_na_outcomes:,} rows with missing outcome variables"
     )
+    logging.info(f"Data contains {full_data_rows:,} rows after cleaning")
+
+    anemia_df = anemia_df.dropna(subset=measure_columns)
+    # update variable data types
+    int_cols = [
+        "anemia",
+        "anemia_mod_sev_brinda",
+        "age_group_id",
+    ]
+    anemia_df[int_cols] = anemia_df[int_cols].astype("int")
 
     # Merge with climate data
     logging.info("Processing climate data...")
@@ -1424,21 +1434,11 @@ def run_training_data_prep_anemia(
         measure_df = anemia_df[anemia_df[measure].notna()].copy()
         measure_df["measure"] = measure
         measure_df["value"] = measure_df[measure]
-        measure_root = Path(output_root) / measure
-        os.makedirs(measure_root, exist_ok=True, mode=0o777)
-        os.makedirs(Path(measure_root) / "training_data", exist_ok=True, mode=0o777)
-        cm_data = ClimateMalnutritionData(measure_root)
         logging.info(
-            f"Saving data for {measure} to {measure_root} {len(measure_df)} rows"
+            f"Saving data for {measure} to {output_path_version} {len(measure_df)} rows"
         )
         for ldi_col in ["ldipc_weighted_no_match"]:  # ldi_cols:
             measure_df["ldi_pc_pd"] = measure_df[ldi_col] / 365
-            version = cm_data.new_training_version()
-            os.makedirs(
-                Path(measure_root) / "training_data" / version,
-                exist_ok=True,
-                mode=0o777,
-            )
             logging.info(
                 f"Saving data for {measure} to version {version} with {ldi_col} as LDI"
             )
@@ -1498,11 +1498,19 @@ def run_training_data_prep_child_mortality(
     output_root: str | Path, data_source_type: str, module: str
 ) -> None:
 
-    # Set up logging
-    dataprep_log_path = (
-        Path(output_root) / data_source_type / module / "data_prep_log.txt"
+    # Set up logging and versioned output path
+    measure_root = Path(output_root) / data_source_type
+    os.makedirs(Path(measure_root) / "training_data", exist_ok=True, mode=0o777)
+    cm_data = ClimateMalnutritionData(measure_root)
+    version = cm_data.new_training_version()
+    output_path_version = Path(measure_root) / "training_data" / version
+    os.makedirs(
+        output_path_version,
+        exist_ok=True,
+        mode=0o777,
     )
-    os.makedirs(dataprep_log_path.parent, exist_ok=True)
+
+    dataprep_log_path = Path(output_path_version) / "data_prep_log.txt"
 
     logging.basicConfig(
         level=logging.INFO,
@@ -1738,11 +1746,9 @@ def run_training_data_prep_child_mortality(
     # Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
         measure_df = df_climate[df_climate[measure].notna()].copy()
-        measure_df["measure"] = data_source_type
+        measure_df["measure"] = measure
         measure_df["value"] = measure_df[measure]
-        measure_root = Path(output_root) / data_source_type
-        os.makedirs(measure_root, exist_ok=True, mode=0o777)
-        os.makedirs(Path(measure_root) / "training_data", exist_ok=True, mode=0o777)
+        measure_root = Path(output_root) / measure
         cm_data = ClimateMalnutritionData(measure_root)
         logging.info(
             f"Saving data for {data_source_type} to {measure_root} {len(measure_df)} rows"
@@ -1750,11 +1756,6 @@ def run_training_data_prep_child_mortality(
         for ldi_col in ["ldipc_weighted_no_match"]:  # ldi_cols:
             measure_df["ldi_pc_pd"] = measure_df[ldi_col] / 365
             version = cm_data.new_training_version()
-            os.makedirs(
-                Path(measure_root) / "training_data" / version,
-                exist_ok=True,
-                mode=0o777,
-            )
             logging.info(
                 f"Saving data for {data_source_type} to version {version} with {ldi_col} as LDI"
             )
