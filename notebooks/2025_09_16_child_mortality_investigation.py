@@ -3,12 +3,14 @@ import plotly.express as px
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+from lifelines import CoxPHFitter  # for Cox survival models
 
 
 DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_09_15.01/data.parquet"
 
 df = pd.read_parquet(DATA_PATH)
 
+## 1. Get basic info about data
 df["line_id"] = df["line_id"].astype(int)
 
 df["indv_id"] = df[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
@@ -48,6 +50,7 @@ print(
     f"who did not die were under 5 at survey ({under5_at_survey/(over5_at_survey + under5_at_survey):.1%})"
 )
 
+## 2. Make scatterplots and heatmaps based on raw data
 # Aggregate data
 agg_df = (
     df.groupby(["nid", "ihme_loc_id", "int_year"], as_index=False)
@@ -98,3 +101,28 @@ sns.heatmap(
     fmt=".2f",
     cmap="YlOrBr",
 )
+
+## 3. Make simple model
+df.rename(columns={"ldipc_weighted_no_match": "consumption"}, inplace=True)
+event_col = "child_mortality"
+id_col = "indv_id"
+time_col = "age_month_at_year_end"
+covariate_cols = [
+    "consumption",
+    "ihme_loc_id",  # r.e. not yet supported in lifelines package
+    "mean_temperature",
+    # "total_precipitation",
+    # "relative_humidity",
+    # "mean_high_temperature",
+    # "mean_low_temperature",
+    # "precipitation_days",
+    "days_over_30C",
+    # "days_over_26C",
+]
+df_model_data = df[[event_col, time_col] + covariate_cols]
+
+cph = CoxPHFitter()
+cph.fit(df_model_data, duration_col=time_col, event_col=event_col)
+cph.print_summary()
+
+## 4. Plot data sources by country
