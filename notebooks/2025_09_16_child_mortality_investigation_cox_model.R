@@ -25,10 +25,12 @@ if (Sys.info()["sysname"] == "Linux") {
   l <- "L:/"
 }
 
-install.packages('coxme',lib = "/homes/elyeb/rlibs") # for survival analysis with mixed effects
+# install.packages('coxme',lib = "/homes/elyeb/rlibs") # for survival analysis with mixed effects
 library(coxme,lib.loc = "/homes/elyeb/rlibs") 
 library(data.table)
 library(arrow) # to read parquet
+source("/home/j/DATA/SHAPE_FILES/GBD_geographies/master/GBD_2023/inset_maps/gbd2023_map.R")
+
 
 options(scipen = 999) # turn off scientific notation
  
@@ -36,7 +38,10 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
-df <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_09_15.01/data.parquet")
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_09_15.01/data.parquet"
+plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_09_15.01/"
+
+df <- read_parquet(data_version)
 
 df <- data.table(df)
 
@@ -48,7 +53,7 @@ setnames(df,old="ldipc_weighted_no_match",new="consumption")
 df_model <- df[,.(child_mortality,age_month_at_year_end,sex_id,ihme_loc_id,consumption,mean_temperature,days_over_30C)]
 
 #==============================================================================
-# SECTION 2: MAIN PROCESSING
+# SECTION 2: FIT MODELS
 #==============================================================================
 
 fit <- coxme(Surv(age_month_at_year_end, child_mortality) ~ consumption + mean_temperature + days_over_30C + sex_id + (1|ihme_loc_id), data = df_model)
@@ -73,3 +78,38 @@ summary(fit)
 # days_over_30C     0.003450759  1.003456720  0.000152407  22.64 <0.0000000000000002
 # sex_id           -0.017863722  0.982294889  0.009749483  -1.83              0.0669
 
+#==============================================================================
+# SECTION 3: MAKE PLOTS
+#==============================================================================
+
+# Make global map of NIDs by country
+map_data <- df[,.(location_id,nid)]
+map_data <- unique(map_data)
+map_data <- map_data[,.(mapvar=length(nid)),by=location_id]
+
+limits <- seq(0, 5, 1)
+labels <- c("0",
+            "1", 
+            "2",
+            "3",
+            "4")
+
+pdf(paste0(plot_dir, "child_mortality_nids_map.pdf"), width = 7.5, height = 4.2, pointsize = 9)
+
+map <- gbd_map(data=map_data, 
+               limits=limits, 
+               sub_nat="none", 
+               legend=TRUE, 
+               inset=FALSE,
+               labels=labels,
+               pattern=NULL,
+               col="Blues",
+               na.color = "white",
+               title="Number of Surveys by Country for Child Mortality", 
+               title.cex=1, 
+               fname=NULL,
+               legend.title="No. unique NIDs", 
+               legend.columns = 1, 
+               legend.cex=1, 
+               legend.shift=c(0,0))
+dev.off()

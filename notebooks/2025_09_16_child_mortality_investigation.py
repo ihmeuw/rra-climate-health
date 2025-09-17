@@ -4,9 +4,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from lifelines import CoxPHFitter  # for Cox survival models
-
+import os
 
 DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_09_15.01/data.parquet"
+PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_09_15.01/"
+os.makedirs(PLOT_PATH, exist_ok=True, mode=0o777)
 
 df = pd.read_parquet(DATA_PATH)
 
@@ -75,7 +77,7 @@ columns_to_bin = [
     "days_over_30C",
     "days_over_26C",
 ]
-heatmap_df = df.copy()  # .query("ihme_loc_id == 'ETH'")
+heatmap_df = df.copy()
 for col in columns_to_bin:
     heatmap_df[f"{col}_bin"] = pd.qcut(
         heatmap_df[col], 10, retbins=False, duplicates="drop"
@@ -83,24 +85,22 @@ for col in columns_to_bin:
 heatmap_df["consumption"], ldi_bins = pd.qcut(
     heatmap_df.ldipc_weighted_no_match, 10, retbins=True
 )
-col = "days_over_30C"
-sns.heatmap(
-    heatmap_df.groupby(["consumption", f"{col}_bin"])["child_mortality"]
-    .mean()
-    .unstack(),
-    annot=True,
-    fmt=".2f",
-    cmap="YlOrBr",
-)
-col = "mean_temperature"
-sns.heatmap(
-    heatmap_df.groupby(["consumption", f"{col}_bin"])["child_mortality"]
-    .mean()
-    .unstack(),
-    annot=True,
-    fmt=".2f",
-    cmap="YlOrBr",
-)
+
+for col in columns_to_bin:
+    plt.figure(figsize=(10, 8))
+    ax1 = sns.heatmap(
+        heatmap_df.groupby(["consumption", f"{col}_bin"])["child_mortality"]
+        .mean()
+        .unstack(),
+        annot=True,
+        fmt=".2f",
+        cmap="YlOrBr",
+    )
+    plt.title(f"Child Mortality by Consumption and {col.replace('_', ' ').title()}")
+    plt.tight_layout()
+    plt.savefig(os.path.join(PLOT_PATH, f"heatmap_child_mortality_{col}.png"))
+    plt.close()
+
 
 ## 3. Make simple model
 df.rename(columns={"ldipc_weighted_no_match": "consumption"}, inplace=True)
