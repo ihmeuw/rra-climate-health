@@ -1529,6 +1529,10 @@ def run_training_data_prep_child_mortality(
 
     data_raw = concat_valid_extractions(survey_data_path)
     logging.info(f"Total rows in concatenated raw data: {len(data_raw):,}")
+    logging.info(
+        f"Total unique NIDs in concatenated raw data: {data_raw['nid'].nunique():,}"
+    )
+
     df = data_raw.copy()
     df = check_columns(df, module)
 
@@ -1551,7 +1555,13 @@ def run_training_data_prep_child_mortality(
     )
     for var in key_vars:
         logging.info(f"- {var}: {data_raw[var].isna().sum():,} missing values")
+    logging.info(f"Dropping NIDs due to missing key variables: {key_vars}")
+    for var in key_vars:
+        logging.info(
+            f"-{data_raw[data_raw[var].isna()]["nid"].nunique():,} due to missing {var} values"
+        )
 
+    logging.info(f"Total unique NIDs after dropped NA values: {df['nid'].nunique():,}")
     df = df.rename(columns=COLUMN_NAME_TRANSLATOR)
 
     df["old_hh_id"] = df["hh_id"]
