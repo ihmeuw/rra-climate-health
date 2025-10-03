@@ -904,7 +904,7 @@ def concat_valid_extractions(file_path: str) -> pd.DataFrame:
 def check_columns(df: pd.DataFrame, module: str) -> pd.DataFrame:
     if module == "dem_br":
         # concatenated data contains 2 versions of hh_id, psu_id and strata_id
-        df.drop(columns="hhid", inplace=True)  # duplicate to hh_id
+        # df.drop(columns="hhid", inplace=True)  # duplicate to hh_id
 
         # give preverance to psu over psu_id, which is sometimes not integerable.
         # e.g. psu_id= "0_15", psu = 6. psu_id values for which psu is na are
@@ -915,8 +915,8 @@ def check_columns(df: pd.DataFrame, module: str) -> pd.DataFrame:
         df.drop(columns="strata_id", inplace=True)
 
         # latitude/longitude is empty, but lat/long is not
-        df.drop(columns="latitude", inplace=True)
-        df.drop(columns="longitude", inplace=True)
+        # df.drop(columns="latitude", inplace=True)
+        # df.drop(columns="longitude", inplace=True)
     elif module == "dem_vr":
         pass
     return df
@@ -1373,6 +1373,8 @@ def run_training_data_prep_anemia(
     survey_data_path = SURVEY_DATA_PATHS[data_source_type]
     logging.info(f"Running training data prep for {data_source_type}...")
 
+    logging.info(f"Creating new version stored under version: {version}")
+
     logging.info("Processing extraction survey data...")
     loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
 
@@ -1589,6 +1591,8 @@ def run_training_data_prep_child_mortality(
     survey_data_path = SURVEY_DATA_PATHS[data_source_type][module]
     logging.info(f"Running training data prep for {data_source_type}...")
 
+    logging.info(f"Creating new version stored under version: {version}")
+
     logging.info("Processing extraction survey data...")
     loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
 
@@ -1596,7 +1600,9 @@ def run_training_data_prep_child_mortality(
     # data_raw = pd.read_csv(
     #     survey_data_path / "dem_br_matched_latlong.csv", encoding="latin1"
     # )
-    data_raw = concat_valid_extractions("/mnt/team/surge/pub/aserfe/mort_extract/")
+    data_raw = pd.read_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_reextractions_10_03_2025.parquet"
+    )
 
     logging.info(f"Total rows in concatenated raw data: {len(data_raw):,}")
     logging.info(
@@ -1611,7 +1617,11 @@ def run_training_data_prep_child_mortality(
     key_vars = [
         "nid",
         "psu",
-        "strata",
+        "birth_year",
+        "birth_month",
+        "int_year",
+        "int_month",
+        "age_month",
         "hh_id",
         "geospatial_id",
         "lat",
@@ -1625,10 +1635,10 @@ def run_training_data_prep_child_mortality(
     )
     for var in key_vars:
         logging.info(f"- {var}: {data_raw[var].isna().sum():,} missing values")
-    logging.info(f"Dropping NIDs due to missing key variables: {key_vars}")
+    logging.info(f"NIDs with incomplete (some NAs) key variables: {key_vars}")
     for var in key_vars:
         logging.info(
-            f"-{data_raw[data_raw[var].isna()]["nid"].nunique():,} due to missing {var} values"
+            f"-{data_raw[data_raw[var].isna()]["nid"].nunique():,} contains missing {var} values"
         )
 
     logging.info(f"Total unique NIDs after dropped NA values: {df['nid'].nunique():,}")
@@ -1638,12 +1648,16 @@ def run_training_data_prep_child_mortality(
     int_cols = [
         "nid",
         "psu",
-        "strata",
+        "birth_year",
+        "birth_month",
+        "int_year",
+        "int_month",
+        "age_month",
+        "child_alive",
         "geospatial_id",
     ]
     df[int_cols] = df[int_cols].astype("int")
 
-    df.rename(columns={"iso3": "ihme_loc_id"}, inplace=True)
     # Apply cleaning function to each group and update hh_id
     df["old_hh_id"] = df["hh_id"]
     df["hh_id"] = df.groupby(["nid", "ihme_loc_id", "psu"], group_keys=False).apply(
@@ -1691,13 +1705,9 @@ def run_training_data_prep_child_mortality(
     # fix df columns
     df.rename(columns={"iso3": "ihme_loc_id"}, inplace=True)
     df["ihme_loc_id"] = df["ihme_loc_id"].str.replace("KEN_.*", "KEN", regex=True)
-
-    assert len(df[df["year_end.x"] != df["year_end.y"]]) == 0
-    assert len(df[df["year_start.x"] != df["year_start.y"]]) == 0
-    df.drop(columns=["year_end.y", "year_start.y"], inplace=True)
-    df.rename(
-        columns={"year_end.x": "year_end", "year_start.x": "year_start"}, inplace=True
-    )
+    df[["year_start", "year_end", "int_year"]] = df[
+        ["year_start", "year_end", "int_year"]
+    ].astype(int)
 
     df_wealth = merge_left_without_inflating(
         df,
@@ -1724,21 +1734,19 @@ def run_training_data_prep_child_mortality(
         f"Dropped {dropped_too_missingness:,} rows from {len(df_wealth):,} due to excessive wealth missingness in NIDs"
     )
 
-    # save temp file
-    df_merged.to_csv(
-        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv",
-        index=False,
-    )
-
     # age_month is months since birth at time of interview.
 
-    # drop other unmerged
+    # Only include children born within previous 5 years before int_year
     before_rows = len(df_merged)
-    unmergable_rows = df_merged[df_merged["wealth_index_dhs"].isna()]
-    df_merged = df_merged[df_merged["wealth_index_dhs"].notna()]
+    before_nids = df_merged["nid"].nunique()
+    df_merged["int_birth_year_diff_months"] = 12 * (
+        df["int_year"] - df["birth_year"]
+    ) + (df["int_month"] - df["birth_month"])
+    df_merged = df_merged.query("int_birth_year_diff_months <= 60")  # 5 years
     logging.info(
-        f"Dropped {before_rows - len(df_merged):,} rows that further failed to merge on 'nid', 'ihme_loc_id', 'hh_id', 'psu', 'year_start' variables"
+        f"Dropped {before_rows - len(df_merged):,} rows, {before_nids - df_merged['nid'].nunique():,} nids for which int_year > birth_year + 5"
     )
+    df_merged.drop(columns=["int_birth_year_diff_months"], inplace=True)
 
     # Assign age group
     before_rows = len(df_merged)
@@ -1750,17 +1758,18 @@ def run_training_data_prep_child_mortality(
     ]
 
     # drop data with no age_month
+    before_rows = len(df_merged)
     df_merged = df_merged[df_merged["age_month"].notna()]
     logging.info(
         f"Dropped {before_rows - len(df_merged):,} rows with missing age_month or aod_months"
     )
 
     # create list of years between birth year and year that the age_month lands on.
+    df_merged["age_month"] = df_merged["age_month"].astype(int)
     df_merged["year_of_recorded_age"] = (
         df_merged["birth_year"] * 12 + df_merged["birth_month"] + df_merged["age_month"]
     ) // 12
     df_merged["year_of_recorded_age"] = df_merged["year_of_recorded_age"].astype(int)
-    df_merged["birth_year"] = df_merged["birth_year"].astype(int)
 
     df_merged["years_to_expand"] = df_merged.apply(
         lambda x: [y for y in range(x["birth_year"], x["year_of_recorded_age"] + 1)],
@@ -1830,6 +1839,12 @@ def run_training_data_prep_child_mortality(
     rows_with_na_outcomes = int(rows_with_na_outcomes)
     logging.info(
         f"Dropped {rows_with_na_outcomes:,} rows with missing outcome variables ({measure_columns})"
+    )
+
+    # save temp file
+    df_exploded.to_csv(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv",
+        index=False,
     )
 
     # Merge with climate data
