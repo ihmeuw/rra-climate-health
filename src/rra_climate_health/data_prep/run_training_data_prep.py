@@ -888,10 +888,12 @@ def clean_hh_id_subset(data: pd.DataFrame | pd.Series) -> float:
 
 def concat_valid_extractions(file_path: str) -> pd.DataFrame:
     # Concatenate all valid extraction files into a single DataFrame
-    extraction_files = [f for f in os.listdir(file_path) if f.endswith("_dataset.csv")]
+    # extraction_files = [f for f in os.listdir(file_path) if f.endswith("_dataset.csv")]
+    extraction_files = [f for f in os.listdir(file_path) if f.endswith(".dta")]
     dfs = []
     for f in extraction_files:
-        df = pd.read_csv(os.path.join(file_path, f), low_memory=False)
+        # df = pd.read_csv(os.path.join(file_path, f), low_memory=False)
+        df = pd.read_stata(os.path.join(file_path, f))
         df["source_file"] = f  # Keep track of the source file
         # Perform any necessary validation on the DataFrame
         dfs.append(df)
@@ -1596,9 +1598,10 @@ def run_training_data_prep_child_mortality(
     loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
 
     # data_raw = concat_valid_extractions(survey_data_path)
-    data_raw = pd.read_csv(
-        survey_data_path / "dem_br_matched_latlong.csv", encoding="latin1"
-    )
+    # data_raw = pd.read_csv(
+    #     survey_data_path / "dem_br_matched_latlong.csv", encoding="latin1"
+    # )
+    data_raw = concat_valid_extractions("/mnt/team/surge/pub/aserfe/mort_extract/")
 
     logging.info(f"Total rows in concatenated raw data: {len(data_raw):,}")
     logging.info(
