@@ -1408,9 +1408,11 @@ def run_training_data_prep_anemia(
 
     anemia_data = anemia_data.rename(columns=COLUMN_NAME_TRANSLATOR)
 
+    # Apply cleaning function to each group and update hh_id
     anemia_data["old_hh_id"] = anemia_data["hh_id"]
-
-    anemia_data["hh_id"] = anemia_data.apply(clean_hh_id_v2, axis=1)
+    anemia_data["hh_id"] = anemia_data.groupby(
+        ["nid", "ihme_loc_id", "psu"], group_keys=False
+    ).apply(clean_hh_id_subset)
 
     assert len(anemia_data[anemia_data["hh_id"].isna()]) == len(
         anemia_data[anemia_data["old_hh_id"].isna()]
@@ -1429,22 +1431,16 @@ def run_training_data_prep_anemia(
         ldi_version=LDI_VERSION,
     )
 
-    dhs_wealth_data["old_hh_id"] = dhs_wealth_data["hh_id"]
-    dhs_wealth_data["hh_id"] = dhs_wealth_data.apply(clean_hh_id_v2, axis=1)
-
-    assert len(dhs_wealth_data[dhs_wealth_data["hh_id"].isna()]) == len(
-        dhs_wealth_data[dhs_wealth_data["old_hh_id"].isna()]
-    ), "NAs introduced by cleaning"
-
     missing_hh_rows = anemia_data[anemia_data["hh_id"].isna()]
     logging.info(
         f"Dropping {len(missing_hh_rows)} rows from anemia data with missing hh_id"
     )
     anemia_data = anemia_data[anemia_data["hh_id"].notna()]
+    anemia_data["hh_id"] = anemia_data["hh_id"].astype(int)
 
     # Find out percent of anemia nids and hh_ids that can be matched in wealth data
     merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
-    anemia_data["hh_id"] = anemia_data["hh_id"].astype(int)
+
     dhs_wealth_data["hh_id"] = dhs_wealth_data["hh_id"].astype(int)
     anemia_data["psu"] = anemia_data["psu"].astype(int)
     dhs_wealth_data["psu"] = dhs_wealth_data["psu"].astype(int)
@@ -1462,7 +1458,6 @@ def run_training_data_prep_anemia(
     dhs_wealth_data = dhs_wealth_data.query("nid in @anemia_nids")
 
     anemia_data.drop(columns=["old_hh_id"], inplace=True)
-    dhs_wealth_data.drop(columns=["old_hh_id"], inplace=True)
 
     # Merge data
     anemia_data_wealth = merge_left_without_inflating(
