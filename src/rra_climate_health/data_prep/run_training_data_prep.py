@@ -588,6 +588,34 @@ def get_DHS_wealth_dataset() -> pd.DataFrame:
     # Use the global column order and remove duplicates
     df = df[WEALTH_DATASET_COMMON_COLUMNS + ["wealth_index_dhs"]].drop_duplicates()
 
+    # update variable data types besides hh_id
+    int_cols = [
+        "nid",
+        "psu",
+        "geospatial_id",
+    ]
+    df[int_cols] = df[int_cols].astype("int")
+    # performing hh_id cleaning and data type conversions before returning wealth
+    # data, in order to prevent merge issues downstream.
+    # Apply cleaning function to each group and update hh_id
+    df["old_hh_id"] = df["hh_id"]
+    df["hh_id"] = df.groupby(["nid", "ihme_loc_id", "psu"], group_keys=False).apply(
+        clean_hh_id_subset
+    )
+
+    assert len(df[df["hh_id"].isna()]) == len(
+        df[df["old_hh_id"].isna()]
+    ), "NAs introduced by cleaning"
+    df.drop(columns=["old_hh_id"], inplace=True)
+
+    df["hh_id"] = df["hh_id"].astype(int)
+    df["psu"] = df["psu"].astype(int)
+    df["hhweight"] = df["hhweight"].astype(int)
+    df["wealth_index_dhs"] = df["wealth_index_dhs"].astype(int)
+
+    df.dropna(subset=["strata"], inplace=True)
+    df["strata"] = df["strata"].astype(int)
+
     # Remove problematic NIDs
     bad_entries = df.groupby(["nid", "hh_id", "year_start", "psu"]).size()
     bad_nids = list(bad_entries[bad_entries > 1].reset_index().nid.unique())
@@ -786,40 +814,127 @@ def clean_hh_id(row):
     return cleaned
 
 
-def clean_hh_id_v2(row):
+def clean_hh_id_subset(data: pd.DataFrame | pd.Series) -> float:
     """
     Function to clean household IDs (hh_id) for anemia and child mortality data.
+
+    Key confounding examples:
+    - geospatial ID 1 and hh_id 1558 needs to become 558, but
+    - geospatial ID 1 and hh_id 15 needs to become 15
+
+    Whether or not the leading digit is the geospatial ID is usually obvious by
+    underscores or spaces, but if these are not present, that does not mean the
+    leading digit is not the geospatial ID. This can still be seen by comparing
+    corresponding hh_ids in DHS data that have values such as '1 61', '1137', '1146'.
+    Therefore, detecting these must be done using the presences of sequences at
+    the group level of hh_ids within each nid, psu, geospatial_id combination.
+    Rule: if leading geospatial_id found for any of the hh_id values due to spaces
+    or underscores, the leading geospatial_id must be removed for all hh_id values
+    in the group.
     """
-    hh_id = row["hh_id"]
-    geo_str = str(row["geospatial_id"])
 
-    if pd.isna(hh_id):
-        return hh_id
+    clean_hh_id_list = []
+    geospatial_id_detected = False
 
-    # Convert to string and trim leading/trailing whitespace
-    hh_id = str(hh_id).strip()
+    # first check if any hh_id in the group has a space or underscore
+    for i in range(0, len(data["hh_id"])):
+        hh_id = data["hh_id"].iloc[i]
 
-    # Replace multiple spaces with a single space
-    hh_id = re.sub(r"\s{2,}", " ", hh_id)
+        # Convert to string and trim leading/trailing whitespace
+        hh_id = str(hh_id).strip()
 
-    # If the hh_id is already clean (no spaces or underscores), return it
-    if (len(re.split(r"[_ ]", hh_id)) == 1) and not (hh_id.startswith("0")):
-        return float(hh_id)
+        # Replace multiple spaces with a single space
+        hh_id = re.sub(r"\s{2,}", " ", hh_id)
 
-    # Handle cases with spaces or underscores
-    if " " in hh_id:
-        hh_id = hh_id.split(" ")[-1]
-    elif "_" in hh_id:
-        hh_id = hh_id.split("_")[-1]
+        # If the hh_id is already clean (no spaces or underscores), return it
+        if len(re.split(r"[_ ]", hh_id)) > 1:
+            geospatial_id_detected = True
+            break
 
-    # Match and remove leading zeros followed by the geospatial_id
-    pattern = r"^0+" + re.escape(geo_str)
-    hh_id = re.sub(pattern, "", hh_id)
+    for i in range(0, len(data["hh_id"])):
+        hh_id = data["hh_id"].iloc[i]
+        geo_str = str(data["geospatial_id"].iloc[i])
 
-    # Strip remaining leading zeros and handle empty results
-    hh_id = hh_id.lstrip("0") or "0"
+        if pd.isna(hh_id):
+            clean_hh_id_list.append(hh_id)
+        else:
+            # Convert to string and trim leading/trailing whitespace
+            hh_id = str(hh_id).strip()
 
-    return float(hh_id)  # Return as float to handle NAs
+            # Replace multiple spaces with a single space
+            hh_id = re.sub(r"\s{2,}", " ", hh_id)
+
+            # Handle cases with spaces or underscores
+            if " " in hh_id:
+                hh_id = hh_id.split(" ")[-1]
+            elif "_" in hh_id:
+                hh_id = hh_id.split("_")[-1]
+            elif geospatial_id_detected:
+                # If any hh_id in the group had a space or underscore, remove leading geospatial_id
+                pattern = r"^" + re.escape(geo_str)
+                hh_id = re.sub(pattern, "", hh_id)
+
+            # Match and remove leading zeros followed by the geospatial_id
+            pattern = r"^0+" + re.escape(geo_str)
+            hh_id = re.sub(pattern, "", hh_id)
+
+            # Strip remaining leading zeros and handle empty results
+            hh_id = hh_id.lstrip("0") or "0"
+
+            clean_hh_id_list.append(hh_id)
+
+    return pd.Series(clean_hh_id_list, index=data.index)
+
+
+def concat_valid_extractions(file_path: str) -> pd.DataFrame:
+    # Concatenate all valid extraction files into a single DataFrame
+    # extraction_files = [f for f in os.listdir(file_path) if f.endswith("_dataset.csv")]
+    extraction_files = [f for f in os.listdir(file_path) if f.endswith(".dta")]
+    dfs = []
+    for f in extraction_files:
+        # df = pd.read_csv(os.path.join(file_path, f), low_memory=False)
+        df = pd.read_stata(os.path.join(file_path, f))
+        df["source_file"] = f  # Keep track of the source file
+        # Perform any necessary validation on the DataFrame
+        dfs.append(df)
+
+    return pd.concat(dfs, ignore_index=True)
+
+
+def check_columns(df: pd.DataFrame, module: str) -> pd.DataFrame:
+    if module == "dem_br":
+        # concatenated data contains 2 versions of hh_id, psu_id and strata_id
+        df.drop(columns="hhid", inplace=True)  # duplicate to hh_id
+
+        # give preverance to psu over psu_id, which is sometimes not integerable.
+        # e.g. psu_id= "0_15", psu = 6. psu_id values for which psu is na are
+        # also not clear enough to fill for missing values.
+        df.drop(columns="psu_id", inplace=True)
+
+        # same with strata and strata_id
+        df.drop(columns="strata_id", inplace=True)
+
+        # latitude/longitude is empty, but lat/long is not
+        df.drop(columns="latitude", inplace=True)
+        df.drop(columns="longitude", inplace=True)
+    elif module == "dem_vr":
+        pass
+    return df
+
+
+def get_age_month_at_year_end(row):
+    """
+    For child mortality, we want to know the age in months at the end of the
+    observation year. If the child died during that year, we return the age at
+    death.
+    """
+    obs_year = row["years_to_expand"]
+    birth_year = row["birth_year"]
+    birth_month = row["birth_month"]
+    age_month = row["age_month"]
+
+    age_months_at_year_end = (obs_year + 1 - birth_year) * 12 - birth_month
+    return min(age_month, age_months_at_year_end)
 
 
 def run_training_data_prep_cgf(  # noqa: PLR0915
@@ -1293,9 +1408,11 @@ def run_training_data_prep_anemia(
 
     anemia_data = anemia_data.rename(columns=COLUMN_NAME_TRANSLATOR)
 
+    # Apply cleaning function to each group and update hh_id
     anemia_data["old_hh_id"] = anemia_data["hh_id"]
-
-    anemia_data["hh_id"] = anemia_data.apply(clean_hh_id_v2, axis=1)
+    anemia_data["hh_id"] = anemia_data.groupby(
+        ["nid", "ihme_loc_id", "psu"], group_keys=False
+    ).apply(clean_hh_id_subset)
 
     assert len(anemia_data[anemia_data["hh_id"].isna()]) == len(
         anemia_data[anemia_data["old_hh_id"].isna()]
@@ -1314,22 +1431,16 @@ def run_training_data_prep_anemia(
         ldi_version=LDI_VERSION,
     )
 
-    dhs_wealth_data["old_hh_id"] = dhs_wealth_data["hh_id"]
-    dhs_wealth_data["hh_id"] = dhs_wealth_data.apply(clean_hh_id_v2, axis=1)
-
-    assert len(dhs_wealth_data[dhs_wealth_data["hh_id"].isna()]) == len(
-        dhs_wealth_data[dhs_wealth_data["old_hh_id"].isna()]
-    ), "NAs introduced by cleaning"
-
     missing_hh_rows = anemia_data[anemia_data["hh_id"].isna()]
     logging.info(
         f"Dropping {len(missing_hh_rows)} rows from anemia data with missing hh_id"
     )
     anemia_data = anemia_data[anemia_data["hh_id"].notna()]
+    anemia_data["hh_id"] = anemia_data["hh_id"].astype(int)
 
     # Find out percent of anemia nids and hh_ids that can be matched in wealth data
     merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
-    anemia_data["hh_id"] = anemia_data["hh_id"].astype(int)
+
     dhs_wealth_data["hh_id"] = dhs_wealth_data["hh_id"].astype(int)
     anemia_data["psu"] = anemia_data["psu"].astype(int)
     dhs_wealth_data["psu"] = dhs_wealth_data["psu"].astype(int)
@@ -1347,7 +1458,6 @@ def run_training_data_prep_anemia(
     dhs_wealth_data = dhs_wealth_data.query("nid in @anemia_nids")
 
     anemia_data.drop(columns=["old_hh_id"], inplace=True)
-    dhs_wealth_data.drop(columns=["old_hh_id"], inplace=True)
 
     # Merge data
     anemia_data_wealth = merge_left_without_inflating(
@@ -1449,51 +1559,6 @@ def run_training_data_prep_anemia(
                 f.write(message)
 
 
-def concat_valid_extractions(file_path: str) -> pd.DataFrame:
-    # Concatenate all valid extraction files into a single DataFrame
-    extraction_files = [f for f in os.listdir(file_path) if f.endswith(".csv")]
-    dfs = []
-    for f in extraction_files:
-        df = pd.read_csv(os.path.join(file_path, f), low_memory=False)
-        df["source_file"] = f  # Keep track of the source file
-        # Perform any necessary validation on the DataFrame
-        dfs.append(df)
-
-    return pd.concat(dfs, ignore_index=True)
-
-
-def check_columns(df: pd.DataFrame, module: str) -> pd.DataFrame:
-    if module == "dem_br":
-        # concatenated data contains 2 versions of hh_id, psu_id and strata_id
-        df.drop(columns="hhid", inplace=True)  # duplicate to hh_id
-
-        # give preverance to psu over psu_id, which is sometimes not integerable.
-        # e.g. psu_id= "0_15", psu = 6. psu_id values for which psu is na are
-        # also not clear enough to fill for missing values.
-        df.drop(columns="psu_id", inplace=True)
-
-        # same with strata and strata_id
-        df.drop(columns="strata_id", inplace=True)
-    elif module == "dem_vr":
-        pass
-    return df
-
-
-def get_age_month_at_year_end(row):
-    """
-    For child mortality, we want to know the age in months at the end of the
-    observation year. If the child died during that year, we return the age at
-    death.
-    """
-    obs_year = row["years_to_expand"]
-    birth_year = row["birth_year"]
-    birth_month = row["birth_month"]
-    age_month = row["age_month"]
-
-    age_months_at_year_end = (obs_year + 1 - birth_year) * 12 - birth_month
-    return min(age_month, age_months_at_year_end)
-
-
 def run_training_data_prep_child_mortality(
     output_root: str | Path, data_source_type: str, module: str
 ) -> None:
@@ -1527,8 +1592,17 @@ def run_training_data_prep_child_mortality(
     logging.info("Processing extraction survey data...")
     loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
 
-    data_raw = concat_valid_extractions(survey_data_path)
+    # data_raw = concat_valid_extractions(survey_data_path)
+    # data_raw = pd.read_csv(
+    #     survey_data_path / "dem_br_matched_latlong.csv", encoding="latin1"
+    # )
+    data_raw = concat_valid_extractions("/mnt/team/surge/pub/aserfe/mort_extract/")
+
     logging.info(f"Total rows in concatenated raw data: {len(data_raw):,}")
+    logging.info(
+        f"Total unique NIDs in concatenated raw data: {data_raw['nid'].nunique():,}"
+    )
+
     df = data_raw.copy()
     df = check_columns(df, module)
 
@@ -1540,8 +1614,8 @@ def run_training_data_prep_child_mortality(
         "strata",
         "hh_id",
         "geospatial_id",
-        "latitude",
-        "longitude",
+        "lat",
+        "long",
         "child_alive",
     ]
     df.dropna(subset=key_vars, inplace=True)
@@ -1551,33 +1625,47 @@ def run_training_data_prep_child_mortality(
     )
     for var in key_vars:
         logging.info(f"- {var}: {data_raw[var].isna().sum():,} missing values")
+    logging.info(f"Dropping NIDs due to missing key variables: {key_vars}")
+    for var in key_vars:
+        logging.info(
+            f"-{data_raw[data_raw[var].isna()]["nid"].nunique():,} due to missing {var} values"
+        )
 
+    logging.info(f"Total unique NIDs after dropped NA values: {df['nid'].nunique():,}")
     df = df.rename(columns=COLUMN_NAME_TRANSLATOR)
 
-    df["old_hh_id"] = df["hh_id"]
-    df["hh_id"] = df.apply(clean_hh_id_v2, axis=1)
-
-    assert len(df[df["hh_id"].isna()]) == len(
-        df[df["old_hh_id"].isna()]
-    ), "NAs introduced by cleaning"
-    df.drop(columns=["old_hh_id"], inplace=True)
-
-    # update variable data types
+    # update variable data types besides hh_id
     int_cols = [
         "nid",
         "psu",
-        "hh_id",
         "strata",
         "geospatial_id",
     ]
     df[int_cols] = df[int_cols].astype("int")
 
+    df.rename(columns={"iso3": "ihme_loc_id"}, inplace=True)
+    # Apply cleaning function to each group and update hh_id
+    df["old_hh_id"] = df["hh_id"]
+    df["hh_id"] = df.groupby(["nid", "ihme_loc_id", "psu"], group_keys=False).apply(
+        clean_hh_id_subset
+    )
+
+    assert len(df[df["hh_id"].isna()]) == len(
+        df[df["old_hh_id"].isna()]
+    ), "NAs introduced by cleaning"
+
+    df["hh_id"] = df["hh_id"].astype("int")
+    df.drop(columns=["old_hh_id"], inplace=True)
+
     # Prepping wealth dataset
     dhs_wealth_data_raw = get_DHS_wealth_dataset()
     dhs_wealth_data = dhs_wealth_data_raw.copy()
 
-    cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT) / "anemia")
-    dhs_wealth_data = get_ldipc_from_asset_score(
+    # Find out percent of anemia nids and hh_ids that can be matched in wealth data
+    merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
+
+    cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT) / "child_mortality")
+    dhs_wealth_data_test = get_ldipc_from_asset_score(
         dhs_wealth_data,
         cm_data,
         asset_score_col="wealth_index_dhs",
@@ -1586,19 +1674,7 @@ def run_training_data_prep_child_mortality(
         ldi_version=LDI_VERSION,
     )
 
-    dhs_wealth_data["old_hh_id"] = dhs_wealth_data["hh_id"]
-    dhs_wealth_data["hh_id"] = dhs_wealth_data.apply(clean_hh_id_v2, axis=1)
-
-    assert len(dhs_wealth_data[dhs_wealth_data["hh_id"].isna()]) == len(
-        dhs_wealth_data[dhs_wealth_data["old_hh_id"].isna()]
-    ), "NAs introduced by cleaning"
-
-    # Find out percent of anemia nids and hh_ids that can be matched in wealth data
-    merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
-    dhs_wealth_data["hh_id"] = dhs_wealth_data["hh_id"].astype(int)
-    dhs_wealth_data["psu"] = dhs_wealth_data["psu"].astype(int)
-
-    wealth_nids = set(dhs_wealth_data.nid.unique())
+    wealth_nids = set(dhs_wealth_data_test.nid.unique())
     df_nids = set(df.nid.unique())
     common_nids = wealth_nids.intersection(df_nids)
 
@@ -1608,17 +1684,33 @@ def run_training_data_prep_child_mortality(
         f"{len(df_nids)} in wealth data NIDs"
     )
 
-    dhs_wealth_data = dhs_wealth_data.query("nid in @df_nids")
-    dhs_wealth_data.drop(columns=["old_hh_id"], inplace=True)
+    dhs_wealth_data_test = dhs_wealth_data_test.query("nid in @df_nids")
 
     # Merge data
+
+    # fix df columns
+    df.rename(columns={"iso3": "ihme_loc_id"}, inplace=True)
+    df["ihme_loc_id"] = df["ihme_loc_id"].str.replace("KEN_.*", "KEN", regex=True)
+
+    assert len(df[df["year_end.x"] != df["year_end.y"]]) == 0
+    assert len(df[df["year_start.x"] != df["year_start.y"]]) == 0
+    df.drop(columns=["year_end.y", "year_start.y"], inplace=True)
+    df.rename(
+        columns={"year_end.x": "year_end", "year_start.x": "year_start"}, inplace=True
+    )
+
     df_wealth = merge_left_without_inflating(
         df,
-        dhs_wealth_data.drop(
+        dhs_wealth_data_test.drop(
             columns=["geospatial_id", "strata", "lat", "long", "hhweight"]
         ),
         on=merge_cols,
     )
+
+    merged_percent = len(df_wealth[~df_wealth["ldipc_weighted_no_match"].isna()]) / len(
+        df_wealth
+    )
+    print(f"Merged rows percent: {100*merged_percent:.1f}%")
 
     # Calculate proportion of NA and filter out nids with too much wealth missingness (bad merges)
     merged_na_props = (
@@ -1630,6 +1722,12 @@ def run_training_data_prep_child_mortality(
     dropped_too_missingness = len(df_wealth) - len(df_merged)
     logging.info(
         f"Dropped {dropped_too_missingness:,} rows from {len(df_wealth):,} due to excessive wealth missingness in NIDs"
+    )
+
+    # save temp file
+    df_merged.to_csv(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv",
+        index=False,
     )
 
     # age_month is months since birth at time of interview.
