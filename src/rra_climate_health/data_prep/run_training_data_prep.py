@@ -1601,7 +1601,7 @@ def run_training_data_prep_child_mortality(
     #     survey_data_path / "dem_br_matched_latlong.csv", encoding="latin1"
     # )
     data_raw = pd.read_parquet(
-        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_reextractions_10_03_2025.parquet"
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_10_06_2025.parquet"
     )
 
     logging.info(f"Total rows in concatenated raw data: {len(data_raw):,}")
@@ -1624,6 +1624,7 @@ def run_training_data_prep_child_mortality(
         "age_month",
         "hh_id",
         "geospatial_id",
+        "line_id",
         "lat",
         "long",
         "child_alive",
@@ -1749,6 +1750,11 @@ def run_training_data_prep_child_mortality(
     df_merged.drop(columns=["int_birth_year_diff_months"], inplace=True)
 
     # Assign age group
+
+    # Separate out and save neonatal deaths (age_month <= 1 month)
+    df_neonatal = df_merged[df_merged["age_month"] < 1]
+
+
     before_rows = len(df_merged)
 
     # replace age_month with aod_months for rows with child_alive==0
@@ -1775,6 +1781,8 @@ def run_training_data_prep_child_mortality(
         lambda x: [y for y in range(x["birth_year"], x["year_of_recorded_age"] + 1)],
         axis=1,
     )
+
+
     # explode data on years_to_expand
     df_exploded = df_merged.explode("years_to_expand")
     df_exploded["age_month_at_year_end"] = df_exploded.apply(
@@ -1821,6 +1829,9 @@ def run_training_data_prep_child_mortality(
     logging.info(
         f"Dropped {dropped_due_to_coords:,} rows due to invalid lat and long values"
     )
+    # repeat for neonatal
+    df_neonatal = df_neonatal.dropna(subset=["lat", "long"])
+    df_neonatal = df_neonatal.query("lat != 0 and long != 0")
 
     # NID 275090 is a very long survey in Peru, 2003-2008 that is coded as having
     # multiple year_starts. Removing it.
@@ -1832,6 +1843,7 @@ def run_training_data_prep_child_mortality(
     logging.info(
         f"Dropped {dropped_problematic_nids:,} rows due to problematic NIDs: {problematic_nids}"
     )
+    df_neonatal = df_neonatal.query("nid not in @problematic_nids")
 
     # missing outcome variables
     measure_columns = MEASURES_IN_SOURCE[data_source_type]
@@ -1841,9 +1853,13 @@ def run_training_data_prep_child_mortality(
         f"Dropped {rows_with_na_outcomes:,} rows with missing outcome variables ({measure_columns})"
     )
 
-    # save temp file
+    # save temp files
     df_exploded.to_csv(
         "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv",
+        index=False,
+    )
+    df_neonatal.to_csv(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_neonatal.csv",
         index=False,
     )
 
@@ -1853,11 +1869,27 @@ def run_training_data_prep_child_mortality(
     df_climate = merge_left_without_inflating(
         df_exploded, climate_vars, on=["int_year", "lat", "long"]
     )
+    climate_vars_neonatal = get_climate_vars_for_dataframe(df_neonatal)
+    df_climate_neonatal = merge_left_without_inflating(
+        df_neonatal, climate_vars_neonatal, on=["int_year", "lat", "long"]
+    )
 
     logging.info("Adding elevation data...")
     df_climate = get_elevation_for_dataframe(df_climate)
+    df_climate_neonatal = get_elevation_for_dataframe(df_climate_neonatal)
 
     df_climate = assign_lbd_admin2_location_id(df_climate)
+    df_climate_neonatal = assign_lbd_admin2_location_id(df_climate_neonatal)
+
+    # save out neonatal data
+    try:
+        neonatal_path = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/"+version+"/data.parquet"
+        os.makedirs(os.path.dirname(neonatal_path), exist_ok=True, mode=0o777)
+        logging.info(f"Saving neonatal data to {neonatal_path}")
+        df_climate_neonatal.to_parquet(neonatal_path, index=False)
+    except Exception as e:
+        logging.error(f"Failed to save neonatal data: {e}")
+        pass
 
     # Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
