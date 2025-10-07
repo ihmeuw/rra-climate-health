@@ -711,8 +711,14 @@ def get_LSMS_wealth_dataset() -> pd.DataFrame:
 
 def assign_age_group(df: pd.DataFrame, indicator="cgf") -> pd.DataFrame:
     age_group_spans = pd.read_parquet(paths.AGE_SPANS_FILEPATH)
-    if indicator in ["cgf", "child_mortality"]:
-        age_group_spans = age_group_spans.query("age_group_id in [388, 389, 238, 34]")
+    if indicator in ["cgf"]:
+        age_group_spans = age_group_spans.query(
+            "age_group_id in [2,3,388, 389, 238, 34]"
+        )
+    elif indicator in ["child_mortality"]:
+        age_group_spans = age_group_spans.query(
+            "age_group_id in [2,3,388, 389, 238, 34]"
+        )
     df["age_group_id"] = np.nan
     if (indicator == "child_mortality") & ("age_year" not in df.columns):
         # aod_months should replace age_month for child_alive==0
@@ -739,6 +745,8 @@ def assign_age_group(df: pd.DataFrame, indicator="cgf") -> pd.DataFrame:
     ] = age_id_one_month
 
     age_id_map = {
+        2: 2,
+        3: 3,
         388: 4,
         389: 4,
         238: 5,
@@ -1753,10 +1761,6 @@ def run_training_data_prep_child_mortality(
     df_merged.drop(columns=["int_birth_year_diff_months"], inplace=True)
 
     # Assign age group
-
-    # Separate out and save neonatal deaths (age_month <= 1 month)
-    df_neonatal = df_merged[df_merged["age_month"] < 1]
-
     before_rows = len(df_merged)
 
     # replace age_month with aod_months for rows with child_alive==0
@@ -1801,8 +1805,9 @@ def run_training_data_prep_child_mortality(
     dropped_due_to_age = before_dropping_unused_age_groups - len(df_exploded)
 
     logging.info(
-        f"Dropped {dropped_due_to_age:,} rows due to age groups not found among 388, 389, 238, 34"
+        f"Dropped {dropped_due_to_age:,} rows due to age groups not found among 2, 3, 388, 389, 238, 34"
     )
+    logging.info(f"Total unique NIDs remaining: {df_exploded['nid'].nunique():,}")
 
     df_exploded["age_group_id"] = df_exploded["age_group_id"].astype(int)
     df_exploded["age_group_id_agg"] = df_exploded["age_group_id_agg"].astype(int)
@@ -1830,9 +1835,6 @@ def run_training_data_prep_child_mortality(
     logging.info(
         f"Dropped {dropped_due_to_coords:,} rows due to invalid lat and long values"
     )
-    # repeat for neonatal
-    df_neonatal = df_neonatal.dropna(subset=["lat", "long"])
-    df_neonatal = df_neonatal.query("lat != 0 and long != 0")
 
     # NID 275090 is a very long survey in Peru, 2003-2008 that is coded as having
     # multiple year_starts. Removing it.
@@ -1844,7 +1846,6 @@ def run_training_data_prep_child_mortality(
     logging.info(
         f"Dropped {dropped_problematic_nids:,} rows due to problematic NIDs: {problematic_nids}"
     )
-    df_neonatal = df_neonatal.query("nid not in @problematic_nids")
 
     # missing outcome variables
     measure_columns = MEASURES_IN_SOURCE[data_source_type]
@@ -1859,10 +1860,6 @@ def run_training_data_prep_child_mortality(
         "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv",
         index=False,
     )
-    df_neonatal.to_csv(
-        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_neonatal.csv",
-        index=False,
-    )
 
     # Merge with climate data
     logging.info("Processing climate data...")
@@ -1870,31 +1867,10 @@ def run_training_data_prep_child_mortality(
     df_climate = merge_left_without_inflating(
         df_exploded, climate_vars, on=["int_year", "lat", "long"]
     )
-    climate_vars_neonatal = get_climate_vars_for_dataframe(df_neonatal)
-    df_climate_neonatal = merge_left_without_inflating(
-        df_neonatal, climate_vars_neonatal, on=["int_year", "lat", "long"]
-    )
 
     logging.info("Adding elevation data...")
     df_climate = get_elevation_for_dataframe(df_climate)
-    df_climate_neonatal = get_elevation_for_dataframe(df_climate_neonatal)
-
     df_climate = assign_lbd_admin2_location_id(df_climate)
-    df_climate_neonatal = assign_lbd_admin2_location_id(df_climate_neonatal)
-
-    # save out neonatal data
-    try:
-        neonatal_path = (
-            "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/"
-            + version
-            + "/data.parquet"
-        )
-        os.makedirs(os.path.dirname(neonatal_path), exist_ok=True, mode=0o777)
-        logging.info(f"Saving neonatal data to {neonatal_path}")
-        df_climate_neonatal.to_parquet(neonatal_path, index=False)
-    except Exception as e:
-        logging.error(f"Failed to save neonatal data: {e}")
-        pass
 
     # Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
