@@ -1742,9 +1742,10 @@ def run_training_data_prep_child_mortality(
     before_rows = len(df_merged)
     before_nids = df_merged["nid"].nunique()
     df_merged["int_birth_year_diff_months"] = 12 * (
-        df["int_year"] - df["birth_year"]
-    ) + (df["int_month"] - df["birth_month"])
+        df_merged["int_year"] - df_merged["birth_year"]
+    ) + (df_merged["int_month"] - df_merged["birth_month"])
     df_merged_backup = df_merged.copy()
+    df_dropped = df_merged_backup.query("int_birth_year_diff_months > 60")
     df_merged = df_merged.query("int_birth_year_diff_months <= 60")  # 5 years
     logging.info(
         f"Dropped {before_rows - len(df_merged):,} rows, {before_nids - df_merged['nid'].nunique():,} nids for which int_year > birth_year + 5"
