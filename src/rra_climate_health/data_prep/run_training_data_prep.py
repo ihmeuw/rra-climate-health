@@ -1734,6 +1734,7 @@ def run_training_data_prep_child_mortality(
     logging.info(
         f"Dropped {dropped_too_missingness:,} rows from {len(df_wealth):,} due to excessive wealth missingness in NIDs"
     )
+    logging.info(f"Total unique NIDs remaining: {df_merged['nid'].nunique():,}")
 
     # age_month is months since birth at time of interview.
 
@@ -1743,6 +1744,7 @@ def run_training_data_prep_child_mortality(
     df_merged["int_birth_year_diff_months"] = 12 * (
         df["int_year"] - df["birth_year"]
     ) + (df["int_month"] - df["birth_month"])
+    df_merged_backup = df_merged.copy()
     df_merged = df_merged.query("int_birth_year_diff_months <= 60")  # 5 years
     logging.info(
         f"Dropped {before_rows - len(df_merged):,} rows, {before_nids - df_merged['nid'].nunique():,} nids for which int_year > birth_year + 5"
@@ -1753,7 +1755,6 @@ def run_training_data_prep_child_mortality(
 
     # Separate out and save neonatal deaths (age_month <= 1 month)
     df_neonatal = df_merged[df_merged["age_month"] < 1]
-
 
     before_rows = len(df_merged)
 
@@ -1781,7 +1782,6 @@ def run_training_data_prep_child_mortality(
         lambda x: [y for y in range(x["birth_year"], x["year_of_recorded_age"] + 1)],
         axis=1,
     )
-
 
     # explode data on years_to_expand
     df_exploded = df_merged.explode("years_to_expand")
@@ -1883,7 +1883,11 @@ def run_training_data_prep_child_mortality(
 
     # save out neonatal data
     try:
-        neonatal_path = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/"+version+"/data.parquet"
+        neonatal_path = (
+            "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/"
+            + version
+            + "/data.parquet"
+        )
         os.makedirs(os.path.dirname(neonatal_path), exist_ok=True, mode=0o777)
         logging.info(f"Saving neonatal data to {neonatal_path}")
         df_climate_neonatal.to_parquet(neonatal_path, index=False)
