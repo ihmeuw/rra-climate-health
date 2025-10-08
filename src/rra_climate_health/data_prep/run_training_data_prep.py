@@ -1776,8 +1776,14 @@ def run_training_data_prep_child_mortality(
         f"Dropped {before_rows - len(df_merged):,} rows with missing age_month or aod_months"
     )
 
-    # create list of years between birth year and year that the age_month lands on.
+    # age_days and aod_days are empty, but we assume that age_month and aod_months
+    # are rounded down, such that age_month 0 is not stillborns, but deaths between
+    # 0 and 1 month. This is required for a survival modeling approach, for which
+    # time to event cannot be 0.
     df_merged["age_month"] = df_merged["age_month"].astype(int)
+    df_merged["age_month"] += 1
+
+    # create list of years between birth year and year that the age_month lands on.
     df_merged["year_of_recorded_age"] = (
         df_merged["birth_year"] * 12 + df_merged["birth_month"] + df_merged["age_month"]
     ) // 12
@@ -1815,6 +1821,15 @@ def run_training_data_prep_child_mortality(
     df_exploded["age_month_at_year_end"] = df_exploded["age_month_at_year_end"].astype(
         int
     )
+    df_exploded["age_year_at_year_end"] = df_exploded["age_month_at_year_end"] / 12
+    rows_before = len(df_exploded)
+    df_exploded = df_exploded[
+        df_exploded["age_month_at_year_end"] > 0
+    ]  # nothing to model at time=0
+    logging.info(
+        f"Dropped {rows_before - len(df_exploded):,} rows with age_month_at_year_end=0"
+    )
+
     # override int_year, used to get climate vars
     df_exploded["int_year_original"] = df_exploded["int_year"]  # keep copy of original
     df_exploded["int_year"] = df_exploded["years_to_expand"].astype(int)
