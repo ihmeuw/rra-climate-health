@@ -44,6 +44,58 @@ folds_results_subdir <- paste0(folds_dir,"folds_results/")
 # SECTION 2: READ AND COMBINE RESULTS
 #==============================================================================
 
-list.files(folds_results_subdir)
+all_files <- list.files(folds_results_subdir)
 
-ex_df <- read_parquet(paste0(folds_results_subdir,"predictions_fold_5_vars_precipitation_days.parquet"))
+all_results <- data.table(
+  model = character(),
+  MSE = double(),
+  RMSE = double(),
+  MAE = double(),
+  fold = integer()
+)
+
+for (f in all_files){
+  # Get fold number and model variables (besides base variables)
+  fname <- sub("^predictions_fold_", "", f)
+  fname <- sub("\\.parquet$", "", fname)
+  
+  # Split by "_vars_"
+  parts <- strsplit(fname, "_vars_")[[1]]
+  fold <- as.integer(parts[1])
+  var_str <- parts[2]
+  
+  predictions <- read_parquet(paste0(folds_results_subdir,f))
+  predictions <- data.table(predictions)
+  
+  if(predictions$fold[1]!=fold){
+    print("Filename does not match fold number in data!")
+  }
+  predictions <- predictions[,.(child_mortality,model_predictions)]
+  mse <- mean((predictions$child_mortality - predictions$model_predictions)^2)
+  rmse <- sqrt(mse)
+  mae <- mean(abs(predictions$child_mortality - predictions$model_predictions))
+
+  all_results <- rbind(
+    all_results,
+    data.table(
+      model = var_str,
+      MSE = mse,
+      RMSE = rmse,
+      MAE = mae,
+      fold = fold
+    )
+  )
+}
+
+
+
+# Read back in when complete. 
+# Take average of k results:
+manual_CV_results <- all_results[, .(
+  avg_MSE = mean(MSE),
+  avg_RMSE = mean(RMSE),
+  avg_MAE = mean(MAE)
+), by = model]
+
+manual_CV_results <- manual_CV_results[order(avg_RMSE, decreasing = FALSE), ]
+write.csv(manual_CV_results,paste0(results_dir,"manual_CV_results_05pc.csv"),row.names = FALSE)

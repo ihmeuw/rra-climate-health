@@ -43,13 +43,20 @@ child_script <- "/ihme/homes/elyeb/repos/rra-climate-health/notebooks/child_mort
 ## Fit all univariate models
 climate_vars <- c(
   "mean_temperature",
+  "mean_low_temperature",
+  "mean_high_temperature",
+  "precipitation_days",
   "total_precipitation",
   "relative_humidity",
-  "mean_high_temperature",
-  "mean_low_temperature",
-  "precipitation_days",
+  "days_over_26C",
+  "days_over_27C",
+  "days_over_28C",
+  "days_over_29C",
   "days_over_30C",
-  "days_over_26C"
+  "days_over_31C",
+  "days_over_32C",
+  "days_over_33C",
+  "elevation"
 )
 
 secondary_climate_vars <- climate_vars[climate_vars!="mean_temperature"]

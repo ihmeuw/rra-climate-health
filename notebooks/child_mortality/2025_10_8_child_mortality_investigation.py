@@ -28,7 +28,7 @@ print(f"{df['indv_id'].nunique():,} unique individuals in data")
 df["child_mortality"] = 1 - df["child_alive"]
 
 
-## 2. Make scatterplots and heatmaps based on raw data
+## 2. Make scatterplots and heatmaps based on aggregated raw data
 # Aggregate data
 final_outcome_df = (
     df.groupby(["nid", "ihme_loc_id", "int_year"], as_index=False)
@@ -40,10 +40,66 @@ final_outcome_df = (
         }
     )
 )
+
+scatter_vars = [
+    "consumption",
+    "mean_temperature",
+    "mean_low_temperature",
+    "mean_high_temperature",
+    "precipitation_days",
+    "total_precipitation",
+    "relative_humidity",
+    "elevation",
+    "days_over_26C",
+    "days_over_27C",
+    "days_over_28C",
+    "days_over_29C",
+    "days_over_30C",
+    "days_over_31C",
+    "days_over_32C",
+    "days_over_33C",
+]
+# make indv scatters
+for var in scatter_vars:
+    plt.figure(figsize=(6, 4))
+    plt.scatter(
+        final_outcome_df[var], final_outcome_df["total_mortality"], s=10, alpha=0.7
+    )
+    plt.xlabel(var)
+    plt.ylabel("total_mortality")
+    plt.title(f"{var} vs total_mortality")
+    plt.tight_layout()
+    plt.savefig(os.path.join(PLOT_PATH, f"scatter_child_mortality_{var}.png"))
+    plt.close()
+
+# make single scatter
+fig, axes = plt.subplots(8, 2, figsize=(16, 32))
+axes = axes.flatten()
+
+for i, var in enumerate(scatter_vars):
+    axes[i].scatter(
+        final_outcome_df[var], final_outcome_df["total_mortality"], s=10, alpha=0.7
+    )
+    axes[i].set_xlabel(var, fontsize=12)
+    axes[i].set_ylabel("total_mortality", fontsize=12)
+    axes[i].set_title(f"{var} vs total_mortality", fontsize=16)
+
+plt.tight_layout()
+plt.savefig(os.path.join(PLOT_PATH, "scatter_child_mortality_all.png"))
+plt.close()
+
+px.scatter(
+    final_outcome_df, x="mean_temperature", y="total_mortality"  # , color="ihme_loc_id"
+)
+
 px.scatter(
     final_outcome_df, x="mean_temperature", y="total_mortality", color="ihme_loc_id"
 )
-plt.savefig(os.path.join(PLOT_PATH, f"scatter_child_mortality_mean_temperature.png"))
+
+# Examine binary variables
+ct = pd.crosstab(df["child_mortality"], df["sex_id"])
+ct_prop = pd.crosstab(df["child_mortality"], df["sex_id"], normalize="index")
+corr = df["child_mortality"].corr(df["sex_id"].astype(int))
 
 # Heat maps of variables
 columns_to_bin = [
