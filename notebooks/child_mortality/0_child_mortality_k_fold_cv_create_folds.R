@@ -38,15 +38,19 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
-sample_percent <- 0.1
+sample_percent <- 0.05
 num_folds <- 10
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_08.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_08.01/"
 folds_dir <- paste0(results_dir,"folds/")
+folds_data_subdir <- paste0(folds_dir,"data_subsets/")
+folds_results_subdir <- paste0(folds_dir,"folds_results/")
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(folds_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(folds_data_subdir, recursive = TRUE, showWarnings = FALSE)
+dir.create(folds_results_subdir, recursive = TRUE, showWarnings = FALSE)
 
 df <- read_parquet(data_version)
 df <- data.table(df)
@@ -101,6 +105,7 @@ for (k in 1:num_folds) {
   saveRDS(fold_indices, file = paste0(folds_dir,"fold_indices_", k, ".rds"))
 }
 
-
-
+# Save reference data set, which may be subset
+df_model_with_folds <- df_model[!is.na(fold)]
+write_parquet(df_model_with_folds, paste0(folds_data_subdir,"df_with_folds.parquet"))
 

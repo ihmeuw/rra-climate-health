@@ -2,7 +2,7 @@
 # DESCRIPTION: Parent script to submit jobs for each fold in a k-fold cross-validation
 # task
 # PROJECT: Climate nutrition
-# DATE: 2025-09-17
+# DATE: 2025-10-07
 ################################################################################
 
 #==============================================================================
@@ -25,9 +25,7 @@ if (Sys.info()["sysname"] == "Linux") {
   l <- "L:/"
 }
 
-
-
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_09_15.01/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_08.01/"
 folds_dir <- paste0(results_dir,"folds/")
 
 #==============================================================================
@@ -35,13 +33,14 @@ folds_dir <- paste0(results_dir,"folds/")
 #==============================================================================
 
 ## Test secondary climate variables with k-fold cross-validation
-child_script <- "/ihme/homes/elyeb/repos/rra-climate-health/notebooks/child_mortality/child_mortality_investigation_child_script.R"
+child_script <- "/ihme/homes/elyeb/repos/rra-climate-health/notebooks/child_mortality/1b_child_mortality_k_fold_cv_child_call_models.R"
 
 # Update output_log and error_log to personal directory in slurmoutput
 
 job_name_root <- 'child_mortality'
 
-folds <- list.files(folds_dir)
+folds <- list.files(path = folds_dir, pattern = "\\.rds$", full.names = FALSE)
+
 for (fold in folds) {
   
   output_log <- paste0('/ihme/temp/slurmoutput/elyeb/output/%x.o%j','_',fold)
@@ -50,7 +49,7 @@ for (fold in folds) {
   fold_number <- as.integer(gsub(".*_(\\d+)\\.rds$", "\\1", fold))
   job_name <- paste0(job_name_root,fold_number)
   
-  qsub_str <- paste("sbatch -J",job_name,"--mem=100G -c 6 -A proj_goalkeepers -t 3-24 -p long.q",
+  qsub_str <- paste("sbatch -J",job_name,"--mem=100G -c 6 -A proj_integrated_analytics -t 4-24 -p long.q",
                     "-o ",output_log,"-e",error_log, 
                     "/ihme/singularity-images/rstudio/shells/execR.sh",
                     "-s ", child_script, fold,sep=" ")
