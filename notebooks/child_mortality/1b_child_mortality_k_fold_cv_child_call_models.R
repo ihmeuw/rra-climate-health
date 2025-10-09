@@ -29,7 +29,10 @@ if (Sys.info()["sysname"] == "Linux") {
 
 fold_file <- commandArgs()[4]
 
+fold <- as.integer(gsub(".*_(\\d+)\\.rds$", "\\1", fold_file))
+
 print(paste0("running on fold file ",fold_file))
+
 #==============================================================================
 # SECTION 1: SUBMIT JOBS FOR DIFFERENT MODEL SPECIFICATIONS
 #==============================================================================
@@ -63,10 +66,9 @@ for (var in climate_vars) {
   output_log <- paste0('/ihme/temp/slurmoutput/elyeb/output/%x.o%j','_',fold,'_',var)
   error_log <- paste0('/ihme/temp/slurmoutput/elyeb/errors/%x.e%j','_',fold,'_',var)
   
-  fold_number <- as.integer(gsub(".*_(\\d+)\\.rds$", "\\1", fold))
-  job_name <- paste0(job_name_root,fold_number)
+  job_name <- paste0(fold,var,job_name_root)
   
-  qsub_str <- paste("sbatch -J",job_name,"--mem=400G -c 6 -A proj_integrated_analytics -t 4-24 -p long.q",
+  qsub_str <- paste("sbatch -J",job_name,"--mem=100G -c 6 -A proj_integrated_analytics -t 4-24 -p long.q",
                     "-o ",output_log,"-e",error_log, 
                     "/ihme/singularity-images/rstudio/shells/execR.sh",
                     "-s ", child_script, fold,var,sep=" ")
@@ -82,13 +84,13 @@ for (var in secondary_climate_vars) {
   output_log <- paste0('/ihme/temp/slurmoutput/elyeb/output/%x.o%j','_',fold,'_',"mean_temperature","_",var)
   error_log <- paste0('/ihme/temp/slurmoutput/elyeb/errors/%x.e%j','_',fold,'_',"mean_temperature","_",var)
   
-  fold_number <- as.integer(gsub(".*_(\\d+)\\.rds$", "\\1", fold))
-  job_name <- paste0(job_name_root,fold_number)
   
-  qsub_str <- paste("sbatch -J",job_name,"--mem=400G -c 6 -A proj_integrated_analytics -t 4-24 -p long.q",
+  job_name <- paste0(fold,"mean_temperature",var,job_name_root)
+  
+  qsub_str <- paste("sbatch -J",job_name,"--mem=100G -c 6 -A proj_integrated_analytics -t 4-24 -p long.q",
                     "-o ",output_log,"-e",error_log, 
                     "/ihme/singularity-images/rstudio/shells/execR.sh",
-                    "-s ", child_script, fold,"mean_temperature",var,sep=" ")
+                    "-s ", child_script, fold_file,"mean_temperature",var,sep=" ")
   
   system(qsub_str)
   

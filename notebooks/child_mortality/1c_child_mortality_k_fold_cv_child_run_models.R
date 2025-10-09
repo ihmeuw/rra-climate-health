@@ -40,7 +40,7 @@ args <- commandArgs(trailingOnly = TRUE)
 
 fold_file <- commandArgs()[4]
 climate_var_1 <- commandArgs()[5]
-climate_var_2 <- if (length(args) >= 5) args[5] else "" # optional secondary var
+climate_var_2 <- if (length(args) >= 6) args[6] else "" # optional secondary var
 
 print(paste0("running on fold file ",fold_file))
 
@@ -103,6 +103,10 @@ print("model specification:")
 print(full_formula_string)
 
 full_formula <- as.formula(full_formula_string)
+
+# free up space:
+rm(df)
+rm(df_model)
 
 model <- emfrail(formula = full_formula, data = train, verbose = TRUE)
 

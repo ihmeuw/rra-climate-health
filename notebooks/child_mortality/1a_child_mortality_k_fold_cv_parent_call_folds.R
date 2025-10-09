@@ -49,7 +49,7 @@ for (fold in folds) {
   fold_number <- as.integer(gsub(".*_(\\d+)\\.rds$", "\\1", fold))
   job_name <- paste0(job_name_root,fold_number)
   
-  qsub_str <- paste("sbatch -J",job_name,"--mem=100G -c 6 -A proj_integrated_analytics -t 4-24 -p long.q",
+  qsub_str <- paste("sbatch -J",job_name,"--mem=20G -c 6 -A proj_integrated_analytics -t 4-24 -p long.q",
                     "-o ",output_log,"-e",error_log, 
                     "/ihme/singularity-images/rstudio/shells/execR.sh",
                     "-s ", child_script, fold,sep=" ")
