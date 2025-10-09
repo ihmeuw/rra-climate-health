@@ -42,6 +42,10 @@ fold_file <- commandArgs()[4]
 climate_var_1 <- commandArgs()[5]
 climate_var_2 <- if (length(args) >= 6) args[6] else "" # optional secondary var
 
+# fold_file <- "fold_indices_1.rds"
+# climate_var_1 <- "mean_temperature"
+# climate_var_2 <- ""
+
 print(paste0("running on fold file ",fold_file))
 
 #==============================================================================
@@ -54,9 +58,7 @@ folds_dir <- paste0(results_dir,"folds/")
 folds_data_subdir <- paste0(folds_dir,"data_subsets/")
 folds_results_subdir <- paste0(folds_dir,"folds_results/")
 
-# fold_file <- "fold_indices_1.rds"
-# climate_var_1 <- "mean_temperature"
-# climate_var_2 <- ""
+
 fold_indices <- readRDS(paste0(folds_dir,fold_file))
 fold_number <- as.integer(gsub(".*_(\\d+)\\.rds$", "\\1", fold_file))
 

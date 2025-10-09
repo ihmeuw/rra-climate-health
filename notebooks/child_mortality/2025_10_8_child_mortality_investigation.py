@@ -27,10 +27,6 @@ print(f"{df['indv_id'].nunique():,} unique individuals in data")
 # flip child_alive so 1 = died, 0 = alive for easier interpretation
 df["child_mortality"] = 1 - df["child_alive"]
 
-# For each indv_id, get the row with the maximum age_year_at_year_end
-final_outcome_df = df_model_data.loc[
-    df_model_data.groupby("indv_id")["age_year_at_year_end"].idxmax()
-].reset_index(drop=True)
 
 ## 2. Make scatterplots and heatmaps based on raw data
 # Aggregate data

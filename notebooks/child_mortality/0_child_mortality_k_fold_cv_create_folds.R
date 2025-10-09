@@ -65,9 +65,6 @@ df <- data.table(df)
 # balancing countries
 df_model <- data.table(df)
 
-# Make index variable
-df_model[,index_col := .I]
-
 # make indv ID
 df_model[,indv_id := paste(nid,psu,hh_id,line_id,sep="_")]
 # get sample
@@ -94,18 +91,16 @@ s_indv_dt[, fold := sample(rep(1:num_folds, length.out=.N)), by = ihme_loc_id]
 
 df_sample <- merge(df_sample, s_indv_dt[, .(indv_id, fold)], by = "indv_id", all.x = TRUE)
 
-# Get indices for the folds from the full data set
-fold_info <- unique(df_sample[, .(indv_id, fold)])
-df_model <- merge(df_model, fold_info, by = "indv_id", all.x = TRUE)
-
+# Get indices for the folds from the df_sample data set
+# Make index variable
+df_sample[,index_col := .I]
 
 # Save fold indices as rds for quick loading by downstream scripts
 for (k in 1:num_folds) {
-  fold_indices <- df_model[fold == k, index_col]
+  fold_indices <- df_sample[fold == k, index_col]
   saveRDS(fold_indices, file = paste0(folds_dir,"fold_indices_", k, ".rds"))
 }
 
 # Save reference data set, which may be subset
-df_model_with_folds <- df_model[!is.na(fold)]
-write_parquet(df_model_with_folds, paste0(folds_data_subdir,"df_with_folds.parquet"))
+write_parquet(df_sample, paste0(folds_data_subdir,"df_with_folds.parquet"))
 

@@ -71,7 +71,7 @@ for (var in climate_vars) {
   qsub_str <- paste("sbatch -J",job_name,"--mem=100G -c 6 -A proj_integrated_analytics -t 4-24 -p long.q",
                     "-o ",output_log,"-e",error_log, 
                     "/ihme/singularity-images/rstudio/shells/execR.sh",
-                    "-s ", child_script, fold,var,sep=" ")
+                    "-s ", child_script, fold_file,var,sep=" ")
   
   system(qsub_str)
   
