@@ -34,7 +34,7 @@ final_outcome_df = df_model_data.loc[
 
 ## 2. Make scatterplots and heatmaps based on raw data
 # Aggregate data
-agg_df = (
+final_outcome_df = (
     df.groupby(["nid", "ihme_loc_id", "int_year"], as_index=False)
     .mean(numeric_only=True)
     .rename(
@@ -44,7 +44,9 @@ agg_df = (
         }
     )
 )
-px.scatter(agg_df, x="mean_temperature", y="total_mortality", color="ihme_loc_id")
+px.scatter(
+    final_outcome_df, x="mean_temperature", y="total_mortality", color="ihme_loc_id"
+)
 plt.savefig(os.path.join(PLOT_PATH, f"scatter_child_mortality_mean_temperature.png"))
 
 # Heat maps of variables
@@ -125,12 +127,6 @@ covariate_cols = [
 ]
 df_model_data = df[[event_col, time_col] + covariate_cols]
 
-# shift age_months by 1:
-df_model_data["age_month_at_year_end"] = df_model_data["age_month_at_year_end"] + 1
-# df_model_data = df_model_data[
-#     df_model_data["age_month_at_year_end"] > 0
-# ]  # only include children older than 0 months
-
 # One-hot encode ihme_loc_id
 df_model_data = pd.get_dummies(df_model_data, columns=["ihme_loc_id"], drop_first=True)
 df_model_data["sex_id"] = (
@@ -165,7 +161,7 @@ df_model_data.to_csv(RESULTS_PATH + "fe_model_predictions.csv", index=False)
 ## Heat maps of modeled predictions
 
 # Read FE model back in and make plots
-df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_predictions.csv")
+df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_predictions_2025_10_08.csv")
 
 # Heat maps of variables
 columns_to_bin = [
@@ -223,8 +219,8 @@ for col in columns_to_bin:
     plt.close()
 
 
-# Read in 50% mixed effects model predictions and make plots
-df_me_50pc_model_data = pd.read_csv(RESULTS_PATH + "subset_5pct_model_results.csv")
+# Read in 25% mixed effects model predictions and make plots
+df_me_25pc_model_data = pd.read_csv(RESULTS_PATH + "subset_25pct_model_results.csv")
 
 # Heat maps of variables
 columns_to_bin = [
@@ -237,7 +233,7 @@ columns_to_bin = [
     "days_over_30C",
     # "days_over_26C",
 ]
-heatmap_df = df_me_50pc_model_data.copy()
+heatmap_df = df_me_25pc_model_data.copy()
 for col in columns_to_bin:
     heatmap_df[f"{col}_bin"] = pd.qcut(
         heatmap_df[col], 10, retbins=False, duplicates="drop"
@@ -283,8 +279,8 @@ for col in columns_to_bin:
 
 
 # get min and max values for color scale consistency across plots
-df_non_neo = df[df["age_month"] > 0]
-raw_heatmap_df = df_non_neo.copy()
+# df_non_neo = df[df["age_month"] > 0]
+raw_heatmap_df = df.copy()
 for col in columns_to_bin:
     raw_heatmap_df[f"{col}_bin"] = pd.qcut(
         raw_heatmap_df[col], 10, retbins=False, duplicates="drop"
@@ -302,7 +298,7 @@ fe_heatmap_df["consumption"], ldi_bins = pd.qcut(
     fe_heatmap_df.consumption, 10, retbins=True
 )
 
-me_heatmap_df = df_me_50pc_model_data.copy()
+me_heatmap_df = df_me_25pc_model_data.copy()
 for col in columns_to_bin:
     me_heatmap_df[f"{col}_bin"] = pd.qcut(
         me_heatmap_df[col], 10, retbins=False, duplicates="drop"
@@ -338,7 +334,7 @@ vmax = all_values.max()
 
 # plot raw data heatmaps with consistent color scale
 plot_heat_map(
-    data=df_non_neo.rename(
+    data=df.rename(
         columns={
             "child_mortality": "model_predictions",
             "ldipc_weighted_no_match": "consumption",
@@ -361,9 +357,9 @@ plot_heat_map(
 )
 # plot me model heatmaps with consistent color scale
 plot_heat_map(
-    data=df_me_50pc_model_data,
-    outfile="me_50pc_heatmap_child_mortality",
-    title="ME (50% of individuals) Modeled Child Mortality",
+    data=df_me_25pc_model_data,
+    outfile="me_25pc_heatmap_child_mortality",
+    title="ME (25% of individuals) Modeled Child Mortality",
     bin_cols=columns_to_bin,
     vmin=vmin,
     vmax=vmax,
