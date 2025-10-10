@@ -52,16 +52,15 @@ results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutri
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 folds_dir <- paste0(results_dir,"folds/")
+
 df <- read_parquet(data_version)
 # df <- fread(data_version)
 df <- data.table(df)
 
 # flip child_alive so 1 = died, 0 = alive for easier interpretation
 df[,child_mortality := 1-child_alive]
-
-# make individual ID
-df[,line_id := as.integer(line_id)]
-df[,indv_id:= paste0(nid,psu, hh_id, line_id,sep="_")]
+df[,ihme_loc_id:=as.factor(ihme_loc_id)]
+df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
   
 setnames(df,old="ldipc_weighted_no_match",new="consumption")
 
@@ -157,49 +156,18 @@ surv_at_obs_time <- mapply(function(df, t) {
 
 df_model_sample$survival_at_obs_time <- 1-surv_at_obs_time
 
-## Test secondary climate variables with k-fold cross-validation
-all_results <- data.table(
-  model = character(),
-  MSE = double(),
-  RMSE = double(),
-  MAE = double(),
-  fold = integer()
-)
-
-df_model[,index_col := .I]
-
-# randomize k folds of individuals and save index lists
-set.seed(123)
-n <- length(unique_ids)
-fold_assignments <- sample(rep(1:10, length.out = n))
-flds <- split(seq_along(unique_ids), fold_assignments)
-fold_indices <- lapply(flds, function(id_set) which(df_model$indv_id %in% unique_ids[id_set]))
-
-
-# save fold's indices to a file for parelleized runs:
-for (i in 1:length(fold_indices)) {
-  saveRDS(fold_indices[i], file = paste0(folds_dir,"fold_indices_", i, ".rds"))
-}
-
-# Too large a data set to carry out CV in single script. Refer to 
-# child_mortality_parent_script.R and child_mortality_child_script.R for 
-# parallelized approach.
-
-# Read back in when complete. 
-# Take average of k results:
-manual_CV_results <- all_results[, .(
-  avg_MSE = mean(MSE),
-  avg_RMSE = mean(RMSE),
-  avg_MAE = mean(MAE)
-), by = model]
-
-manual_CV_results <- manual_CV_results[order(avg_RMSE, decreasing = FALSE), ]
-write.csv(manual_CV_results,paste0(results_dir,"manual_CV_results.csv"),row.names = FALSE)
 
 ## Read in and print model summaries from successful runs:
-model_25_pc <- readRDS(paste0(results_dir,"subset_25pct_model_object.rds"))
-summary(model_25_pc)
+model_50_pc <- readRDS(paste0(results_dir,"subset_5pct_model_object.rds"))
+summary(model_50_pc)
+# get predictions of model over data set
+pred_surv <- predict(model_50_pc, df, quantity = "survival")
+# pred_surv <- predict(model_50_pc, df,re.form = ~0, quantity = "survival")
 
+df_sub <- df[indv_id=="19557_1_17_1"]
+pred_surv <- predict(model_50_pc, df_sub, quantity = "survival")
+desired_time = 1/12
+pred_surv <- predict(model_50_pc, df_sub, quantity = "survival", times = desired_time)
 #==============================================================================
 # SECTION 3: MAKE PLOTS
 #==============================================================================

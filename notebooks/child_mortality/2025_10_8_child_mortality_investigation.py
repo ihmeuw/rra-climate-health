@@ -15,7 +15,100 @@ RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutri
 PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_08.01/"
 os.makedirs(PLOT_PATH, exist_ok=True, mode=0o777)
 
+## FUNCTIONS:
+
+
+def plot_heat_map(
+    data: pd.DataFrame,
+    outfile: str,
+    title: str,
+    bin_cols: list,
+    format: str = ".2f",
+    vmin: float = None,
+    vmax: float = None,
+):
+
+    heatmap_df = data.copy()
+    for col in bin_cols:
+        heatmap_df[f"{col}_bin"] = pd.qcut(
+            heatmap_df[col], 10, retbins=False, duplicates="drop"
+        )
+    heatmap_df["consumption"], ldi_bins = pd.qcut(
+        heatmap_df.consumption, 10, retbins=True
+    )
+
+    # Create a discrete colormap with steps matching your rounded values
+    # bounds = np.round(np.arange(vmin, vmax + 0.01, 0.01), 5)  # steps of 0.0001
+    # norm = mcolors.BoundaryNorm(boundaries=bounds, ncolors=256)
+
+    for col in columns_to_bin:
+        plt.figure(figsize=(10, 8))
+        heatmap_data = (
+            heatmap_df.groupby(["consumption", f"{col}_bin"])["model_predictions"]
+            .mean()
+            .unstack()
+        )
+
+        if vmin and vmax:
+            ax1 = sns.heatmap(
+                heatmap_data,
+                annot=True,
+                fmt=format,
+                cmap="YlOrBr",
+                vmin=vmin,
+                vmax=vmax,
+                # norm=norm,
+            )
+        else:
+            ax1 = sns.heatmap(
+                heatmap_data,
+                annot=True,
+                fmt=format,
+                cmap="YlOrBr",
+            )
+        plt.title(
+            f"{title}\nby Consumption and {col.replace('_', ' ').title()}",
+            fontsize=20,
+        )
+
+        # Set rounded axis labels
+        ax1.set_xticklabels(
+            [f"{int(x.left)}–{int(x.right)}" for x in heatmap_data.columns],
+            rotation=45,
+            ha="right",
+            fontsize=10,
+        )
+        ax1.set_yticklabels(
+            [f"{int(y.left)}–{int(y.right)}" for y in heatmap_data.index],
+            rotation=0,
+            fontsize=10,
+        )
+        ax1.set_xlabel("Binned " + col.replace("_", " ").title(), fontsize=16)
+        ax1.set_ylabel("Consumption Bin", fontsize=16)
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(PLOT_PATH, f"{outfile}_{col}.png"))
+        plt.close()
+
+
+## READ IN DATA
+
+# Raw data
 df = pd.read_parquet(DATA_PATH)
+
+# Fixed effects model results
+df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_predictions_2025_10_08.csv")
+
+# Mixed effects model results
+# df_me_25pc_model_data = pd.read_csv(RESULTS_PATH + "subset_25pct_model_results.csv")
+df_me_model_data = pd.read_csv(RESULTS_PATH + "subset_25pct_model_do30_results.csv")
+
+
+# Neonatal predictions
+# df_neo = pd.read_parquet(RESULTS_PATH + "neonatal/neonatal_mortality_1_mo.parquet")
+df_neo = pd.read_parquet(RESULTS_PATH + "neonatal/neonatal_mortality_1_mo_do30.parquet")
+
+
 # df = pd.read_csv(DATA_PATH)
 
 ## 1. Get basic info about data
@@ -26,7 +119,6 @@ print(f"{df['indv_id'].nunique():,} unique individuals in data")
 
 # flip child_alive so 1 = died, 0 = alive for easier interpretation
 df["child_mortality"] = 1 - df["child_alive"]
-
 
 ## 2. Make scatterplots and heatmaps based on aggregated raw data
 # Aggregate data
@@ -213,7 +305,6 @@ df_model_data.to_csv(RESULTS_PATH + "fe_model_predictions.csv", index=False)
 ## Heat maps of modeled predictions
 
 # Read FE model back in and make plots
-df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_predictions_2025_10_08.csv")
 
 # Heat maps of variables
 columns_to_bin = [
@@ -272,7 +363,6 @@ for col in columns_to_bin:
 
 
 # Read in 25% mixed effects model predictions and make plots
-df_me_25pc_model_data = pd.read_csv(RESULTS_PATH + "subset_25pct_model_results.csv")
 
 # Heat maps of variables
 columns_to_bin = [
@@ -285,7 +375,7 @@ columns_to_bin = [
     "days_over_30C",
     # "days_over_26C",
 ]
-heatmap_df = df_me_25pc_model_data.copy()
+heatmap_df = df_me_50pc_model_data.copy()
 for col in columns_to_bin:
     heatmap_df[f"{col}_bin"] = pd.qcut(
         heatmap_df[col], 10, retbins=False, duplicates="drop"
@@ -350,7 +440,7 @@ fe_heatmap_df["consumption"], ldi_bins = pd.qcut(
     fe_heatmap_df.consumption, 10, retbins=True
 )
 
-me_heatmap_df = df_me_25pc_model_data.copy()
+me_heatmap_df = df_me_50pc_model_data.copy()
 for col in columns_to_bin:
     me_heatmap_df[f"{col}_bin"] = pd.qcut(
         me_heatmap_df[col], 10, retbins=False, duplicates="drop"
@@ -409,121 +499,23 @@ plot_heat_map(
 )
 # plot me model heatmaps with consistent color scale
 plot_heat_map(
-    data=df_me_25pc_model_data,
-    outfile="me_25pc_heatmap_child_mortality",
+    data=df_me_model_data,
+    outfile="me_25pc_do30_heatmap_child_mortality",
     title="ME (25% of individuals) Modeled Child Mortality",
     bin_cols=columns_to_bin,
-    vmin=vmin,
-    vmax=vmax,
+    format=".3f",
+    # vmin=vmin,
+    # vmax=vmax,
 )
 
-# Plot by-sex heatmaps
-sex_map = {1: "Male", 2: "Female"}
-df_non_neo["sex_id"] = df_non_neo["sex_id"].astype(int)
-for sex_id, sex in sex_map.items():
-    # plot raw data heatmaps with consistent color scale
-    plot_heat_map(
-        data=df_non_neo.query(f"sex_id == {sex_id}").rename(
-            columns={
-                "child_mortality": "model_predictions",
-                "ldipc_weighted_no_match": "consumption",
-            }
-        ),
-        outfile=f"raw_heatmap_child_mortality_{sex.lower()}",
-        title=f"Raw Data Child Mortality - {sex}",
-        bin_cols=columns_to_bin,
-        vmin=vmin,
-        vmax=vmax,
-    )
-    # plot fe model heatmaps with consistent color scale
-    plot_heat_map(
-        data=df_model_data.query(f"sex_id == {sex_id}").rename(
-            columns={"predicted_mortality": "model_predictions"}
-        ),
-        outfile=f"fe_heatmap_child_mortality_{sex.lower()}",
-        title=f"FE Model Child Mortality - {sex}",
-        bin_cols=columns_to_bin,
-        vmin=vmin,
-        vmax=vmax,
-    )
-    # plot me model heatmaps with consistent color scale
-    plot_heat_map(
-        data=df_me_50pc_model_data.query(f"sex_id == {sex_id}"),
-        outfile=f"me_50pc_heatmap_child_mortality_{sex.lower()}",
-        title=f"ME (50% of individuals) Modeled Child Mortality - {sex}",
-        bin_cols=columns_to_bin,
-        vmin=vmin,
-        vmax=vmax,
-    )
+# Plot neonatal predictions
+df_neo = df_neo.rename(columns={"mortality_1_mo": "model_predictions"})
 
 
-def plot_heat_map(
-    data: pd.DataFrame,
-    outfile: str,
-    title: str,
-    bin_cols: list,
-    vmin: float = None,
-    vmax: float = None,
-):
-
-    heatmap_df = data.copy()
-    for col in bin_cols:
-        heatmap_df[f"{col}_bin"] = pd.qcut(
-            heatmap_df[col], 10, retbins=False, duplicates="drop"
-        )
-    heatmap_df["consumption"], ldi_bins = pd.qcut(
-        heatmap_df.consumption, 10, retbins=True
-    )
-
-    # Create a discrete colormap with steps matching your rounded values
-    # bounds = np.round(np.arange(vmin, vmax + 0.01, 0.01), 5)  # steps of 0.0001
-    # norm = mcolors.BoundaryNorm(boundaries=bounds, ncolors=256)
-
-    for col in columns_to_bin:
-        plt.figure(figsize=(10, 8))
-        heatmap_data = (
-            heatmap_df.groupby(["consumption", f"{col}_bin"])["model_predictions"]
-            .mean()
-            .unstack()
-        )
-
-        if vmin and vmax:
-            ax1 = sns.heatmap(
-                heatmap_data,
-                annot=True,
-                fmt=".2f",
-                cmap="YlOrBr",
-                vmin=vmin,
-                vmax=vmax,
-                # norm=norm,
-            )
-        else:
-            ax1 = sns.heatmap(
-                heatmap_data,
-                annot=True,
-                fmt=".2f",
-                cmap="YlOrBr",
-            )
-        plt.title(
-            f"{title}\nby Consumption and {col.replace('_', ' ').title()}",
-            fontsize=20,
-        )
-
-        # Set rounded axis labels
-        ax1.set_xticklabels(
-            [f"{int(x.left)}–{int(x.right)}" for x in heatmap_data.columns],
-            rotation=45,
-            ha="right",
-            fontsize=10,
-        )
-        ax1.set_yticklabels(
-            [f"{int(y.left)}–{int(y.right)}" for y in heatmap_data.index],
-            rotation=0,
-            fontsize=10,
-        )
-        ax1.set_xlabel("Binned " + col.replace("_", " ").title(), fontsize=16)
-        ax1.set_ylabel("Consumption Bin", fontsize=16)
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(PLOT_PATH, f"{outfile}_{col}.png"))
-        plt.close()
+plot_heat_map(
+    data=df_neo,
+    outfile="neo_heatmap_child_mortality",
+    title="Neonatal Modeled Child Mortality",
+    bin_cols=columns_to_bin,
+    format=".3f",
+)

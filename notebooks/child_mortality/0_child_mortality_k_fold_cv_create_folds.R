@@ -38,7 +38,7 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
-sample_percent <- 0.05
+sample_percent <- 0.25
 num_folds <- 10
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_08.01/data.parquet"

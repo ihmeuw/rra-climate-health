@@ -35,6 +35,7 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
+plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_08.01/"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_08.01/"
 folds_dir <- paste0(results_dir,"folds/")
 folds_data_subdir <- paste0(folds_dir,"data_subsets/")
@@ -98,4 +99,17 @@ manual_CV_results <- all_results[, .(
 ), by = model]
 
 manual_CV_results <- manual_CV_results[order(avg_RMSE, decreasing = FALSE), ]
-write.csv(manual_CV_results,paste0(results_dir,"manual_CV_results_05pc.csv"),row.names = FALSE)
+write.csv(manual_CV_results,paste0(results_dir,"manual_CV_results_25pc.csv"),row.names = FALSE)
+
+# Plot results
+p <- ggplot(manual_CV_results, aes(x = reorder(model, avg_RMSE), y = avg_RMSE)) +
+  geom_point() +
+  labs(title = "Average Root Mean Squared Errors by Model Specification\nduring 10-fold Cross-Validation",
+       x = "Climate Vars in Model",
+       y = "Average RMSE") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "white", color = NA))
+
+ggsave(paste0(plot_dir, "cv_rmse_results_25pc.png"), plot = p, width = 8, height = 5)

@@ -61,13 +61,13 @@ print(paste0("running on fold file ",fold_file))
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_08.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_08.01/"
 
-model_summary_dir <- paste0(results_dir,"model_summaries/")
-dir.create(model_summary_dir, recursive = TRUE, showWarnings = FALSE)
+
 
 folds_dir <- paste0(results_dir,"folds/")
 folds_data_subdir <- paste0(folds_dir,"data_subsets/")
 folds_results_subdir <- paste0(folds_dir,"folds_results/")
-
+model_summary_dir <- paste0(folds_dir,"model_summaries/")
+dir.create(model_summary_dir, recursive = TRUE, showWarnings = FALSE)
 
 fold_indices <- readRDS(paste0(folds_dir,fold_file))
 fold_number <- as.integer(gsub(".*_(\\d+)\\.rds$", "\\1", fold_file))
@@ -110,10 +110,12 @@ model <- emfrail(formula = full_formula, data = train, verbose = TRUE)
 
 # save model summary
 summary(model)
-summary_file <- paste0("model_summary_fold_",fold_number,"_vars_",climate_var_1)
+summary_file <- paste0("model_summary_vars_",climate_var_1)
 if (climate_var_2!=""){
   summary_file <- paste0(summary_file,"_",climate_var_2)
 }
+summary_file <- paste0(summary_file,"_fold_",fold_number,".txt")
+
 capture.output(summary(model), file = paste0(model_summary_dir,summary_file))
 
 # get predictions on test set

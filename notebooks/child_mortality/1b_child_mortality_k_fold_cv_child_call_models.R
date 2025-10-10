@@ -75,7 +75,7 @@ for (var in climate_vars) {
   
   job_name <- paste0(fold,var,job_name_root)
   
-  qsub_str <- paste("sbatch -J",job_name,"--mem=100G -c 6 -A proj_integrated_analytics -t 4-24 -p long.q",
+  qsub_str <- paste("sbatch -J",job_name,"--mem=150G -c 6 -A proj_integrated_analytics -t 4-24 -p long.q",
                     "-o ",output_log,"-e",error_log, 
                     "/ihme/singularity-images/rstudio/shells/execR.sh",
                     "-s ", child_script, fold_file,var,sep=" ")

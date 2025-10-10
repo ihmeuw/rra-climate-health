@@ -91,7 +91,7 @@ df_sample <- df_model[indv_id %in% sampled_indv]
 
 # fit baseline model with mean_temperature and days_over_30C
 model <- emfrail(Surv(age_year_at_year_end, child_mortality) ~ consumption + 
-                   mean_temperature + 
+                   # mean_temperature + 
                    days_over_30C + 
                    sex_id + 
                    survival::cluster(ihme_loc_id), 
@@ -114,9 +114,9 @@ print("model predictions done")
 
 subset_str <- as.character(sample_percent)
 subset_str <- gsub("0.","",subset_str, fixed = TRUE)
-write.csv(df_sample,paste0(results_dir,"subset_",subset_str,"pct_model_results.csv"),row.names = FALSE)
+write.csv(df_sample,paste0(results_dir,"subset_",subset_str,"pct_model_do30_results.csv"),row.names = FALSE)
 
 # save model parameters for future use:
-saveRDS(model, file = paste0(results_dir, "subset_",subset_str,"pct_model_object.rds"))
+saveRDS(model, file = paste0(results_dir, "subset_",subset_str,"pct_model_do30_object.rds"))
 
 print(paste0("results saved to ",results_dir))

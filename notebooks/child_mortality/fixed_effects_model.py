@@ -36,7 +36,7 @@ time_col = "age_year_at_year_end"
 covariate_cols = [
     "consumption",
     "ihme_loc_id",  # r.e. not yet supported in lifelines package
-    "mean_temperature",
+    # "mean_temperature",
     # "total_precipitation",
     # "relative_humidity",
     # "mean_high_temperature",
@@ -62,7 +62,7 @@ cph.fit(df_model_data, duration_col=time_col, event_col=event_col)
 cph.print_summary()
 
 # Save the model summary as text
-with open(RESULTS_PATH + "fe_model_summary" + DATE_STR + ".txt", "w") as f:
+with open(RESULTS_PATH + "fe_model_do30_summary" + DATE_STR + ".txt", "w") as f:
     f.write(str(cph.summary))
 
 # Predict survival function only at each individual's observed time
@@ -79,5 +79,5 @@ df_model_data["predicted_mortality"] = 1 - df_model_data["predicted_survival"]
 
 # Save predictions
 df_model_data.to_csv(
-    RESULTS_PATH + "fe_model_predictions_" + DATE_STR + ".csv", index=False
+    RESULTS_PATH + "fe_model_do30_predictions_" + DATE_STR + ".csv", index=False
 )
