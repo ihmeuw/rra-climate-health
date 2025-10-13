@@ -65,9 +65,15 @@ setnames(df,old="ldipc_weighted_no_match",new="consumption")
 
 ## Read in and print model summaries from successful runs:
 
+## First successful run of full data
+model_baseline <- readRDS(paste0(results_dir,"baseline_model_object.rds"))
+summary(model_baseline)
+
+
 ## 50% data with mean_temperature and days_over_30
 model_50_pc <- readRDS(paste0(results_dir,"subset_5pct_model_object.rds"))
 summary(model_50_pc)
+
 
 # get smallest age for each individual to reduce computation
 df_min_age <- df[, .SD[which.min(age_year_at_year_end)], by = indv_id]
@@ -94,6 +100,37 @@ df_min_age$mortality_under_1_mo <- 1-surv_under_1_mo
 
 # save out for heat maps
 write_parquet(df_min_age,paste0(neonatal_dir,"neonatal_mortality_1_mo.parquet"))
+
+## 50% data with days_over_30 only
+model_do30_50pc <- readRDS(paste0(results_dir,"subset_5pct_model_do30_object.rds"))
+summary(model_do30_50pc)
+summary_file <- "subset_50pct_model_do30_object.txt"
+capture.output(summary(model_do30_50pc), file = paste0(model_summary_dir,summary_file))
+
+# get mixed effects and fixed effects predictions over raw data
+pred_surv_me <- predict(model_50_pc, df, quantity = "survival")
+surv_at_obs_time <- sapply(seq_len(nrow(df)), function(i) {
+  surv_df <- pred_surv_me[[i]]
+  obs_time <- df$age_year_at_year_end[i]
+  idx <- max(which(surv_df$time <= obs_time))
+  surv_df$survival[idx]
+})
+
+df$model_predictions_me <- 1-surv_at_obs_time
+
+write_parquet(df,paste0(results_dir,"predictions_50pc_do30_me.parquet"))
+
+pred_surv_fe <- predict(model_50_pc, df,re.form = ~0, quantity = "survival") # make fixed effects predictions
+surv_at_obs_time <- sapply(seq_len(nrow(df)), function(i) {
+  surv_df <- pred_surv_fe[[i]]
+  obs_time <- df$age_year_at_year_end[i]
+  idx <- max(which(surv_df$time <= obs_time))
+  surv_df$survival[idx]
+})
+
+df$model_predictions_fe <- 1-surv_at_obs_time
+
+write_parquet(df,paste0(results_dir,"predictions_50pc_do30_fe.parquet"))
 
 
 ## 25% data with days_over_30 only

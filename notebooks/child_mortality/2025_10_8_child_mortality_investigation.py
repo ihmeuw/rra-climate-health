@@ -97,19 +97,32 @@ def plot_heat_map(
 df = pd.read_parquet(DATA_PATH)
 
 # Fixed effects model results
-df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_predictions_2025_10_08.csv")
+# df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_predictions_2025_10_08.csv")
+df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_do30_predictions_2025_10_10.csv")
 
 # Mixed effects model results
 # df_me_25pc_model_data = pd.read_csv(RESULTS_PATH + "subset_25pct_model_results.csv")
-df_me_model_data = pd.read_csv(RESULTS_PATH + "subset_25pct_model_do30_results.csv")
+df_me_model_data = pd.read_csv(RESULTS_PATH + "subset_5pct_model_do30_results.csv")
 
 
 # Neonatal predictions
 # df_neo = pd.read_parquet(RESULTS_PATH + "neonatal/neonatal_mortality_1_mo.parquet")
 df_neo = pd.read_parquet(RESULTS_PATH + "neonatal/neonatal_mortality_1_mo_do30.parquet")
 
+## CONSTANTS
 
-# df = pd.read_csv(DATA_PATH)
+# Heat maps of variables
+columns_to_bin = [
+    # "mean_temperature",
+    # "total_precipitation",
+    # "relative_humidity",
+    # "mean_high_temperature",
+    # "mean_low_temperature",
+    # "precipitation_days",
+    "days_over_30C",
+    # "days_over_26C",
+]
+
 
 ## 1. Get basic info about data
 df["line_id"] = df["line_id"].astype(int)
@@ -119,6 +132,8 @@ print(f"{df['indv_id'].nunique():,} unique individuals in data")
 
 # flip child_alive so 1 = died, 0 = alive for easier interpretation
 df["child_mortality"] = 1 - df["child_alive"]
+
+df.rename(columns={"ldipc_weighted_no_match": "consumption"}, inplace=True)
 
 ## 2. Make scatterplots and heatmaps based on aggregated raw data
 # Aggregate data
@@ -252,7 +267,7 @@ for col in columns_to_bin:
 
 
 ## 3. Make simple model
-df.rename(columns={"ldipc_weighted_no_match": "consumption"}, inplace=True)
+
 event_col = "child_mortality"
 id_col = "indv_id"
 time_col = "age_month_at_year_end"
@@ -306,17 +321,6 @@ df_model_data.to_csv(RESULTS_PATH + "fe_model_predictions.csv", index=False)
 
 # Read FE model back in and make plots
 
-# Heat maps of variables
-columns_to_bin = [
-    "mean_temperature",
-    # "total_precipitation",
-    # "relative_humidity",
-    # "mean_high_temperature",
-    # "mean_low_temperature",
-    # "precipitation_days",
-    "days_over_30C",
-    # "days_over_26C",
-]
 heatmap_df = df_model_data.copy()
 for col in columns_to_bin:
     heatmap_df[f"{col}_bin"] = pd.qcut(
@@ -362,62 +366,7 @@ for col in columns_to_bin:
     plt.close()
 
 
-# Read in 25% mixed effects model predictions and make plots
-
-# Heat maps of variables
-columns_to_bin = [
-    "mean_temperature",
-    # "total_precipitation",
-    # "relative_humidity",
-    # "mean_high_temperature",
-    # "mean_low_temperature",
-    # "precipitation_days",
-    "days_over_30C",
-    # "days_over_26C",
-]
-heatmap_df = df_me_50pc_model_data.copy()
-for col in columns_to_bin:
-    heatmap_df[f"{col}_bin"] = pd.qcut(
-        heatmap_df[col], 10, retbins=False, duplicates="drop"
-    )
-heatmap_df["consumption"], ldi_bins = pd.qcut(heatmap_df.consumption, 10, retbins=True)
-
-for col in columns_to_bin:
-    plt.figure(figsize=(10, 8))
-    heatmap_data = (
-        heatmap_df.groupby(["consumption", f"{col}_bin"])["model_predictions"]
-        .mean()
-        .unstack()
-    )
-    ax1 = sns.heatmap(
-        heatmap_data,
-        annot=True,
-        fmt=".2f",
-        cmap="YlOrBr",
-    )
-    plt.title(
-        f"Mixed Effects (50% of individuals) Modeled Child Mortality\nby Consumption and {col.replace('_', ' ').title()}",
-        fontsize=20,
-    )
-
-    # Set rounded axis labels
-    ax1.set_xticklabels(
-        [f"{int(x.left)}–{int(x.right)}" for x in heatmap_data.columns],
-        rotation=45,
-        ha="right",
-        fontsize=10,
-    )
-    ax1.set_yticklabels(
-        [f"{int(y.left)}–{int(y.right)}" for y in heatmap_data.index],
-        rotation=0,
-        fontsize=10,
-    )
-    ax1.set_xlabel("Binned " + col.replace("_", " ").title(), fontsize=16)
-    ax1.set_ylabel("Consumption Bin", fontsize=16)
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_PATH, f"me_50pc_heatmap_child_mortality_{col}.png"))
-    plt.close()
+## MAKE SIDE-BY-SIDE PLOTS TOGETHER
 
 
 # get min and max values for color scale consistency across plots
@@ -428,7 +377,7 @@ for col in columns_to_bin:
         raw_heatmap_df[col], 10, retbins=False, duplicates="drop"
     )
 raw_heatmap_df["consumption"], ldi_bins = pd.qcut(
-    raw_heatmap_df.ldipc_weighted_no_match, 10, retbins=True
+    raw_heatmap_df.consumption, 10, retbins=True
 )
 
 fe_heatmap_df = df_model_data.copy()
@@ -440,7 +389,7 @@ fe_heatmap_df["consumption"], ldi_bins = pd.qcut(
     fe_heatmap_df.consumption, 10, retbins=True
 )
 
-me_heatmap_df = df_me_50pc_model_data.copy()
+me_heatmap_df = df_me_model_data.copy()
 for col in columns_to_bin:
     me_heatmap_df[f"{col}_bin"] = pd.qcut(
         me_heatmap_df[col], 10, retbins=False, duplicates="drop"
@@ -479,12 +428,12 @@ plot_heat_map(
     data=df.rename(
         columns={
             "child_mortality": "model_predictions",
-            "ldipc_weighted_no_match": "consumption",
         }
     ),
     outfile="raw_heatmap_child_mortality",
     title="Raw Data Child Mortality",
     bin_cols=columns_to_bin,
+    format=".3f",
     vmin=vmin,
     vmax=vmax,
 )
@@ -494,28 +443,100 @@ plot_heat_map(
     outfile="fe_heatmap_child_mortality",
     title="FE Model Child Mortality",
     bin_cols=columns_to_bin,
+    format=".3f",
     vmin=vmin,
     vmax=vmax,
 )
 # plot me model heatmaps with consistent color scale
 plot_heat_map(
     data=df_me_model_data,
-    outfile="me_25pc_do30_heatmap_child_mortality",
-    title="ME (25% of individuals) Modeled Child Mortality",
+    outfile="me_50pc_do30_heatmap_child_mortality",
+    title="ME (50% of individuals) Modeled Child Mortality",
     bin_cols=columns_to_bin,
     format=".3f",
-    # vmin=vmin,
-    # vmax=vmax,
+    vmin=vmin,
+    vmax=vmax,
 )
+
+## Neonatal
+
+# get neonatal raw data
+df_min_age = df.loc[df.groupby("indv_id")["age_year_at_year_end"].idxmin()]
+# if child died, only include if died in first month (still 0 in aod_months var)
+# OTHERWISE: recode as child_mortality = 0
+df_min_age.loc[
+    (df_min_age["child_mortality"] == 1) & (df_min_age["aod_months"] != "0"),
+    "child_mortality",
+] = 0
+df_neo_raw = df_min_age.copy()
 
 # Plot neonatal predictions
 df_neo = df_neo.rename(columns={"mortality_1_mo": "model_predictions"})
 
 
+# get min and max values for color scale consistency across plots
+# df_non_neo = df[df["age_month"] > 0]
+raw_heatmap_df = df_neo_raw.copy()
+for col in columns_to_bin:
+    raw_heatmap_df[f"{col}_bin"] = pd.qcut(
+        raw_heatmap_df[col], 10, retbins=False, duplicates="drop"
+    )
+raw_heatmap_df["consumption"], ldi_bins = pd.qcut(
+    raw_heatmap_df.consumption, 10, retbins=True
+)
+
+me_heatmap_df = df_neo.copy()
+for col in columns_to_bin:
+    me_heatmap_df[f"{col}_bin"] = pd.qcut(
+        me_heatmap_df[col], 10, retbins=False, duplicates="drop"
+    )
+me_heatmap_df["consumption"], ldi_bins = pd.qcut(
+    me_heatmap_df.consumption, 10, retbins=True
+)
+
+all_values = []
+for data in [raw_heatmap_df, me_heatmap_df]:
+    for col in columns_to_bin:
+        if "child_mortality" in data.columns:
+            append_val = (
+                data.groupby(["consumption", f"{col}_bin"])["child_mortality"]
+                .mean()
+                .values
+            )
+            print(append_val)
+            all_values.append(append_val)
+        elif "model_predictions" in data.columns:
+            append_val = (
+                data.groupby(["consumption", f"{col}_bin"])["model_predictions"]
+                .mean()
+                .values
+            )
+            # print(append_val)
+            all_values.append(append_val)
+all_values = np.concatenate(all_values)
+vmin = all_values.min()
+vmax = all_values.max()
+
+plot_heat_map(
+    data=df_neo_raw.rename(
+        columns={
+            "child_mortality": "model_predictions",
+        }
+    ),
+    outfile="raw_heatmap_neonatal_child_mortality",
+    title="Raw Data Neonatal Child Mortality",
+    bin_cols=columns_to_bin,
+    format=".3f",
+    vmin=vmin,
+    vmax=vmax,
+)
+
 plot_heat_map(
     data=df_neo,
-    outfile="neo_heatmap_child_mortality",
+    outfile="neo_heatmap_child_mortality_do30",
     title="Neonatal Modeled Child Mortality",
     bin_cols=columns_to_bin,
     format=".3f",
+    vmin=vmin,
+    vmax=vmax,
 )
