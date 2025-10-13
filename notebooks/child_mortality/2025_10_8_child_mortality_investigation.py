@@ -96,14 +96,19 @@ def plot_heat_map(
 # Raw data
 df = pd.read_parquet(DATA_PATH)
 
+# Modeled data
+df_model = pd.read_parquet(RESULTS_PATH + "predictions_50pc_do30_fe.parquet")
 # Fixed effects model results
 # df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_predictions_2025_10_08.csv")
-df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_do30_predictions_2025_10_10.csv")
+# df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_do30_predictions_2025_10_10.csv")
+df_model_fe = df_model.copy()
+df_model_fe.rename(columns={"model_predictions_fe": "model_predictions"}, inplace=True)
 
 # Mixed effects model results
 # df_me_25pc_model_data = pd.read_csv(RESULTS_PATH + "subset_25pct_model_results.csv")
-df_me_model_data = pd.read_csv(RESULTS_PATH + "subset_5pct_model_do30_results.csv")
-
+# df_me_model_data = pd.read_csv(RESULTS_PATH + "subset_5pct_model_do30_results.csv")
+df_model_me = df_model.copy()
+df_model_me.rename(columns={"model_predictions_me": "model_predictions"}, inplace=True)
 
 # Neonatal predictions
 # df_neo = pd.read_parquet(RESULTS_PATH + "neonatal/neonatal_mortality_1_mo.parquet")
@@ -380,7 +385,7 @@ raw_heatmap_df["consumption"], ldi_bins = pd.qcut(
     raw_heatmap_df.consumption, 10, retbins=True
 )
 
-fe_heatmap_df = df_model_data.copy()
+fe_heatmap_df = df_model_fe.copy()
 for col in columns_to_bin:
     fe_heatmap_df[f"{col}_bin"] = pd.qcut(
         fe_heatmap_df[col], 10, retbins=False, duplicates="drop"
@@ -389,7 +394,7 @@ fe_heatmap_df["consumption"], ldi_bins = pd.qcut(
     fe_heatmap_df.consumption, 10, retbins=True
 )
 
-me_heatmap_df = df_me_model_data.copy()
+me_heatmap_df = df_model_me.copy()
 for col in columns_to_bin:
     me_heatmap_df[f"{col}_bin"] = pd.qcut(
         me_heatmap_df[col], 10, retbins=False, duplicates="drop"
@@ -404,12 +409,6 @@ for data in [raw_heatmap_df, fe_heatmap_df, me_heatmap_df]:
         if "child_mortality" in data.columns:
             all_values.append(
                 data.groupby(["consumption", f"{col}_bin"])["child_mortality"]
-                .mean()
-                .values
-            )
-        elif "predicted_mortality" in data.columns:
-            all_values.append(
-                data.groupby(["consumption", f"{col}_bin"])["predicted_mortality"]
                 .mean()
                 .values
             )
@@ -439,9 +438,9 @@ plot_heat_map(
 )
 # plot fe model heatmaps with consistent color scale
 plot_heat_map(
-    data=df_model_data.rename(columns={"predicted_mortality": "model_predictions"}),
+    data=df_model_fe.copy(),
     outfile="fe_heatmap_child_mortality",
-    title="FE Model Child Mortality",
+    title="Modeled (50% of individuals) Child Mortality without Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
     vmin=vmin,
@@ -449,9 +448,9 @@ plot_heat_map(
 )
 # plot me model heatmaps with consistent color scale
 plot_heat_map(
-    data=df_me_model_data,
+    data=df_model_me,
     outfile="me_50pc_do30_heatmap_child_mortality",
-    title="ME (50% of individuals) Modeled Child Mortality",
+    title="Modeled (50% of individuals) Child Mortality with Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
     vmin=vmin,

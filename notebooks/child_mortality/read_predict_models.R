@@ -132,6 +132,25 @@ df$model_predictions_fe <- 1-surv_at_obs_time
 
 write_parquet(df,paste0(results_dir,"predictions_50pc_do30_fe.parquet"))
 
+# Model diagnostics
+mean_observed <- mean(df$child_mortality)
+mean_predicted <- mean(df$model_predictions_me)
+print(paste("Observed mean mortality:", round(mean_observed, 4)))
+print(paste("Predicted mean mortality:", round(mean_predicted, 4)))
+hist(df$child_mortality, breaks=20, main="Observed Mortality", xlab="Mortality")
+hist(df$model_predictions_me, breaks=20, main="Predicted Mortality", xlab="Predicted")
+df$pred_bin <- cut(df$model_predictions_me, breaks=seq(0,1,by=0.05))
+calib <- df[, .(obs_rate = mean(child_mortality), pred_rate = mean(model_predictions_me)), by=pred_bin]
+ggplot(calib, aes(x=pred_rate, y=obs_rate)) +
+  geom_point() +
+  geom_abline(slope=1, intercept=0, linetype="dashed", color="red") +
+  labs(x="Predicted Rate", y="Observed Rate", title="Calibration Plot")
+
+by_country <- df[, .(obs_rate = mean(child_mortality), pred_rate = mean(model_predictions_me)), by=ihme_loc_id]
+ggplot(by_country, aes(x = obs_rate, y = pred_rate)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Observed Rate", y = "Predicted Rate", title = "Country-level Calibration")
 
 ## 25% data with days_over_30 only
 model_do30_25pc <- readRDS(paste0(results_dir,"subset_25pct_model_do30_object.rds"))

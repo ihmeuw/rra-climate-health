@@ -38,18 +38,32 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
-sample_percent <- 0.5
+sample_percent <- 0.05
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_08.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_08.01/"
+cov_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/covariates/"
+model_summary_dir <- paste0(results_dir,"model_summaries/")
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
+
+##
+summary_file <- "subset_05pct_model_do30_sdi"
 
 df <- read_parquet(data_version)
 df <- data.table(df)
 
 # flip child_alive so 1 = died, 0 = alive for easier interpretation
 df[,child_mortality := 1-child_alive]
+
+df[,location_id := as.integer(location_id)]
+
+# load SDI estimates
+sdi <- fread(paste0(cov_dir,"sdi.csv"))
+setnames(sdi,old=c("mean_value","year_id"),new=c("sdi","int_year"))
+
+sdi <- unique(sdi[,.(location_id,int_year,sdi)])
+df <- merge(df,sdi,by=c("location_id","int_year"),all.x=TRUE)
 
 setnames(df,old="ldipc_weighted_no_match",new="consumption")
 
@@ -63,7 +77,7 @@ climate_vars <- c(
   "days_over_30C",
   "days_over_26C"
 )
-cols <- c("nid","psu","hh_id","line_id","child_mortality", "age_year_at_year_end", "sex_id", "ihme_loc_id", "consumption", climate_vars)
+cols <- c("nid","psu","hh_id","line_id","child_mortality", "age_year_at_year_end", "sex_id", "ihme_loc_id", "consumption", "sdi",climate_vars)
 df_model <- df[, ..cols]
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
 df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
@@ -84,7 +98,6 @@ sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_i
 df_sample <- df_model[indv_id %in% sampled_indv]
 
 
-
 #==============================================================================
 # SECTION 2: FIT MODEL
 #==============================================================================
@@ -94,10 +107,16 @@ model <- emfrail(Surv(age_year_at_year_end, child_mortality) ~ consumption +
                    # mean_temperature + 
                    days_over_30C + 
                    sex_id + 
+                   sdi+
                    survival::cluster(ihme_loc_id), 
                  data = df_sample,
                  verbose = TRUE)
 
+summary(model)
+capture.output(summary(model), file = paste0(model_summary_dir,summary_file),".txt")
+
+# save model parameters for future use:
+saveRDS(model, file = paste0(results_dir, summary_file,".rds"))
 
 # get predictions of model over same data set
 pred_surv <- predict(model, df_sample, quantity = "survival")
@@ -116,7 +135,6 @@ subset_str <- as.character(sample_percent)
 subset_str <- gsub("0.","",subset_str, fixed = TRUE)
 write.csv(df_sample,paste0(results_dir,"subset_",subset_str,"pct_model_do30_results.csv"),row.names = FALSE)
 
-# save model parameters for future use:
-saveRDS(model, file = paste0(results_dir, "subset_",subset_str,"pct_model_do30_object.rds"))
+
 
 print(paste0("results saved to ",results_dir))
