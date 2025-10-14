@@ -39,10 +39,10 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_08.01/data.parquet"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data_avg_climate.parquet"
 # data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv"
-plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_08.01/"
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_08.01/"
+plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_13.01/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_13.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
 neonatal_dir <- paste0(results_dir,"neonatal/")
@@ -51,12 +51,9 @@ dir.create(neonatal_dir, recursive = TRUE, showWarnings = FALSE)
 df <- read_parquet(data_version)
 df <- data.table(df)
 
-# flip child_alive so 1 = died, 0 = alive for easier interpretation
-df[,child_mortality := 1-child_alive]
 df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
 
-setnames(df,old="ldipc_weighted_no_match",new="consumption")
 
 #==============================================================================
 # SECTION 2: READ MODELS
@@ -65,20 +62,54 @@ setnames(df,old="ldipc_weighted_no_match",new="consumption")
 
 ## Read in and print model summaries from successful runs:
 
+# 10/14 - Collapsing data to have average climate vars per child
+
+# 5% data model
+model <- readRDS(paste0(results_dir,"subset_05pct_model_do30.rds"))
+
+# plot survival curves
+pred_surv <- predict(model, df, quantity = "survival")
+
+# compare re vs fe for unseen data
+
+
+
 ## First successful run of full data
 model_baseline <- readRDS(paste0(results_dir,"baseline_model_object.rds"))
 summary(model_baseline)
 
 
-## 50% data with mean_temperature and days_over_30
-model_50_pc <- readRDS(paste0(results_dir,"subset_5pct_model_object.rds"))
+## 50% data with days_over_30
+model_50_pc <- readRDS(paste0(results_dir,"subset_5pct_model_do30_object.rds"))
 summary(model_50_pc)
 
+# Predict model on non-included data
+model_50_pred <- fread(paste0(results_dir,"subset_5pct_model_do30_results.csv"))
+test_df <- df[!(indv_id %in% unique(model_50_pred$indv_id))]
 
-# get smallest age for each individual to reduce computation
-df_min_age <- df[, .SD[which.min(age_year_at_year_end)], by = indv_id]
-min(df_min_age$age_year_at_year_end) # 0.08333333 i.e. 1 month
-table(df_min_age$child_mortality) # about 4%
+# mixed effects predictions
+pred_surv_me <- predict(model_50_pc, test_df, quantity = "survival")
+surv_at_obs_time <- sapply(seq_len(nrow(test_df)), function(i) {
+  surv_df <- pred_surv_me[[i]]
+  obs_time <- test_df$age_year_at_year_end[i]
+  idx <- max(which(surv_df$time <= obs_time))
+  surv_df$survival[idx]
+})
+
+test_df$model_predictions_me <- 1-surv_at_obs_time
+
+# fixed effects predictions
+pred_surv_fe <- predict(model_50_pc, test_df,re.form = ~0, quantity = "survival") # make fixed effects predictions
+surv_at_obs_time <- sapply(seq_len(nrow(test_df)), function(i) {
+  surv_df <- pred_surv_fe[[i]]
+  obs_time <- test_df$age_year_at_year_end[i]
+  idx <- max(which(surv_df$time <= obs_time))
+  surv_df$survival[idx]
+})
+
+test_df$model_predictions_fe <- 1-surv_at_obs_time
+
+write_parquet(test_df,paste0(results_dir,"test_set_predictions_50pc_do30_fe.parquet"))
 
 # get predictions of model over data set
 pred_surv <- predict(model_50_pc, df_min_age, quantity = "survival")
@@ -176,6 +207,8 @@ df_min_age$mortality_1_mo_do30 <- 1-surv_at_1_mo
 # save out for heat maps
 write_parquet(df_min_age,paste0(neonatal_dir,"neonatal_mortality_1_mo_do30.parquet"))
 
+
+
 #==============================================================================
 # SECTION 3: MAKE PLOTS
 #==============================================================================
@@ -199,4 +232,4 @@ p <- ggplot(all_surv, aes(x = time, y = survival)) +
   theme(plot.background = element_rect(fill = "white", color = NA),
         panel.background = element_rect(fill = "white", color = NA))
 
-ggsave(paste0(plot_dir, "cv_rmse_results_25pc.png"), plot = p, width = 8, height = 5)
+ggsave(paste0(plot_dir, "survival_curves_10_14.png"), plot = p, width = 8, height = 5)

@@ -97,7 +97,9 @@ def plot_heat_map(
 df = pd.read_parquet(DATA_PATH)
 
 # Modeled data
-df_model = pd.read_parquet(RESULTS_PATH + "predictions_50pc_do30_fe.parquet")
+# df_model = pd.read_parquet(RESULTS_PATH + "predictions_50pc_do30_fe.parquet")
+df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_05pct_model_do30_sdi.csv")
+
 # Fixed effects model results
 # df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_predictions_2025_10_08.csv")
 # df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_do30_predictions_2025_10_10.csv")
@@ -439,7 +441,7 @@ plot_heat_map(
 # plot fe model heatmaps with consistent color scale
 plot_heat_map(
     data=df_model_fe.copy(),
-    outfile="fe_heatmap_child_mortality",
+    outfile="fe_heatmap_child_mortality_sdi",
     title="Modeled (50% of individuals) Child Mortality without Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -449,7 +451,7 @@ plot_heat_map(
 # plot me model heatmaps with consistent color scale
 plot_heat_map(
     data=df_model_me,
-    outfile="me_50pc_do30_heatmap_child_mortality",
+    outfile="me_50pc_do30_heatmap_child_mortality_sdi",
     title="Modeled (50% of individuals) Child Mortality with Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",

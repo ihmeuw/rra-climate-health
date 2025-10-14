@@ -48,6 +48,7 @@ data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutr
 # data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv"
 plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_08.01/"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_08.01/"
+cov_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/covariates/"
 
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -63,6 +64,13 @@ df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
   
 setnames(df,old="ldipc_weighted_no_match",new="consumption")
+
+# load SDI estimates
+sdi <- fread(paste0(cov_dir,"sdi.csv"))
+setnames(sdi,old=c("mean_value","year_id"),new=c("sdi","int_year"))
+
+sdi <- unique(sdi[,.(location_id,int_year,sdi)])
+df <- merge(df,sdi,by=c("location_id","int_year"),all.x=TRUE)
 
 climate_vars <- c(
   "mean_temperature",
@@ -235,4 +243,16 @@ final_outcome_df <- df_model[, .SD[which.max(age_year_at_year_end)], by = indv_i
 
 ggplot(final_outcome_df,aes(x=mean_temperature,y=consumption))+
   geom_point(aes(child_mortality))
+
+## Plot child mortality scatterplot by year and location against sdi
+df_cntry_year <- df[,.(mortality_rate = mean(child_mortality),sdi=mean(sdi)),by=.(ihme_loc_id,int_year)]
+
+p <- ggplot(data=df_cntry_year,aes(x=sdi,y=mortality_rate))+
+  geom_point()+
+  labs(title = "Child Mortality per Country-Year against SDI",
+       x = "SDI",
+       y = "Mortality Rate") +
+  theme(plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "white", color = NA))
+ggsave(paste0(plot_dir, "child_mortality_against_sdi.png"), plot = p, width = 8, height = 5)
 
