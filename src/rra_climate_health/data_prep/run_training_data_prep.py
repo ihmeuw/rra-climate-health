@@ -1887,9 +1887,44 @@ def run_training_data_prep_child_mortality(
     df_climate = get_elevation_for_dataframe(df_climate)
     df_climate = assign_lbd_admin2_location_id(df_climate)
 
+    # df_climate = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data.parquet")
+    
+
+    # get unique invidiuals and clean variables
+    df_climate["line_id"] = df_climate["line_id"].astype(int)
+
+    df_climate["indv_id"] = df_climate[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
+    logging.info(f"{df_climate['indv_id'].nunique():,} unique individuals in data")
+
+    # flip child_alive so 1 = died, 0 = alive for easier interpretation
+    df_climate["child_mortality"] = 1 - df_climate["child_alive"]
+
+    df_climate.rename(columns={"ldipc_weighted_no_match": "consumption"}, inplace=True)
+
+    # collapse by average climate var exposure for each child
+    climate_vars = [
+        'mean_temperature', 'days_over_30C', 'precipitation_days',
+       'total_precipitation', 'mean_low_temperature', 'mean_high_temperature',
+       'relative_humidity', 'days_over_26C', 'days_over_27C', 'days_over_28C',
+       'days_over_29C', 'days_over_31C', 'days_over_32C', 'days_over_33C',
+       'elevation'
+    ]
+
+    # Get the index of the row with the max age_month_at_year_end for each indv_id
+    idx = df_climate.groupby("indv_id")["age_month_at_year_end"].idxmax()
+    df_max_age = df_climate.loc[idx].copy()
+
+    # For each climate variable, replace its value in df_max_age with the average for that indv_id
+    climate_means = df_climate.groupby("indv_id")[climate_vars].mean()
+    df_max_age.set_index("indv_id", inplace=True)
+    df_max_age.update(climate_means)
+    df_max_age.reset_index(inplace=True)
+
+    # df_max_age.to_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data_avg_climate.parquet")
+
     # Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
-        measure_df = df_climate[df_climate[measure].notna()].copy()
+        measure_df = df_max_age[df_max_age[measure].notna()].copy()
         measure_df["measure"] = measure
         measure_df["value"] = measure_df[measure]
         logging.info(
