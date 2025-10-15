@@ -15,6 +15,7 @@ import sys
 import xarray as xr
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.ticker as mticker
 from scipy.interpolate import PchipInterpolator
 
 
@@ -1569,6 +1570,24 @@ def run_training_data_prep_anemia(
                 f.write(message)
 
 
+def plot_indvs_by_age_group(data):
+    # Get individuals per age_month
+    if "indv_id" not in data.columns:
+        data = data.copy()
+        data["indv_id"] = data[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
+    agg_age = (
+        data.groupby(["age_month"])["indv_id"]
+        .nunique()
+        .reset_index()
+        .rename(columns={"indv_id": "unique_individuals"})
+    )
+    plt.figure(figsize=(50, 5))
+    ax = agg_age.plot(x="age_month", y="unique_individuals", kind="bar", legend=False)
+    plt.title("Unique Individuals per Age Month in Raw Data")
+    months = agg_age["age_month"].values
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: format(int(x), ",")))
+    plt.tight_layout()
+
 def run_training_data_prep_child_mortality(
     output_root: str | Path, data_source_type: str, module: str
 ) -> None:
@@ -1776,31 +1795,44 @@ def run_training_data_prep_child_mortality(
         f"Dropped {before_rows - len(df_merged):,} rows with missing age_month or aod_months"
     )
 
-    # age_days and aod_days are empty, but we assume that age_month and aod_months
-    # are rounded down, such that age_month 0 is not stillborns, but deaths between
-    # 0 and 1 month. This is required for a survival modeling approach, for which
-    # time to event cannot be 0.
-    df_merged["age_month"] = df_merged["age_month"].astype(int)
-    df_merged["age_month"] += 1
-
     # create list of years between birth year and year that the age_month lands on.
+    df_merged["age_month"] = df_merged["age_month"].astype(int)
     df_merged["year_of_recorded_age"] = (
         df_merged["birth_year"] * 12 + df_merged["birth_month"] + df_merged["age_month"]
     ) // 12
     df_merged["year_of_recorded_age"] = df_merged["year_of_recorded_age"].astype(int)
 
+    # filter to up to 6 years to expand
     df_merged["years_to_expand"] = df_merged.apply(
-        lambda x: [y for y in range(x["birth_year"], x["year_of_recorded_age"] + 1)],
+        lambda x: [y for y in range(x["birth_year"], min(x["year_of_recorded_age"] + 1, x["birth_year"] + 6))],
         axis=1,
     )
 
+    # check lengths of resulting lists
+    df_merged["n_years_to_expand"] = df_merged["years_to_expand"].apply(len)
+
     # explode data on years_to_expand
     df_exploded = df_merged.explode("years_to_expand")
+
     df_exploded["age_month_at_year_end"] = df_exploded.apply(
         get_age_month_at_year_end, axis=1
     )
+
     # override age_month
     df_exploded["age_month"] = df_exploded["age_month_at_year_end"]
+
+    # age_days and aod_days are empty, but we assume that age_month and aod_months
+    # are rounded down, such that age_month 0 is not stillborns, but deaths between
+    # 0 and 1 month. This is required for a survival modeling approach, for which
+    # time to event cannot be 0.
+    df_exploded["age_month"] += 1
+    df_exploded["age_month_at_year_end"] += 1
+
+    # For rows with age_month >60, set to 60. These are remainder months after 5 years,
+    # but the 5 year cutoff was already implemented above when exploding to max 6 years.
+    df_exploded.loc[df_exploded.age_month > 60, "age_month"] = 60
+    df_exploded.loc[df_exploded.age_month_at_year_end > 60, "age_month_at_year_end"] = 60
+
     logging.info(
         f"Exploded data to {len(df_exploded):,} rows by expanding on years between child birth and either age of death or age at interview"
     )
@@ -1818,9 +1850,7 @@ def run_training_data_prep_child_mortality(
     df_exploded["age_group_id"] = df_exploded["age_group_id"].astype(int)
     df_exploded["age_group_id_agg"] = df_exploded["age_group_id_agg"].astype(int)
     df_exploded["age_year"] = df_exploded["age_year"].astype(int)
-    df_exploded["age_month_at_year_end"] = df_exploded["age_month_at_year_end"].astype(
-        int
-    )
+
     df_exploded["age_year_at_year_end"] = df_exploded["age_month_at_year_end"] / 12
     rows_before = len(df_exploded)
     df_exploded = df_exploded[
@@ -1833,6 +1863,38 @@ def run_training_data_prep_child_mortality(
     # override int_year, used to get climate vars
     df_exploded["int_year_original"] = df_exploded["int_year"]  # keep copy of original
     df_exploded["int_year"] = df_exploded["years_to_expand"].astype(int)
+
+    def get_months_child_alive_in_year(row):
+        """
+        Get the number of months child was alive in the int_year, to be used for 
+        taken weighted averages of climate vars.
+        """
+        int_year = row["int_year"]
+        birth_year = row["birth_year"]
+        birth_month = row["birth_month"]
+        age_month = row["age_month"]
+        # get num months alive in birth_year
+        remaining_months_in_birth_year = 12-birth_month + 1
+        if (age_month<=remaining_months_in_birth_year)&(birth_year==int_year):
+            return age_month
+
+        else:
+            months_at_beginning_of_year = 12*(int_year - birth_year-1) + remaining_months_in_birth_year 
+            months_in_year = min(age_month - months_at_beginning_of_year,12)
+            return months_in_year
+
+    # Calculate number of months child alive for given year (to be used for taking
+    # weighted averages of climate variables)
+    df_exploded["months_child_alive_in_year"] = df_exploded.apply(
+        get_months_child_alive_in_year, axis=1
+    )
+
+    df_exploded["years_child_alive_in_year"] = df_exploded["months_child_alive_in_year"] / 12
+
+    # remove rows with months_child_alive_in_year =0
+    before_rows = len(df_exploded)
+    df_exploded = df_exploded[df_exploded["months_child_alive_in_year"] > 0]
+    logging.info(f"Dropped {before_rows - len(df_exploded):,} rows with months_child_alive_in_year=0")
 
     # for rows with child_alive==0, replace with child_alive=1 if int_year < year_of_recorded_age
     df_exploded["child_alive"] = df_exploded["child_alive"].astype(int)
@@ -1887,9 +1949,14 @@ def run_training_data_prep_child_mortality(
     df_climate = get_elevation_for_dataframe(df_climate)
     df_climate = assign_lbd_admin2_location_id(df_climate)
 
+    # save temp files
+    df_climate.to_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_with_climate.parquet",
+        index=False,
+    )
+
     # df_climate = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data.parquet")
     
-
     # get unique invidiuals and clean variables
     df_climate["line_id"] = df_climate["line_id"].astype(int)
 
@@ -1899,7 +1966,7 @@ def run_training_data_prep_child_mortality(
     # flip child_alive so 1 = died, 0 = alive for easier interpretation
     df_climate["child_mortality"] = 1 - df_climate["child_alive"]
 
-    df_climate.rename(columns={"ldipc_weighted_no_match": "consumption"}, inplace=True)
+    # df_climate.rename(columns={"ldipc_weighted_no_match": "consumption"}, inplace=True)
 
     # collapse by average climate var exposure for each child
     climate_vars = [
@@ -1910,15 +1977,31 @@ def run_training_data_prep_child_mortality(
        'elevation'
     ]
 
+    df_max_age = df_climate.copy()
+    
     # Get the index of the row with the max age_month_at_year_end for each indv_id
-    idx = df_climate.groupby("indv_id")["age_month_at_year_end"].idxmax()
-    df_max_age = df_climate.loc[idx].copy()
+    df_max_age = (
+        df_climate.sort_values("age_month")
+        .groupby("indv_id", as_index=False)
+        .tail(1)
+        .reset_index(drop=True)
+    )
 
-    # For each climate variable, replace its value in df_max_age with the average for that indv_id
-    climate_means = df_climate.groupby("indv_id")[climate_vars].mean()
-    df_max_age.set_index("indv_id", inplace=True)
-    df_max_age.update(climate_means)
-    df_max_age.reset_index(inplace=True)
+    # For each climate variable, replace its value in df_max_age with the average 
+    # for that indv_id. This should be weighted by 'years_child_alive_in_year'
+    def weighted_mean(group, value_cols, weight_col):
+        return pd.DataFrame({
+            col: np.average(group[col], weights=group[weight_col]) for col in value_cols
+        }, index=[group.name])
+    weighted_climate_means = (
+        df_climate
+        .groupby("indv_id")
+        .apply(weighted_mean, value_cols=climate_vars, weight_col="years_child_alive_in_year")
+        .reset_index()
+    )
+    # climate_means = df_climate.groupby("indv_id")[climate_vars].mean()
+    df_max_age = df_max_age.drop(columns=climate_vars).merge(weighted_climate_means, on="indv_id", how="left")
+
 
     # df_max_age.to_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data_avg_climate.parquet")
 
