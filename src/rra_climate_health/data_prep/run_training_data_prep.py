@@ -1588,6 +1588,7 @@ def plot_indvs_by_age_group(data):
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: format(int(x), ",")))
     plt.tight_layout()
 
+
 def run_training_data_prep_child_mortality(
     output_root: str | Path, data_source_type: str, module: str
 ) -> None:
@@ -1818,20 +1819,13 @@ def run_training_data_prep_child_mortality(
         get_age_month_at_year_end, axis=1
     )
 
+    # For rows with age_month >59, set to 59. These are remainder months after 5 years,
+    # but the 5 year cutoff was already implemented above when exploding to max 6 years.
+    df_exploded.loc[df_exploded.age_month > 59, "age_month"] = 59
+    df_exploded.loc[df_exploded.age_month_at_year_end > 59, "age_month_at_year_end"] = 59
+
     # override age_month
     df_exploded["age_month"] = df_exploded["age_month_at_year_end"]
-
-    # age_days and aod_days are empty, but we assume that age_month and aod_months
-    # are rounded down, such that age_month 0 is not stillborns, but deaths between
-    # 0 and 1 month. This is required for a survival modeling approach, for which
-    # time to event cannot be 0.
-    df_exploded["age_month"] += 1
-    df_exploded["age_month_at_year_end"] += 1
-
-    # For rows with age_month >60, set to 60. These are remainder months after 5 years,
-    # but the 5 year cutoff was already implemented above when exploding to max 6 years.
-    df_exploded.loc[df_exploded.age_month > 60, "age_month"] = 60
-    df_exploded.loc[df_exploded.age_month_at_year_end > 60, "age_month_at_year_end"] = 60
 
     logging.info(
         f"Exploded data to {len(df_exploded):,} rows by expanding on years between child birth and either age of death or age at interview"
@@ -1841,6 +1835,13 @@ def run_training_data_prep_child_mortality(
     before_dropping_unused_age_groups = len(df_exploded)
     df_exploded = df_exploded.dropna(subset=["age_group_id"])
     dropped_due_to_age = before_dropping_unused_age_groups - len(df_exploded)
+
+    # age_days and aod_days are empty, but we assume that age_month and aod_months
+    # are rounded down, such that age_month 0 is not stillborns, but deaths between
+    # 0 and 1 month. This is required for a survival modeling approach, for which
+    # time to event cannot be 0.
+    df_exploded["age_month"] += 1
+    df_exploded["age_month_at_year_end"] += 1
 
     logging.info(
         f"Dropped {dropped_due_to_age:,} rows due to age groups not found among 2, 3, 388, 389, 238, 34"
