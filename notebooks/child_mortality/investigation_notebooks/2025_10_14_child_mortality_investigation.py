@@ -10,11 +10,34 @@ from pymer4.models import Lmer
 import os
 
 DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data_avg_climate.parquet"
+# DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data.parquet"
 RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_13.01/"
 PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_13.01/"
 os.makedirs(PLOT_PATH, exist_ok=True, mode=0o777)
 
+
 ## FUNCTIONS:
+def plot_indvs_by_age_group(data):
+    # Get individuals per age_month
+    if "indv_id" not in data.columns:
+        data = data.copy()
+        data["indv_id"] = (
+            data[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
+        )
+    agg_age = (
+        data.groupby(["age_month"])["indv_id"]
+        .nunique()
+        .reset_index()
+        .rename(columns={"indv_id": "unique_individuals"})
+    )
+    plt.figure(figsize=(30, 5))
+    ax = agg_age.plot(x="age_month", y="unique_individuals", kind="bar", legend=False)
+    plt.title("Unique Individuals per Age Month in Raw Data")
+    months = agg_age["age_month"].values
+    ax.yaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda x, p: format(int(x), ","))
+    )
+    plt.tight_layout()
 
 
 def plot_heat_map(
@@ -98,7 +121,17 @@ df = pd.read_parquet(DATA_PATH)
 # Modeled data
 # df_model = pd.read_parquet(RESULTS_PATH + "predictions_50pc_do30_fe.parquet")
 # df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_05pct_model_do30_sdi.csv")
-df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_25pct_model_do30_sdi.csv")
+# df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_25pct_model_do30_sdi.csv")
+# df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_05pct_model_do30_sdi.csv")
+# df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_05pct_model_do30.csv")
+# df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_10pct_model_do30_under_4.csv")
+# df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_25pct_model_do30.csv")
+# df_model = pd.read_parquet(
+#     RESULTS_PATH + "test_set_predictions_me_fe_05pct_model_do30.parquet"
+# )
+df_model = pd.read_parquet(
+    RESULTS_PATH + "test_set_predictions_me_fe_25pct_model_do30.parquet"
+)
 
 # Fixed effects model results
 # df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_predictions_2025_10_08.csv")
@@ -114,7 +147,10 @@ df_model_me.rename(columns={"model_predictions_me": "model_predictions"}, inplac
 
 # Neonatal predictions
 # df_neo = pd.read_parquet(RESULTS_PATH + "neonatal/neonatal_mortality_1_mo.parquet")
-df_neo = pd.read_parquet(RESULTS_PATH + "neonatal/neonatal_mortality_1_mo_do30.parquet")
+df_neo = pd.read_parquet(
+    RESULTS_PATH + "neonatal/neonatal_mortality_25pct_model_do30.parquet"
+)
+
 
 ## CONSTANTS
 
@@ -255,7 +291,7 @@ df_group = (
 px.scatter(df_group, x="consumption", y="child_mortality")
 
 
-## MAKE SIDE-BY-SIDE PLOTS TOGETHER
+## MAKE SIDE-BY-SIDE HEATMAPS TOGETHER
 
 # get min and max values for color scale consistency across plots
 # df_non_neo = df[df["age_month"] > 0]
@@ -317,7 +353,7 @@ plot_heat_map(
             "child_mortality": "model_predictions",
         }
     ),
-    outfile="raw_heatmap_child_mortality_10_14",
+    outfile="raw_heatmap_child_mortality_10_15",
     title="Raw Data Child Mortality",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -327,7 +363,7 @@ plot_heat_map(
 # plot fe model heatmaps with consistent color scale
 plot_heat_map(
     data=df_model_fe.copy(),
-    outfile="fe_25pc_do30_heatmap_child_mortality_sdi",
+    outfile="fe_25pc_do30_heatmap_child_mortality_10_15",
     title="Modeled (25% of individuals) Child Mortality without Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -337,7 +373,7 @@ plot_heat_map(
 # plot me model heatmaps with consistent color scale
 plot_heat_map(
     data=df_model_me,
-    outfile="me_25pc_do30_heatmap_child_mortality_sdi",
+    outfile="me_25pc_do30_heatmap_child_mortality_10_15",
     title="Modeled (25% of individuals) Child Mortality with Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -356,8 +392,8 @@ df_neo = df_neo.rename(columns={"mortality_1_mo": "model_predictions"})
 
 # get min and max values for color scale consistency across plots
 # df_non_neo = df[df["age_month"] > 0]
-# raw_heatmap_df = df_neo_raw.copy()
-raw_heatmap_df = df_exploded[df_exploded["age_month"] == 1]
+raw_heatmap_df = df_neo_raw.copy()
+# raw_heatmap_df = df_exploded[df_exploded["age_month"] == 1]
 for col in columns_to_bin:
     raw_heatmap_df[f"{col}_bin"] = pd.qcut(
         raw_heatmap_df[col], 10, retbins=False, duplicates="drop"
@@ -405,20 +441,63 @@ plot_heat_map(
             "child_mortality": "model_predictions",
         }
     ),
-    outfile="raw_heatmap_neonatal_child_mortality",
+    outfile="raw_heatmap_neonatal_child_mortality_10_15",
     title="Raw Data Neonatal Child Mortality",
     bin_cols=columns_to_bin,
     format=".3f",
-    # vmin=vmin,
-    # vmax=vmax,
+    vmin=vmin,
+    vmax=vmax,
 )
 
 plot_heat_map(
     data=df_neo,
-    outfile="neo_heatmap_child_mortality_do30",
+    outfile="neo_heatmap_child_mortality_25pc_do30_10_15",
     title="Neonatal Modeled Child Mortality",
     bin_cols=columns_to_bin,
     format=".3f",
     vmin=vmin,
     vmax=vmax,
 )
+
+
+## Explore raw data
+df_raw = pd.read_parquet(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_10_06_2025.parquet"
+)
+key_vars = [
+    "nid",
+    "psu",
+    "birth_year",
+    "birth_month",
+    "int_year",
+    "int_month",
+    "age_month",
+    "hh_id",
+    "geospatial_id",
+    "line_id",
+    "lat",
+    "long",
+    "child_alive",
+]
+df_raw.dropna(subset=key_vars, inplace=True)
+df_raw["age_month"] = df_raw["age_month"].astype(int)
+df_raw = df_raw[df_raw["age_month"] <= 60]
+df_raw["indv_id"] = (
+    df_raw[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
+)
+
+# Get individuals per age_month
+agg_age = (
+    df_raw.groupby(["age_month"])["indv_id"]
+    .nunique()
+    .reset_index()
+    .rename(columns={"indv_id": "unique_individuals"})
+)
+plt.figure(figsize=(30, 5))
+ax = agg_age.plot(x="age_month", y="unique_individuals", kind="bar", legend=False)
+plt.title("Unique Individuals per Age Month in Raw Data")
+months = agg_age["age_month"].values
+ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: format(int(x), ",")))
+plt.tight_layout()
+plt.savefig(os.path.join(PLOT_PATH, f"unique_indv_children_per_age_month_raw_data.png"))
+plt.close()
