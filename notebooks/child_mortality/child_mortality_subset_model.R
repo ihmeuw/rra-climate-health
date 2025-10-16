@@ -39,14 +39,14 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-sample_percent <- 0.25
-summary_file <- "subset_25pct_model_do30"
+sample_percent <- 0.05
+summary_file <- "subset_05pct_model_do30"
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data_avg_climate.parquet"
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_13.01/"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/data.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
 # cov_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/covariates/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/neonatal.parquet"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/neonatal.parquet"
 
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -60,7 +60,7 @@ df <- read_parquet(data_version)
 df <- data.table(df)
 
 df[,location_id := as.integer(location_id)]
-
+setnames(df,old="ldipc_weighted_no_match",new="consumption")
 # load SDI estimates
 # sdi <- fread(paste0(cov_dir,"sdi.csv"))
 # setnames(sdi,old=c("mean_value","year_id"),new=c("sdi","int_year"))
@@ -78,7 +78,7 @@ climate_vars <- c(
   "days_over_30C",
   "days_over_26C"
 )
-cols <- c("indv_id","child_mortality", "age_year_at_year_end", "sex_id", "ihme_loc_id", "consumption", climate_vars)
+cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption", climate_vars)
 df_model <- df[, ..cols]
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
 df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
@@ -111,14 +111,14 @@ neo_df <- data.table(neo_df)
 
 neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
-
+setnames(neo_df,old="ldipc_weighted_no_match",new="consumption")
 
 #==============================================================================
-# SECTION 2: FIT MODEL
+# SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
 
 # fit baseline model with days_over_30C
-model <- emfrail(Surv(age_year_at_year_end, child_mortality) ~ consumption + 
+model <- emfrail(Surv(age_month, child_mortality) ~ consumption + 
                    # mean_temperature + 
                    days_over_30C + 
                    sex_id + 
@@ -126,11 +126,105 @@ model <- emfrail(Surv(age_year_at_year_end, child_mortality) ~ consumption +
                  data = df_sample,
                  verbose = TRUE)
 
-summary(model)
-capture.output(summary(model), file = paste0(model_summary_dir,summary_file,".txt"))
+# Extract frailty estimates for each cluster (ihme_loc_id)
+frailty_effects <- model$frail
+
+# Create frailty lookup data frame
+frailty_df <- data.frame(
+  ihme_loc_id = names(frailty_effects),
+  frailty = as.numeric(frailty_effects)
+)
 
 # save model parameters for future use:
 saveRDS(model, file = paste0(results_dir, summary_file,".rds"))
+
+# save model summary:
+summary_file_path <- paste0(model_summary_dir, summary_file, ".txt")
+capture.output(summary(model), file = summary_file_path)
+# Append frailty estimates
+cat("\n\n", file = summary_file_path, append = TRUE)
+cat("================================================================================\n", 
+    file = summary_file_path, append = TRUE)
+cat("CLUSTER-SPECIFIC FRAILTY ESTIMATES (RANDOM EFFECTS)\n", 
+    file = summary_file_path, append = TRUE)
+cat("================================================================================\n\n", 
+    file = summary_file_path, append = TRUE)
+frailty_output <- capture.output(print(frailty_df, row.names = FALSE))
+cat(paste(frailty_output, collapse = "\n"), file = summary_file_path, append = TRUE)
+# Also save frailty estimates as a separate CSV for easier access
+write.csv(frailty_df, paste0(model_summary_dir, "frailty_estimates_", summary_file, ".csv"), 
+          row.names = FALSE)
+
+#==============================================================================
+# SECTION 3: PREDICT MODEL ON ALL AGES
+#==============================================================================
+
+## Predict mixed effects and fixed effects manually
+
+# Extract fixed effect coefficients
+coefs <- coef(model)
+beta_consumption <- coefs["consumption"]
+beta_days_over_30C <- coefs["days_over_30C"]
+beta_sex_female <- coefs["sex_idFemale"]
+
+# Extract baseline hazard - Note this is only as long as unique months in which
+# someone died.
+baseline_hazard <- model$hazard  # This contains time and cumulative baseline hazard
+baseline_hazard <- data.frame(
+  time = model$tev,
+  hazard = baseline_hazard
+)
+
+# Merge frailty estimates on data
+df_sample <- merge(df_sample, frailty_df, by = "ihme_loc_id", all.x = TRUE)
+
+# Calculate linear predictor (fixed effects only)
+df_sample$linear_pred <- (
+  beta_consumption * df_sample$consumption +
+    beta_days_over_30C * df_sample$days_over_30C +
+    beta_sex_female * (df_sample$sex_id == "Female")
+)
+
+# Function to get cumulative baseline hazard at a given time
+get_cumhaz_baseline <- function(time, basehaz_df) {
+  if (time <= 0) return(0)
+  idx <- max(which(basehaz_df$time <= time))
+  if (length(idx) == 0 || idx == 0) return(0)
+  return(basehaz_df$hazard[idx])
+}
+
+# Calculate cumulative baseline hazard at each observation time
+df_sample$cumhaz_baseline <- sapply(df_sample$age_month, function(t) {
+  get_cumhaz_baseline(t, baseline_hazard)
+})
+
+# MANUAL PREDICTION WITH RANDOM EFFECTS (Mixed Effects)
+# Formula: H(t|X,Z) = Z * H0(t) * exp(X'β)
+# where Z is the frailty for that cluster
+df_sample$cumhaz_me_manual <- df_sample$frailty * 
+  df_sample$cumhaz_baseline * 
+  exp(df_sample$linear_pred)
+
+# Survival probability = exp(-cumulative hazard)
+df_sample$survival_me_manual <- exp(-df_sample$cumhaz_me_manual)
+
+# Mortality probability = 1 - survival
+df_sample$mortality_me_manual <- 1 - df_sample$survival_me_manual
+
+
+# MANUAL PREDICTION WITHOUT RANDOM EFFECTS (Fixed Effects Only)
+# Formula: H(t|X) = H0(t) * exp(X'β)
+# Equivalent to setting frailty Z = 1 (or E[Z] = 1)
+df_sample$cumhaz_fe_manual <- df_sample$cumhaz_baseline * 
+  exp(df_sample$linear_pred)
+
+# Survival probability = exp(-cumulative hazard)
+df_sample$survival_fe_manual <- exp(-df_sample$cumhaz_fe_manual)
+
+# Mortality probability = 1 - survival
+df_sample$mortality_fe_manual <- 1 - df_sample$survival_fe_manual
+
+## Predict mixed effects and fixed effects using package predict function
 
 # get predictions of model over same data set - with random effects
 pred_surv <- predict(model, df_sample, quantity = "survival",type="conditional")
@@ -142,7 +236,7 @@ surv_at_obs_time <- sapply(seq_len(nrow(df_sample)), function(i) {
   surv_df$survival[idx]
 })
 
-df_sample$model_predictions_me <- 1-surv_at_obs_time
+df_sample$mortality_me_auto <- 1-surv_at_obs_time
 
 # get predictions of model over same data set - without random effects
 pred_surv <- predict(model, df_sample, quantity = "survival",type="marginal")
@@ -154,19 +248,54 @@ surv_at_obs_time <- sapply(seq_len(nrow(df_sample)), function(i) {
   surv_df$survival[idx]
 })
 
-df_sample$model_predictions_fe <- 1-surv_at_obs_time
+df_sample$mortality_fe_auto <- 1-surv_at_obs_time
 
 print("model predictions done")
 
 subset_str <- as.character(sample_percent)
 subset_str <- gsub("0.","",subset_str, fixed = TRUE)
-write.csv(df_sample,paste0(results_dir,"predictions_",summary_file,".csv"),row.names = FALSE)
 
-print(paste0("results saved to ",results_dir))
+# save results
+write_parquet(df_sample,paste0(results_dir,"predictions_",summary_file,".parquet"))
+print(paste0("child mortality predictions saved to ",paste0(results_dir,"predictions_",summary_file,".parquet")))
 
+#==============================================================================
+# SECTION 4: PREDICT MODEL FOR NEONATAL
+#==============================================================================
 
 # Get 1 month predictions
 print("Getting 1 month predictions")
+
+## Predict mixed effects and fixed effects manually
+
+
+# Merge frailty estimates with neonatal data
+neo_df <- merge(neo_df, frailty_df, by = "ihme_loc_id", all.x = TRUE)
+
+# Calculate linear predictor for neonatal data
+neo_df$linear_pred <- (
+  beta_consumption * neo_df$consumption +
+    beta_days_over_30C * neo_df$days_over_30C +
+    beta_sex_female * (neo_df$sex_id == "Female")
+)
+
+# Get baseline cumulative hazard at 1 month
+time_1mo <- 1
+cumhaz_baseline_1mo <- get_cumhaz_baseline(time_1mo, baseline_hazard)
+
+# MANUAL PREDICTION WITH RANDOM EFFECTS (Mixed Effects)
+neo_df$cumhaz_me_1mo <- neo_df$frailty * cumhaz_baseline_1mo * exp(neo_df$linear_pred)
+neo_df$survival_me_1mo <- exp(-neo_df$cumhaz_me_1mo)
+neo_df$mortality_me_manual <- 1 - neo_df$survival_me_1mo
+
+# MANUAL PREDICTION WITHOUT RANDOM EFFECTS (Fixed Effects Only)
+neo_df$cumhaz_fe_1mo <- cumhaz_baseline_1mo * exp(neo_df$linear_pred)
+neo_df$survival_fe_1mo <- exp(-neo_df$cumhaz_fe_1mo)
+neo_df$mortality_fe_manual <- 1 - neo_df$survival_fe_1mo
+
+
+## Predict mixed effects and fixed effects using package predict function
+
 # # get predictions of model over data set with me model
 pred_surv <- predict(model, neo_df, quantity = "survival",type="conditional")
 
@@ -176,7 +305,7 @@ surv_at_1_mo <- mapply(function(df, t) {
   df$survival[idx]
 }, pred_surv, 1/12)
 
-neo_df$mortality_1_mo_me <- 1-surv_at_1_mo
+neo_df$mortality_me_auto <- 1-surv_at_1_mo
 
 # # get predictions of model over data set with fe model
 pred_surv <- predict(model, neo_df, quantity = "survival",type="marginal")
@@ -187,7 +316,9 @@ surv_at_1_mo <- mapply(function(df, t) {
   df$survival[idx]
 }, pred_surv, 1/12)
 
-neo_df$mortality_1_mo_fe <- 1-surv_at_1_mo
+neo_df$mortality_fe_auto <- 1-surv_at_1_mo
 
 # save out for heat maps
-write_parquet(neo_df,paste0(neonatal_dir,"neonatal_mortality_",model_name,".parquet"))
+write_parquet(neo_df,paste0(neonatal_dir,"neonatal_mortality_",summary_file,".parquet"))
+print(paste0("neonatal mortality predictions saved to ",paste0(neonatal_dir,"neonatal_mortality_",summary_file,".parquet")))
+

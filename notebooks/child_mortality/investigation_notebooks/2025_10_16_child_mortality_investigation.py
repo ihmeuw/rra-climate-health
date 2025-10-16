@@ -9,13 +9,9 @@ from lifelines import CoxPHFitter  # for Cox survival models
 from pymer4.models import Lmer
 import os
 
-DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data_avg_climate.parquet"
-# DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data.parquet"
-# DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/data.parquet"
-# RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
-# PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_16.01/"
-RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_13.01/"
-PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_13.01/"
+DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/data.parquet"
+RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
+PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_16.01/"
 
 os.makedirs(PLOT_PATH, exist_ok=True, mode=0o777)
 
@@ -124,34 +120,20 @@ df = pd.read_parquet(DATA_PATH)
 df.rename(columns={"ldipc_weighted_no_match": "consumption"}, inplace=True)
 
 # Modeled data
-# df_model = pd.read_parquet(RESULTS_PATH + "predictions_50pc_do30_fe.parquet")
-# df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_05pct_model_do30_sdi.csv")
-# df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_25pct_model_do30_sdi.csv")
-# df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_05pct_model_do30_sdi.csv")
-# df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_05pct_model_do30.csv")
-# df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_10pct_model_do30_under_4.csv")
-# df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_25pct_model_do30.csv")
-# df_model = pd.read_parquet(
-#     RESULTS_PATH + "test_set_predictions_me_fe_05pct_model_do30.parquet"
-# )
-df_model = pd.read_csv(RESULTS_PATH + "predictions_subset_25pct_model_do30.csv")
+df_model = pd.read_parquet(RESULTS_PATH + "predictions_subset_05pct_model_do30.parquet")
 
 # Fixed effects model results
-# df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_predictions_2025_10_08.csv")
-# df_model_data = pd.read_csv(RESULTS_PATH + "fe_model_do30_predictions_2025_10_10.csv")
 df_model_fe = df_model.copy()
 df_model_fe.rename(columns={"model_predictions_fe": "model_predictions"}, inplace=True)
 
 # Mixed effects model results
-# df_me_25pc_model_data = pd.read_csv(RESULTS_PATH + "subset_25pct_model_results.csv")
-# df_me_model_data = pd.read_csv(RESULTS_PATH + "subset_5pct_model_do30_results.csv")
 df_model_me = df_model.copy()
 df_model_me.rename(columns={"model_predictions_me": "model_predictions"}, inplace=True)
 
 # Neonatal predictions
 # df_neo = pd.read_parquet(RESULTS_PATH + "neonatal/neonatal_mortality_1_mo.parquet")
 df_neo = pd.read_parquet(
-    RESULTS_PATH + "neonatal/neonatal_mortality_25pct_model_do30.parquet"
+    RESULTS_PATH + "neonatal/neonatal_mortality_subset_05pct_model_do30.parquet"
 )
 
 
@@ -159,7 +141,7 @@ df_neo = pd.read_parquet(
 
 # Heat maps of variables
 columns_to_bin = [
-    "mean_temperature",
+    # "mean_temperature",
     # "total_precipitation",
     # "relative_humidity",
     # "mean_high_temperature",
@@ -182,7 +164,7 @@ plt.ylim(0, by_year["child_mortality"].max() * 1.1)
 plt.gca().yaxis.set_major_formatter(mticker.PercentFormatter(1.0))
 plt.xticks(rotation=90)
 plt.tight_layout()
-plt.savefig(os.path.join(PLOT_PATH, f"child_mortality_by_year_10_14.png"))
+plt.savefig(os.path.join(PLOT_PATH, f"child_mortality_by_year_10_16.png"))
 plt.close()
 
 # Make bar plot of death rates by age in months
@@ -303,6 +285,12 @@ px.scatter(df_group, x="consumption", y="child_mortality")
 
 # get min and max values for color scale consistency across plots
 # df_non_neo = df[df["age_month"] > 0]
+
+# try new version of mortality: age_month/60 as a weight for numerator
+# df["time_alived_weight"] = df["age_month"] / 60
+# df["child_mortality_scaled"] = df["child_mortality"] * df["time_alived_weight"]
+df["child_mortality_scaled"] = (60 - df["age_month"]) / 60
+
 raw_heatmap_df = df.copy()
 for col in columns_to_bin:
     raw_heatmap_df[f"{col}_bin"] = pd.qcut(
@@ -339,7 +327,15 @@ for data in [raw_heatmap_df, fe_heatmap_df, me_heatmap_df]:
                 .mean()
                 .values
             )
-            # print(f"model: {vals}")
+            print(f"model: {vals}")
+            all_values.append(vals)
+        elif "child_mortality_scaled" in data.columns:
+            vals = (
+                data.groupby(["consumption", f"{col}_bin"])["child_mortality_scaled"]
+                .mean()
+                .values
+            )
+            print(f"transformed: {vals}")
             all_values.append(vals)
         elif "child_mortality" in data.columns:
             vals = (
@@ -347,7 +343,7 @@ for data in [raw_heatmap_df, fe_heatmap_df, me_heatmap_df]:
                 .mean()
                 .values
             )
-            # print(f"raw: {vals}")
+            print(f"raw: {vals}")
             all_values.append(vals)
 
 all_values = np.concatenate(all_values)
@@ -358,10 +354,10 @@ vmax = all_values.max()
 plot_heat_map(
     data=df.rename(
         columns={
-            "child_mortality": "model_predictions",
+            "child_mortality_scaled": "model_predictions",
         }
     ),
-    outfile="raw_heatmap_child_mortality_10_16",
+    outfile="raw_heatmap_child_mortality_10_16_2",
     title="Raw Data Child Mortality",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -371,7 +367,7 @@ plot_heat_map(
 # plot fe model heatmaps with consistent color scale
 plot_heat_map(
     data=df_model_fe.copy(),
-    outfile="fe_25pc_do30_heatmap_child_mortality_10_16",
+    outfile="fe_25pc_do30_heatmap_child_mortality_10_16_scaled",
     title="Modeled (25% of individuals) Child Mortality without Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -381,7 +377,7 @@ plot_heat_map(
 # plot me model heatmaps with consistent color scale
 plot_heat_map(
     data=df_model_me,
-    outfile="me_25pc_do30_heatmap_child_mortality_10_16",
+    outfile="me_25pc_do30_heatmap_child_mortality_10_16_scaled",
     title="Modeled (25% of individuals) Child Mortality with Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",

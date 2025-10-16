@@ -39,11 +39,11 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data_avg_climate.parquet"
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/neonatal.parquet"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/data.parquet"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/neonatal.parquet"
 # data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv"
-plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_13.01/"
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_13.01/"
+plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_16.01/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
 neonatal_dir <- paste0(results_dir,"neonatal/")
@@ -69,12 +69,22 @@ neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"
 
 ## Read in and print model summaries from successful runs:
 
+
+# 10/16 10% model on latest data update with all survivors coded at 60 months
+model_name <- "subset_10pct_model_do30"
+model <- readRDS(paste0(results_dir,model_name,".rds"))
+model_pred <- fread(paste0(results_dir,"predictions_",model_name,".csv"))
+
+frailty_effects <- model$frail
+print(frailty_effects)
+
+
 # 10/15 - Collapsing data to have average climate vars per child, 25%
-model_name <- "25pct_model_do30"
+# model_name <- "25pct_model_do30"
 
 # 25% data model
-model <- readRDS(paste0(results_dir,"subset_",model_name,".rds"))
-model_pred <- fread(paste0(results_dir,"predictions_subset_",model_name,".csv"))
+# model <- readRDS(paste0(results_dir,"subset_",model_name,".rds"))
+# model_pred <- fread(paste0(results_dir,"predictions_subset_",model_name,".csv"))
 
 # Get 1 month predictions
 
