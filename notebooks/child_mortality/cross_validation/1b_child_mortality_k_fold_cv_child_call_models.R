@@ -38,7 +38,7 @@ print(paste0("running on fold file ",fold_file))
 #==============================================================================
 
 
-child_script <- "/ihme/homes/elyeb/repos/rra-climate-health/notebooks/child_mortality/1c_child_mortality_k_fold_cv_child_run_models.R"
+child_script <- "/ihme/homes/elyeb/repos/rra-climate-health/notebooks/child_mortality/cross_validation/1c_child_mortality_k_fold_cv_child_run_models.R"
 
 ## Fit all univariate models
 climate_vars <- c(

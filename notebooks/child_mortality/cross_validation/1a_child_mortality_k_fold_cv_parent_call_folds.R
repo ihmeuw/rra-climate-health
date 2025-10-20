@@ -25,7 +25,7 @@ if (Sys.info()["sysname"] == "Linux") {
   l <- "L:/"
 }
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_08.01/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
 folds_dir <- paste0(results_dir,"folds/")
 
 #==============================================================================
@@ -33,7 +33,7 @@ folds_dir <- paste0(results_dir,"folds/")
 #==============================================================================
 
 ## Test secondary climate variables with k-fold cross-validation
-child_script <- "/ihme/homes/elyeb/repos/rra-climate-health/notebooks/child_mortality/1b_child_mortality_k_fold_cv_child_call_models.R"
+child_script <- "/ihme/homes/elyeb/repos/rra-climate-health/notebooks/child_mortality/cross_validation/1b_child_mortality_k_fold_cv_child_call_models.R"
 
 # Update output_log and error_log to personal directory in slurmoutput
 

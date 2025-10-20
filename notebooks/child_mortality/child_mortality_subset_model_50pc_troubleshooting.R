@@ -44,6 +44,8 @@ summary_file <- "subset_100pct_model_do30"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
+plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_16.01/"
+
 # cov_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/covariates/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/neonatal.parquet"
@@ -117,8 +119,8 @@ setnames(neo_df,old="ldipc_weighted_no_match",new="consumption")
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
 
-# tmp override: 
-df_sample <- df_model
+# test: df_sample all under 60 months
+# df_sample <- df_sample[age_month<60]
 
 # fit baseline model with days_over_30C
 model <- emfrail(Surv(age_month, child_mortality) ~ consumption + 
@@ -129,6 +131,9 @@ model <- emfrail(Surv(age_month, child_mortality) ~ consumption +
                  data = df_sample,
                  verbose = TRUE)
 
+# or read in
+# model <- readRDS(paste0(results_dir,summary_file,".rds"))
+
 # Extract frailty estimates for each cluster (ihme_loc_id)
 frailty_effects <- model$frail
 
@@ -137,6 +142,8 @@ frailty_df <- data.frame(
   ihme_loc_id = names(frailty_effects),
   frailty = as.numeric(frailty_effects)
 )
+
+setorder(frailty_df,frailty)
 
 # save model parameters for future use:
 saveRDS(model, file = paste0(results_dir, summary_file,".rds"))
@@ -178,7 +185,11 @@ baseline_hazard <- data.frame(
   hazard = baseline_hazard
 )
 
+baseline_hazard <- baseline_hazard[order(baseline_hazard$time), ]
+baseline_hazard$cumhazard <- cumsum(baseline_hazard$hazard)
+
 # Merge frailty estimates on data
+# df_sample <- df_model
 df_sample <- merge(df_sample, frailty_df, by = "ihme_loc_id", all.x = TRUE)
 
 # Calculate linear predictor (fixed effects only)
@@ -193,7 +204,7 @@ get_cumhaz_baseline <- function(time, basehaz_df) {
   if (time <= 0) return(0)
   idx <- max(which(basehaz_df$time <= time))
   if (length(idx) == 0 || idx == 0) return(0)
-  return(basehaz_df$hazard[idx])
+  return(basehaz_df$cumhazard[idx])
 }
 
 # Calculate cumulative baseline hazard at each observation time
@@ -229,31 +240,77 @@ df_sample$mortality_fe_manual <- 1 - df_sample$survival_fe_manual
 
 ## Predict mixed effects and fixed effects using package predict function
 
-# # get predictions of model over same data set - with random effects
+# # # get predictions of model over same data set - with random effects
 # pred_surv <- predict(model, df_sample, quantity = "survival",type="conditional")
 # 
 # surv_at_obs_time <- sapply(seq_len(nrow(df_sample)), function(i) {
 #   surv_df <- pred_surv[[i]]
-#   obs_time <- df_sample$age_year_at_year_end[i]
+#   obs_time <- df_sample$age_month[i]
 #   idx <- max(which(surv_df$time <= obs_time))
 #   surv_df$survival[idx]
 # })
 # 
 # df_sample$mortality_me_auto <- 1-surv_at_obs_time
-# 
-# # get predictions of model over same data set - without random effects
+# # 
+# # # get predictions of model over same data set - without random effects
 # pred_surv <- predict(model, df_sample, quantity = "survival",type="marginal")
 # 
 # surv_at_obs_time <- sapply(seq_len(nrow(df_sample)), function(i) {
 #   surv_df <- pred_surv[[i]]
-#   obs_time <- df_sample$age_year_at_year_end[i]
+#   obs_time <- df_sample$age_month[i]
 #   idx <- max(which(surv_df$time <= obs_time))
 #   surv_df$survival[idx]
 # })
 # 
 # df_sample$mortality_fe_auto <- 1-surv_at_obs_time
+# 
+# print("model predictions done")
+# 
+# # diagnose differences:
+# 
+# # manual vs auto
+# ggplot(df_sample,aes(x=mortality_me_manual,y=mortality_me_auto))+
+#   geom_point()+
+#   ylim(0.0,0.06)+
+#   xlim(0.0,0.06)
+# # looks different. Upper bound for auto is ~0.04, but greater variation within 
+# # that range.
+# 
+# ggplot(df_sample,aes(x=mortality_fe_manual,y=mortality_fe_auto))+
+#   geom_point()+
+#   ylim(0.0,0.06)+
+#   xlim(0.0,0.06)
+# # mostly the same with a couple different from the auto
+# 
+# # me manual vs fe manual
+ggplot(df_sample, aes(x = mortality_me_manual, y = mortality_fe_manual))+
+  geom_point() 
+p <- ggplot(df_sample, aes(x = mortality_me_manual, y = mortality_fe_manual, color = days_over_30C)) +
+  geom_point() +
+  ylim(0.0, 0.06) +
+  xlim(0.0, 0.06) +
+  scale_color_gradientn(
+    colors = c("white", "orange", "darkred"),
+    name = "Days > 30°C"
+  ) +
+  theme_minimal()
+ggsave(paste0(plot_dir, "predictions_fe_vs_me_manual",summary_file,".png"), plot = p, width = 8, height = 10)
 
-print("model predictions done")
+library(dplyr)
+loc_residuals <- df_sample %>%
+  group_by(ihme_loc_id) %>%
+  summarise(
+    actual = mean(child_mortality),
+    predicted = mean(mortality_me_manual),
+    residual = actual - predicted,
+    n = n()
+  )
+
+# 
+# # me auto vs fe auto
+# ggplot(df_sample,aes(x=mortality_me_auto,y=mortality_fe_auto))+
+#   geom_point()
+# # exactly the same. Package implementation does not distinguish. 
 
 
 # save results

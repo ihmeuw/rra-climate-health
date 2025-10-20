@@ -42,11 +42,11 @@ options(scipen = 999) # turn off scientific notation
 sample_percent <- 1.0
 summary_file <- "subset_100pct_model_do30"
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/data.parquet"
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.02/data.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.02/"
 # cov_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/covariates/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/neonatal.parquet"
+# neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.02/neonatal.parquet"
 
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -104,14 +104,14 @@ df_sample <- df_model[indv_id %in% sampled_indv]
 # unique_countries <- unique(df_sample$ihme_loc_id)
 # df_sample <- df_sample[ihme_loc_id %in% unique_countries[1:40]]
 # df_sample[,ihme_loc_id:=as.factor(ihme_loc_id)]
-
-# Read in neonatal df (must be made from full dataset)
-neo_df <- read_parquet(neo_version)
-neo_df <- data.table(neo_df)
-
-neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
-neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
-setnames(neo_df,old="ldipc_weighted_no_match",new="consumption")
+# 
+# # Read in neonatal df (must be made from full dataset)
+# neo_df <- read_parquet(neo_version)
+# neo_df <- data.table(neo_df)
+# 
+# neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
+# neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
+# setnames(neo_df,old="ldipc_weighted_no_match",new="consumption")
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
@@ -263,62 +263,62 @@ print(paste0("child mortality predictions saved to ",paste0(results_dir,"predict
 #==============================================================================
 # SECTION 4: PREDICT MODEL FOR NEONATAL
 #==============================================================================
-
-# Get 1 month predictions
-print("Getting 1 month predictions")
-
-## Predict mixed effects and fixed effects manually
-
-
-# Merge frailty estimates with neonatal data
-neo_df <- merge(neo_df, frailty_df, by = "ihme_loc_id", all.x = TRUE)
-
-# Calculate linear predictor for neonatal data
-neo_df$linear_pred <- (
-  beta_consumption * neo_df$consumption +
-    beta_days_over_30C * neo_df$days_over_30C +
-    beta_sex_female * (neo_df$sex_id == "Female")
-)
-
-# Get baseline cumulative hazard at 1 month
-time_1mo <- 1
-cumhaz_baseline_1mo <- get_cumhaz_baseline(time_1mo, baseline_hazard)
-
-# MANUAL PREDICTION WITH RANDOM EFFECTS (Mixed Effects)
-neo_df$cumhaz_me_1mo <- neo_df$frailty * cumhaz_baseline_1mo * exp(neo_df$linear_pred)
-neo_df$survival_me_1mo <- exp(-neo_df$cumhaz_me_1mo)
-neo_df$mortality_me_manual <- 1 - neo_df$survival_me_1mo
-
-# MANUAL PREDICTION WITHOUT RANDOM EFFECTS (Fixed Effects Only)
-neo_df$cumhaz_fe_1mo <- cumhaz_baseline_1mo * exp(neo_df$linear_pred)
-neo_df$survival_fe_1mo <- exp(-neo_df$cumhaz_fe_1mo)
-neo_df$mortality_fe_manual <- 1 - neo_df$survival_fe_1mo
-
-
-## Predict mixed effects and fixed effects using package predict function
-
-# # # get predictions of model over data set with me model
-# pred_surv <- predict(model, neo_df, quantity = "survival",type="conditional")
 # 
-# # get predictions at 1 month
-# surv_at_1_mo <- mapply(function(df, t) {
-#   idx <- max(which(df$time <= t))
-#   df$survival[idx]
-# }, pred_surv, 1/12)
+# # Get 1 month predictions
+# print("Getting 1 month predictions")
 # 
-# neo_df$mortality_me_auto <- 1-surv_at_1_mo
+# ## Predict mixed effects and fixed effects manually
 # 
-# # # get predictions of model over data set with fe model
-# pred_surv <- predict(model, neo_df, quantity = "survival",type="marginal")
 # 
-# # get predictions at 1 month
-# surv_at_1_mo <- mapply(function(df, t) {
-#   idx <- max(which(df$time <= t))
-#   df$survival[idx]
-# }, pred_surv, 1/12)
+# # Merge frailty estimates with neonatal data
+# neo_df <- merge(neo_df, frailty_df, by = "ihme_loc_id", all.x = TRUE)
 # 
-# neo_df$mortality_fe_auto <- 1-surv_at_1_mo
-
-# save out for heat maps
-write_parquet(neo_df,paste0(neonatal_dir,"neonatal_mortality_",summary_file,".parquet"))
-print(paste0("neonatal mortality predictions saved to ",paste0(neonatal_dir,"neonatal_mortality_",summary_file,".parquet")))
+# # Calculate linear predictor for neonatal data
+# neo_df$linear_pred <- (
+#   beta_consumption * neo_df$consumption +
+#     beta_days_over_30C * neo_df$days_over_30C +
+#     beta_sex_female * (neo_df$sex_id == "Female")
+# )
+# 
+# # Get baseline cumulative hazard at 1 month
+# time_1mo <- 1
+# cumhaz_baseline_1mo <- get_cumhaz_baseline(time_1mo, baseline_hazard)
+# 
+# # MANUAL PREDICTION WITH RANDOM EFFECTS (Mixed Effects)
+# neo_df$cumhaz_me_1mo <- neo_df$frailty * cumhaz_baseline_1mo * exp(neo_df$linear_pred)
+# neo_df$survival_me_1mo <- exp(-neo_df$cumhaz_me_1mo)
+# neo_df$mortality_me_manual <- 1 - neo_df$survival_me_1mo
+# 
+# # MANUAL PREDICTION WITHOUT RANDOM EFFECTS (Fixed Effects Only)
+# neo_df$cumhaz_fe_1mo <- cumhaz_baseline_1mo * exp(neo_df$linear_pred)
+# neo_df$survival_fe_1mo <- exp(-neo_df$cumhaz_fe_1mo)
+# neo_df$mortality_fe_manual <- 1 - neo_df$survival_fe_1mo
+# 
+# 
+# ## Predict mixed effects and fixed effects using package predict function
+# 
+# # # # get predictions of model over data set with me model
+# # pred_surv <- predict(model, neo_df, quantity = "survival",type="conditional")
+# # 
+# # # get predictions at 1 month
+# # surv_at_1_mo <- mapply(function(df, t) {
+# #   idx <- max(which(df$time <= t))
+# #   df$survival[idx]
+# # }, pred_surv, 1/12)
+# # 
+# # neo_df$mortality_me_auto <- 1-surv_at_1_mo
+# # 
+# # # # get predictions of model over data set with fe model
+# # pred_surv <- predict(model, neo_df, quantity = "survival",type="marginal")
+# # 
+# # # get predictions at 1 month
+# # surv_at_1_mo <- mapply(function(df, t) {
+# #   idx <- max(which(df$time <= t))
+# #   df$survival[idx]
+# # }, pred_surv, 1/12)
+# # 
+# # neo_df$mortality_fe_auto <- 1-surv_at_1_mo
+# 
+# # save out for heat maps
+# write_parquet(neo_df,paste0(neonatal_dir,"neonatal_mortality_",summary_file,".parquet"))
+# print(paste0("neonatal mortality predictions saved to ",paste0(neonatal_dir,"neonatal_mortality_",summary_file,".parquet")))

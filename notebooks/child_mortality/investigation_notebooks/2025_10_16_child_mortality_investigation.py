@@ -56,7 +56,7 @@ def plot_heat_map(
             heatmap_df[col], 10, retbins=False, duplicates="drop"
         )
     heatmap_df["consumption"], ldi_bins = pd.qcut(
-        heatmap_df.consumption, 10, retbins=True
+        heatmap_df.consumption, 10, retbins=True, duplicates="drop"
     )
 
     # Create a discrete colormap with steps matching your rounded values
@@ -120,21 +120,34 @@ df = pd.read_parquet(DATA_PATH)
 df.rename(columns={"ldipc_weighted_no_match": "consumption"}, inplace=True)
 
 # Modeled data
-df_model = pd.read_parquet(RESULTS_PATH + "predictions_subset_05pct_model_do30.parquet")
+# df_model = pd.read_parquet(
+#     RESULTS_PATH + "predictions_subset_100pct_model_do30.parquet"
+# )
+df_model = pd.read_parquet(
+    RESULTS_PATH + "predictions_subset_100pct_model_do30.parquet"
+)
 
 # Fixed effects model results
 df_model_fe = df_model.copy()
-df_model_fe.rename(columns={"model_predictions_fe": "model_predictions"}, inplace=True)
+df_model_fe.rename(columns={"mortality_fe_manual": "model_predictions"}, inplace=True)
 
 # Mixed effects model results
 df_model_me = df_model.copy()
-df_model_me.rename(columns={"model_predictions_me": "model_predictions"}, inplace=True)
+df_model_me.rename(columns={"mortality_me_manual": "model_predictions"}, inplace=True)
 
 # Neonatal predictions
 # df_neo = pd.read_parquet(RESULTS_PATH + "neonatal/neonatal_mortality_1_mo.parquet")
 df_neo = pd.read_parquet(
-    RESULTS_PATH + "neonatal/neonatal_mortality_subset_05pct_model_do30.parquet"
+    RESULTS_PATH + "neonatal/neonatal_mortality_subset_100pct_model_do30.parquet"
 )
+
+# Fixed effects model results
+df_neo_fe = df_neo.copy()
+df_neo_fe.rename(columns={"mortality_fe_manual": "model_predictions"}, inplace=True)
+
+# Mixed effects model results
+df_neo_me = df_neo.copy()
+df_neo_me.rename(columns={"mortality_me_manual": "model_predictions"}, inplace=True)
 
 
 ## CONSTANTS
@@ -221,15 +234,15 @@ plt.savefig(os.path.join(PLOT_PATH, f"child_mortality_by_age_month_exploded_10_1
 plt.close()
 
 # save neonatal raw data
-neonatal = df_exploded[df_exploded["age_month"] == 1]
-neonatal.to_parquet(
-    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/neonatal.parquet"
-)
+# neonatal = df_exploded[df_exploded["age_month"] == 1]
+# neonatal.to_parquet(
+#     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/neonatal.parquet"
+# )
 
 # or read it in
-# neonatal = pd.read_parquet(
-#     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/neonatal.parquet"
-# )
+neonatal = pd.read_parquet(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/neonatal.parquet"
+)
 
 # Get individuals in surveys by year
 # get unique individuals per year
@@ -273,13 +286,140 @@ plt.close()
 # Make side-by-side scatters for overall data (on left) vs neonatal (on right)
 
 # scatter vars: consumption, mean_temperature, days_over_30C, sex_id, ihme_loc_id, int_year
-df_group = (
-    df.groupby(["nid", "psu", "hh_id", "int_year"])[["child_mortality", "consumption"]]
-    .mean()
+
+# differences between me and fe
+px.scatter(df_model, x="mortality_me_manual", y="mortality_fe_manual")
+px.scatter(
+    df_model,
+    x="mortality_me_manual",
+    y="mortality_fe_manual",
+    color="days_over_30C",
+    color_continuous_scale=["white", "orange", "darkred"],
+    labels={"days_over_30C": "Days > 30°C"},
+    title="Mortality: Mixed vs Fixed Effects Colored by Days Over 30°C",
+)
+
+# by sex
+px.scatter(
+    df_model,
+    x="mortality_me_manual",
+    y="days_over_30C",
+    color="sex_id",
+    labels={"sex_id": "Sex"},
+)
+# by location
+px.scatter(
+    df_model,
+    x="mortality_me_manual",
+    y="days_over_30C",
+    color="ihme_loc_id",
+)
+px.scatter(df_model, x="mortality_fe_manual", y="days_over_30C")
+
+px.scatter(df_model, x="mortality_me_manual", y="mean_temperature")
+px.scatter(df_model, x="mortality_fe_manual", y="mean_temperature")
+px.scatter(df_model, x="mortality_me_manual", y="consumption")
+px.scatter(df_model, x="mortality_fe_manual", y="consumption")
+
+# color actual mortality
+px.scatter(
+    df_model,
+    x="mortality_me_manual",
+    y="days_over_30C",
+    color="child_mortality",
+    color_continuous_scale=["green", "red"],
+    labels={"child_mortality": "Child Mortality"},
+)
+
+
+columns_to_corr = [
+    "mean_temperature",
+    "total_precipitation",
+    "relative_humidity",
+    "precipitation_days",
+    "days_over_30C",
+    "days_over_26C",
+]
+
+
+df_loc_group = (
+    df_model.groupby("ihme_loc_id")
+    .agg(
+        {
+            "child_mortality": "mean",
+            "mortality_me_manual": "mean",
+            "mortality_fe_manual": "mean",
+            "days_over_30C": "mean",
+            "mean_temperature": "mean",
+            "total_precipitation": "mean",
+            "relative_humidity": "mean",
+            "mean_high_temperature": "mean",
+            "mean_low_temperature": "mean",
+            "precipitation_days": "mean",
+            "days_over_26C": "mean",
+            "consumption": "mean",
+        }
+    )
     .reset_index()
 )
-px.scatter(df_group, x="consumption", y="child_mortality")
 
+px.scatter(
+    df_loc_group, x="child_mortality", y="mortality_me_manual", color="ihme_loc_id"
+)
+px.scatter(
+    df_loc_group, x="child_mortality", y="mortality_fe_manual", color="ihme_loc_id"
+)
+# days over 30
+px.scatter(df_loc_group, x="child_mortality", y="days_over_30C", color="ihme_loc_id")
+px.scatter(
+    df_loc_group, x="mortality_me_manual", y="days_over_30C", color="ihme_loc_id"
+)
+px.scatter(
+    df_loc_group, x="mortality_fe_manual", y="days_over_30C", color="ihme_loc_id"
+)
+# mean temp
+px.scatter(df_loc_group, x="child_mortality", y="mean_temperature", color="ihme_loc_id")
+px.scatter(
+    df_loc_group, x="mortality_me_manual", y="mean_temperature", color="ihme_loc_id"
+)
+px.scatter(
+    df_loc_group, x="mortality_fe_manual", y="mean_temperature", color="ihme_loc_id"
+)
+# consumption
+px.scatter(df_loc_group, x="child_mortality", y="consumption", color="ihme_loc_id")
+px.scatter(df_loc_group, x="mortality_me_manual", y="consumption", color="ihme_loc_id")
+px.scatter(df_loc_group, x="mortality_fe_manual", y="consumption", color="ihme_loc_id")
+
+# group by age-month
+df_age_group = (
+    df_model.groupby("age_month")
+    .agg(
+        {
+            "child_mortality": "mean",
+            "mortality_me_manual": "mean",
+            "mortality_fe_manual": "mean",
+            "days_over_30C": "mean",
+            "mean_temperature": "mean",
+            "total_precipitation": "mean",
+            "relative_humidity": "mean",
+            "mean_high_temperature": "mean",
+            "mean_low_temperature": "mean",
+            "precipitation_days": "mean",
+            "days_over_26C": "mean",
+            "consumption": "mean",
+        }
+    )
+    .reset_index()
+)
+px.scatter(df_age_group, y="child_mortality", x="age_month")
+px.scatter(df_age_group, y="mortality_me_manual", x="age_month")
+px.scatter(df_age_group, y="mortality_fe_manual", x="age_month")
+px.scatter(
+    df_age_group, x="child_mortality", y="mortality_me_manual", color="age_month"
+)
+px.scatter(
+    df_age_group, x="child_mortality", y="mortality_fe_manual", color="age_month"
+)
 
 ## MAKE SIDE-BY-SIDE HEATMAPS TOGETHER
 
@@ -289,7 +429,11 @@ px.scatter(df_group, x="consumption", y="child_mortality")
 # try new version of mortality: age_month/60 as a weight for numerator
 # df["time_alived_weight"] = df["age_month"] / 60
 # df["child_mortality_scaled"] = df["child_mortality"] * df["time_alived_weight"]
-df["child_mortality_scaled"] = (60 - df["age_month"]) / 60
+
+# df = df_model.copy()
+df["child_mortality_scaled"] = 1 - (df["age_month"] / 60)  # 60 months = 5 years
+df["child_mortality_scaled"] *= df["child_mortality"]  # 0 if alive, 1 if died
+# df.drop(columns=["mortality_me_manual", "mortality_fe_manual"], inplace=True)
 
 raw_heatmap_df = df.copy()
 for col in columns_to_bin:
@@ -357,7 +501,7 @@ plot_heat_map(
             "child_mortality_scaled": "model_predictions",
         }
     ),
-    outfile="raw_heatmap_child_mortality_10_16_2",
+    outfile="raw_heatmap_child_mortality_10_16_6",
     title="Raw Data Child Mortality",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -367,8 +511,8 @@ plot_heat_map(
 # plot fe model heatmaps with consistent color scale
 plot_heat_map(
     data=df_model_fe.copy(),
-    outfile="fe_25pc_do30_heatmap_child_mortality_10_16_scaled",
-    title="Modeled (25% of individuals) Child Mortality without Random Effects",
+    outfile="fe_100pc_do30_heatmap_child_mortality",
+    title="Modeled Child Mortality without Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
     vmin=vmin,
@@ -376,9 +520,9 @@ plot_heat_map(
 )
 # plot me model heatmaps with consistent color scale
 plot_heat_map(
-    data=df_model_me,
-    outfile="me_25pc_do30_heatmap_child_mortality_10_16_scaled",
-    title="Modeled (25% of individuals) Child Mortality with Random Effects",
+    data=df_model_me.copy(),
+    outfile="me_100pc_do30_heatmap_child_mortality",
+    title="Modeled Child Mortality with Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
     vmin=vmin,
@@ -386,37 +530,40 @@ plot_heat_map(
 )
 
 ## Neonatal
-
-# get neonatal raw data
-df_neo_raw = neonatal.copy()
-
-# Plot neonatal predictions
-df_neo = df_neo.rename(columns={"mortality_1_mo": "model_predictions"})
-
+neonatal.rename(columns={"ldipc_weighted_no_match": "consumption"}, inplace=True)
 
 # get min and max values for color scale consistency across plots
 # df_non_neo = df[df["age_month"] > 0]
-raw_heatmap_df = df_neo_raw.copy()
+raw_heatmap_df = neonatal.copy()
 # raw_heatmap_df = df_exploded[df_exploded["age_month"] == 1]
 for col in columns_to_bin:
     raw_heatmap_df[f"{col}_bin"] = pd.qcut(
         raw_heatmap_df[col], 10, retbins=False, duplicates="drop"
     )
 raw_heatmap_df["consumption"], ldi_bins = pd.qcut(
-    raw_heatmap_df.consumption, 10, retbins=True
+    raw_heatmap_df.consumption, 10, retbins=True, duplicates="drop"
 )
 
-me_heatmap_df = df_neo.copy()
+me_heatmap_df = df_neo_me.copy()
 for col in columns_to_bin:
     me_heatmap_df[f"{col}_bin"] = pd.qcut(
         me_heatmap_df[col], 10, retbins=False, duplicates="drop"
     )
 me_heatmap_df["consumption"], ldi_bins = pd.qcut(
-    me_heatmap_df.consumption, 10, retbins=True
+    me_heatmap_df.consumption, 10, retbins=True, duplicates="drop"
+)
+
+fe_heatmap_df = df_neo_fe.copy()
+for col in columns_to_bin:
+    fe_heatmap_df[f"{col}_bin"] = pd.qcut(
+        fe_heatmap_df[col], 10, retbins=False, duplicates="drop"
+    )
+fe_heatmap_df["consumption"], ldi_bins = pd.qcut(
+    fe_heatmap_df.consumption, 10, retbins=True, duplicates="drop"
 )
 
 all_values = []
-for data in [raw_heatmap_df, me_heatmap_df]:
+for data in [raw_heatmap_df, me_heatmap_df, fe_heatmap_df]:
     for col in columns_to_bin:
         if "model_predictions" in data.columns:
             append_val = (
@@ -424,7 +571,7 @@ for data in [raw_heatmap_df, me_heatmap_df]:
                 .mean()
                 .values
             )
-            # print(append_val)
+            print(append_val)
             all_values.append(append_val)
         elif "child_mortality" in data.columns:
             append_val = (
@@ -440,12 +587,12 @@ vmin = all_values.min()
 vmax = all_values.max()
 
 plot_heat_map(
-    data=df_neo_raw.rename(
+    data=neonatal.rename(
         columns={
             "child_mortality": "model_predictions",
         }
     ),
-    outfile="raw_heatmap_neonatal_child_mortality_10_15",
+    outfile="raw_heatmap_neonatal_child_mortality_10_17",
     title="Raw Data Neonatal Child Mortality",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -454,15 +601,24 @@ plot_heat_map(
 )
 
 plot_heat_map(
-    data=df_neo,
-    outfile="neo_heatmap_child_mortality_25pc_do30_10_15",
-    title="Neonatal Modeled Child Mortality",
+    data=df_neo_fe.copy(),
+    outfile="neo_heatmap_child_mortality_100pc_do30_fe_10_17",
+    title="Neonatal Modeled Child Mortality (without random effects)",
     bin_cols=columns_to_bin,
     format=".3f",
     vmin=vmin,
     vmax=vmax,
 )
 
+plot_heat_map(
+    data=df_neo_me.copy(),
+    outfile="neo_heatmap_child_mortality_100pc_do30_me_10_17",
+    title="Neonatal Modeled Child Mortality (with random effects)",
+    bin_cols=columns_to_bin,
+    format=".3f",
+    vmin=vmin,
+    vmax=vmax,
+)
 
 ## Explore raw data
 df_raw = pd.read_parquet(
@@ -504,4 +660,155 @@ months = agg_age["age_month"].values
 ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: format(int(x), ",")))
 plt.tight_layout()
 plt.savefig(os.path.join(PLOT_PATH, f"unique_indv_children_per_age_month_raw_data.png"))
+plt.close()
+
+## Plot predictions by country, me and fe, in bar charts
+# Calculate mean predictions by country
+country_preds = (
+    df_model.groupby("ihme_loc_id")
+    .agg({"mortality_fe_manual": "mean", "mortality_me_manual": "mean"})
+    .reset_index()
+)
+
+# Sort by mixed effects prediction for better visualization
+country_preds = country_preds.sort_values("mortality_me_manual", ascending=False)
+# country_preds[['mortality_fe_manual', 'mortality_me_manual']]
+# Create figure
+fig, ax = plt.subplots(figsize=(20, 8))
+
+# Set up bar positions
+x = np.arange(len(country_preds))
+width = 0.35
+
+# Create bars
+bars1 = ax.bar(
+    x - width / 2,
+    country_preds["mortality_fe_manual"],
+    width,
+    label="Fixed Effects",
+    color="skyblue",
+    alpha=0.8,
+)
+bars2 = ax.bar(
+    x + width / 2,
+    country_preds["mortality_me_manual"],
+    width,
+    label="Mixed Effects (with frailty)",
+    color="coral",
+    alpha=0.8,
+)
+
+# Customize plot
+ax.set_xlabel("Country (ihme_loc_id)", fontsize=14)
+ax.set_ylabel("Average Mortality Probability", fontsize=14)
+ax.set_title(
+    "Comparison of Fixed Effects vs Mixed Effects Predictions by Country", fontsize=16
+)
+ax.set_xticks(x)
+ax.set_xticklabels(country_preds["ihme_loc_id"], rotation=90, ha="right", fontsize=8)
+ax.legend(fontsize=12)
+ax.yaxis.set_major_formatter(mticker.PercentFormatter(1.0))
+
+# Add grid for easier reading
+ax.grid(axis="y", alpha=0.3, linestyle="--")
+
+plt.tight_layout()
+plt.savefig(os.path.join(PLOT_PATH, "fe_vs_me_predictions_by_country.png"), dpi=300)
+plt.close()
+
+## Plot scatterplot between two predictions
+plt.figure(figsize=(10, 8))
+sns.scatterplot(
+    data=country_preds,
+    x="mortality_fe_manual",
+    y="mortality_me_manual",
+    hue="ihme_loc_id",
+    s=100,
+    palette="tab20",
+)
+plt.plot([0, 0.2], [0, 0.2], color="gray", linestyle="--")  # 45-degree line
+plt.xlabel("Fixed Effects Prediction", fontsize=14)
+plt.ylabel("Mixed Effects Prediction", fontsize=14)
+plt.title("Scatterplot of Fixed vs Mixed Effects Predictions by Country", fontsize=16)
+plt.xlim(
+    0, country_preds[["mortality_fe_manual", "mortality_me_manual"]].max().max() * 1.1
+)
+plt.ylim(
+    0, country_preds[["mortality_fe_manual", "mortality_me_manual"]].max().max() * 1.1
+)
+plt.gca().xaxis.set_major_formatter(mticker.PercentFormatter(1.0))
+plt.gca().yaxis.set_major_formatter(mticker.PercentFormatter(1.0))
+plt.legend(
+    title="Country (ihme_loc_id)",
+    bbox_to_anchor=(1.05, 1),
+    loc="upper left",
+    fontsize=8,
+)
+plt.tight_layout()
+plt.savefig(
+    os.path.join(PLOT_PATH, "fe_vs_me_predictions_scatter_by_country.png"), dpi=300
+)
+plt.close()
+
+## Plot scatterplot between two predictions for full dataset
+plt.figure(figsize=(10, 8))
+sns.scatterplot(
+    data=df_model,
+    x="mortality_fe_manual",
+    y="mortality_me_manual",
+    hue="ihme_loc_id",
+    s=20,
+    alpha=0.5,
+    palette="tab20",
+)
+plt.plot([0, 0.2], [0, 0.2], color="gray", linestyle="--")  # 45-degree line
+plt.xlabel("Fixed Effects Prediction", fontsize=14)
+plt.ylabel("Mixed Effects Prediction", fontsize=14)
+plt.title(
+    "Scatterplot of Fixed vs Mixed Effects Predictions for Individuals", fontsize=16
+)
+plt.xlim(0, df_model[["mortality_fe_manual", "mortality_me_manual"]].max().max() * 1.1)
+plt.ylim(0, df_model[["mortality_fe_manual", "mortality_me_manual"]].max().max() * 1.1)
+plt.gca().xaxis.set_major_formatter(mticker.PercentFormatter(1.0))
+plt.gca().yaxis.set_major_formatter(mticker.PercentFormatter(1.0))
+plt.tight_layout()
+plt.savefig(
+    os.path.join(PLOT_PATH, "fe_vs_me_predictions_scatter_for_individuals.png"), dpi=300
+)
+plt.close()
+
+## Get correlation between country effects and days over 30
+cntry_effects = pd.read_csv(
+    RESULTS_PATH + "model_summaries/frailty_estimates_subset_05pct_model_do30.csv"
+)
+df_do30 = df_model.groupby("ihme_loc_id")["days_over_30C"].mean().reset_index()
+cntry_effects = cntry_effects.merge(df_do30, on="ihme_loc_id", how="left")
+cntry_effects.rename(columns={"frailty": "country_frailty"}, inplace=True)
+cntry_effects = pd.DataFrame(cntry_effects)
+# scatter
+plt.figure(figsize=(10, 8))
+sns.scatterplot(
+    data=cntry_effects,
+    x="days_over_30C",
+    y="country_frailty",
+    hue="ihme_loc_id",
+    s=100,
+    palette="tab20",
+)
+plt.xlabel("Average Days Over 30C", fontsize=14)
+plt.ylabel("Country Frailty Estimate", fontsize=14)
+plt.title(
+    "Scatterplot of Country Frailty vs Average Days Over 30C by Country", fontsize=16
+)
+# plt.gca().yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: format(int(x), ",")))
+plt.legend(
+    title="Country (ihme_loc_id)",
+    bbox_to_anchor=(1.05, 1),
+    loc="upper left",
+    fontsize=8,
+)
+plt.tight_layout()
+plt.savefig(
+    os.path.join(PLOT_PATH, "country_frailty_vs_days_over_30C_scatter.png"), dpi=300
+)
 plt.close()

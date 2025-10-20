@@ -39,8 +39,8 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-sample_percent <- 1.0
-summary_file <- "subset_100pct_model_do30"
+sample_percent <- 0.5
+summary_file <- "subset_50pct_model_do30"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
@@ -117,8 +117,6 @@ setnames(neo_df,old="ldipc_weighted_no_match",new="consumption")
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
 
-# tmp override: 
-df_sample <- df_model
 
 # fit baseline model with days_over_30C
 model <- emfrail(Surv(age_month, child_mortality) ~ consumption + 

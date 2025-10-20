@@ -69,14 +69,15 @@ neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"
 
 ## Read in and print model summaries from successful runs:
 
+# 10/17 - using manual me and fe predictions
 
 # 10/16 10% model on latest data update with all survivors coded at 60 months
-model_name <- "subset_10pct_model_do30"
-model <- readRDS(paste0(results_dir,model_name,".rds"))
-model_pred <- fread(paste0(results_dir,"predictions_",model_name,".csv"))
-
-frailty_effects <- model$frail
-print(frailty_effects)
+# model_name <- "subset_10pct_model_do30"
+# model <- readRDS(paste0(results_dir,model_name,".rds"))
+# model_pred <- fread(paste0(results_dir,"predictions_",model_name,".csv"))
+# 
+# frailty_effects <- model$frail
+# print(frailty_effects)
 
 
 # 10/15 - Collapsing data to have average climate vars per child, 25%

@@ -38,11 +38,11 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
-sample_percent <- 0.25
+sample_percent <- 0.5
 num_folds <- 10
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_08.01/data.parquet"
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_08.01/"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/data.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
 folds_dir <- paste0(results_dir,"folds/")
 folds_data_subdir <- paste0(folds_dir,"data_subsets/")
 folds_results_subdir <- paste0(folds_dir,"folds_results/")
@@ -59,7 +59,6 @@ df <- data.table(df)
 #==============================================================================
 # SECTION 2: GET SAMPLE AND MAKE FOLDS
 #==============================================================================
-
 
 # Sample data, keeping all observations for any sampled individual child, and 
 # balancing countries
