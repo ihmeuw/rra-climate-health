@@ -39,14 +39,14 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-sample_percent <- 1.0
-summary_file <- "subset_100pct_model_do30"
+sample_percent <- 0.5
+summary_file <- "subset_50pct_model_do30"
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/data.parquet"
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_18.01/data.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_18.01/"
 # cov_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/covariates/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/neonatal.parquet"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_18.01/neonatal_data.parquet"
 
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -118,7 +118,7 @@ setnames(neo_df,old="ldipc_weighted_no_match",new="consumption")
 #==============================================================================
 
 # tmp override: 
-df_sample <- df_model
+# df_sample <- df_model
 
 # fit baseline model with days_over_30C
 model <- emfrail(Surv(age_month, child_mortality) ~ consumption + 
@@ -204,28 +204,28 @@ df_sample$cumhaz_baseline <- sapply(df_sample$age_month, function(t) {
 # MANUAL PREDICTION WITH RANDOM EFFECTS (Mixed Effects)
 # Formula: H(t|X,Z) = Z * H0(t) * exp(X'β)
 # where Z is the frailty for that cluster
-df_sample$cumhaz_me_manual <- df_sample$frailty * 
+df_sample$cumhaz_me <- df_sample$frailty * 
   df_sample$cumhaz_baseline * 
   exp(df_sample$linear_pred)
 
 # Survival probability = exp(-cumulative hazard)
-df_sample$survival_me_manual <- exp(-df_sample$cumhaz_me_manual)
+df_sample$survival_me <- exp(-df_sample$cumhaz_me)
 
 # Mortality probability = 1 - survival
-df_sample$mortality_me_manual <- 1 - df_sample$survival_me_manual
+df_sample$mortality_me <- 1 - df_sample$survival_me
 
 
 # MANUAL PREDICTION WITHOUT RANDOM EFFECTS (Fixed Effects Only)
 # Formula: H(t|X) = H0(t) * exp(X'β)
 # Equivalent to setting frailty Z = 1 (or E[Z] = 1)
-df_sample$cumhaz_fe_manual <- df_sample$cumhaz_baseline * 
+df_sample$cumhaz_fe <- df_sample$cumhaz_baseline * 
   exp(df_sample$linear_pred)
 
 # Survival probability = exp(-cumulative hazard)
-df_sample$survival_fe_manual <- exp(-df_sample$cumhaz_fe_manual)
+df_sample$survival_fe <- exp(-df_sample$cumhaz_fe)
 
 # Mortality probability = 1 - survival
-df_sample$mortality_fe_manual <- 1 - df_sample$survival_fe_manual
+df_sample$mortality_fe <- 1 - df_sample$survival_fe
 
 ## Predict mixed effects and fixed effects using package predict function
 
@@ -269,7 +269,6 @@ print("Getting 1 month predictions")
 
 ## Predict mixed effects and fixed effects manually
 
-
 # Merge frailty estimates with neonatal data
 neo_df <- merge(neo_df, frailty_df, by = "ihme_loc_id", all.x = TRUE)
 
@@ -287,12 +286,12 @@ cumhaz_baseline_1mo <- get_cumhaz_baseline(time_1mo, baseline_hazard)
 # MANUAL PREDICTION WITH RANDOM EFFECTS (Mixed Effects)
 neo_df$cumhaz_me_1mo <- neo_df$frailty * cumhaz_baseline_1mo * exp(neo_df$linear_pred)
 neo_df$survival_me_1mo <- exp(-neo_df$cumhaz_me_1mo)
-neo_df$mortality_me_manual <- 1 - neo_df$survival_me_1mo
+neo_df$mortality_me <- 1 - neo_df$survival_me_1mo
 
 # MANUAL PREDICTION WITHOUT RANDOM EFFECTS (Fixed Effects Only)
 neo_df$cumhaz_fe_1mo <- cumhaz_baseline_1mo * exp(neo_df$linear_pred)
 neo_df$survival_fe_1mo <- exp(-neo_df$cumhaz_fe_1mo)
-neo_df$mortality_fe_manual <- 1 - neo_df$survival_fe_1mo
+neo_df$mortality_fe <- 1 - neo_df$survival_fe_1mo
 
 
 ## Predict mixed effects and fixed effects using package predict function

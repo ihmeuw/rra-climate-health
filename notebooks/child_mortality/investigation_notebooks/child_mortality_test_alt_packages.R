@@ -24,8 +24,10 @@ if (Sys.info()["sysname"] == "Linux") {
   l <- "L:/"
 }
 
+# install.packages('coxme',lib = "/homes/elyeb/rlibs") # for survival analysis with mixed effects
 # install.packages('frailtyEM',lib = "/homes/elyeb/rlibs") # able to handle mixed effects and predict on new data
 library(frailtyEM,lib.loc = "/homes/elyeb/rlibs")
+library(coxme,lib.loc = "/homes/elyeb/rlibs") 
 library(data.table)
 library(caret) # for createFolds function
 library(dplyr) # for anti_join function
@@ -39,11 +41,13 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-sample_percent <- 0.5
-summary_file <- "subset_50pct_model_do30"
+sample_percent <- 0.05
+summary_file <- "subset_0.05pct_model_do30"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
+plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_16.01/"
+
 # cov_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/covariates/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/neonatal.parquet"
@@ -117,15 +121,138 @@ setnames(neo_df,old="ldipc_weighted_no_match",new="consumption")
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
 
+# fit test of coxme package:
+## Simple model to test coxme library
+coxme_model <- coxme(Surv(age_month, child_mortality) ~ consumption + 
+                       days_over_30C + 
+                       sex_id + 
+                       (1|ihme_loc_id), data = df_sample)
+summary(coxme_model)
+
+model <- coxme_model
+# Extract frailty estimates for each cluster (ihme_loc_id)
+frailty_effects <- coxme_model$frail[[1]]
+
+# Create frailty lookup data frame
+frailty_df <- data.frame(
+  ihme_loc_id = names(frailty_effects),
+  frailty = as.numeric(frailty_effects)
+)
+
+setorder(frailty_df,frailty)
+
+ranef(coxme_model)
+
+# save model parameters for future use:
+saveRDS(model, file = paste0(results_dir, summary_file,".rds"))
+
+# save model summary:
+summary_file_path <- paste0(model_summary_dir, summary_file, ".txt")
+capture.output(summary(model), file = summary_file_path)
+# Append frailty estimates
+cat("\n\n", file = summary_file_path, append = TRUE)
+cat("================================================================================\n", 
+    file = summary_file_path, append = TRUE)
+cat("CLUSTER-SPECIFIC FRAILTY ESTIMATES (RANDOM EFFECTS)\n", 
+    file = summary_file_path, append = TRUE)
+cat("================================================================================\n\n", 
+    file = summary_file_path, append = TRUE)
+frailty_output <- capture.output(print(frailty_df, row.names = FALSE))
+cat(paste(frailty_output, collapse = "\n"), file = summary_file_path, append = TRUE)
+# Also save frailty estimates as a separate CSV for easier access
+write.csv(frailty_df, paste0(model_summary_dir, "frailty_estimates_", summary_file, ".csv"), 
+          row.names = FALSE)
+
+## Predict mixed effects and fixed effects manually
+
+# Extract fixed effect coefficients
+coefs <- coef(model)
+beta_consumption <- coefs["consumption"]
+beta_days_over_30C <- coefs["days_over_30C"]
+beta_sex_female <- coefs["sex_idFemale"]
+
+vcoef(model)
+model$vcoef
+
+# Extract baseline hazard - Note this is only as long as unique months in which
+# someone died.
+baseline_hazard <- model$hazard  # This contains time and cumulative baseline hazard
+baseline_hazard <- data.frame(
+  time = model$tev,
+  hazard = baseline_hazard
+)
+
+baseline_hazard <- baseline_hazard[order(baseline_hazard$time), ]
+baseline_hazard$cumhazard <- cumsum(baseline_hazard$hazard)
+
+# Merge frailty estimates on data
+# df_sample <- df_model
+df_sample <- merge(df_sample, frailty_df, by = "ihme_loc_id", all.x = TRUE)
+
+# Calculate linear predictor (fixed effects only)
+df_sample$linear_pred <- (
+  beta_consumption * df_sample$consumption +
+    beta_days_over_30C * df_sample$days_over_30C +
+    beta_sex_female * (df_sample$sex_id == "Female")
+)
+
+# Function to get cumulative baseline hazard at a given time
+get_cumhaz_baseline <- function(time, basehaz_df) {
+  if (time <= 0) return(0)
+  idx <- max(which(basehaz_df$time <= time))
+  if (length(idx) == 0 || idx == 0) return(0)
+  return(basehaz_df$cumhazard[idx])
+}
+
+# Calculate cumulative baseline hazard at each observation time
+df_sample$cumhaz_baseline <- sapply(df_sample$age_month, function(t) {
+  get_cumhaz_baseline(t, baseline_hazard)
+})
+
+# MANUAL PREDICTION WITH RANDOM EFFECTS (Mixed Effects)
+# Formula: H(t|X,Z) = Z * H0(t) * exp(X'β)
+# where Z is the frailty for that cluster
+df_sample$cumhaz_me_manual <- df_sample$frailty * 
+  df_sample$cumhaz_baseline * 
+  exp(df_sample$linear_pred)
+
+# Survival probability = exp(-cumulative hazard)
+df_sample$survival_me_manual <- exp(-df_sample$cumhaz_me_manual)
+
+# Mortality probability = 1 - survival
+df_sample$mortality_me_manual <- 1 - df_sample$survival_me_manual
+
+
+# MANUAL PREDICTION WITHOUT RANDOM EFFECTS (Fixed Effects Only)
+# Formula: H(t|X) = H0(t) * exp(X'β)
+# Equivalent to setting frailty Z = 1 (or E[Z] = 1)
+df_sample$cumhaz_fe_manual <- df_sample$cumhaz_baseline * 
+  exp(df_sample$linear_pred)
+
+# Survival probability = exp(-cumulative hazard)
+df_sample$survival_fe_manual <- exp(-df_sample$cumhaz_fe_manual)
+
+# Mortality probability = 1 - survival
+df_sample$mortality_fe_manual <- 1 - df_sample$survival_fe_manual
+
+
+### FRAILTYEM
+
+# test: df_sample all under 60 months
+# df_sample <- df_sample[age_month<60]
 
 # fit baseline model with days_over_30C
-model <- emfrail(Surv(age_month, child_mortality) ~ consumption + 
+frailty_model <- emfrail(Surv(age_month, child_mortality) ~ consumption + 
                    # mean_temperature + 
                    days_over_30C + 
                    sex_id + 
                    survival::cluster(ihme_loc_id), 
                  data = df_sample,
                  verbose = TRUE)
+summary(frailty_model)
+
+# or read in
+# model <- readRDS(paste0(results_dir,summary_file,".rds"))
 
 # Extract frailty estimates for each cluster (ihme_loc_id)
 frailty_effects <- model$frail
@@ -135,6 +262,8 @@ frailty_df <- data.frame(
   ihme_loc_id = names(frailty_effects),
   frailty = as.numeric(frailty_effects)
 )
+
+setorder(frailty_df,frailty)
 
 # save model parameters for future use:
 saveRDS(model, file = paste0(results_dir, summary_file,".rds"))
@@ -176,7 +305,11 @@ baseline_hazard <- data.frame(
   hazard = baseline_hazard
 )
 
+baseline_hazard <- baseline_hazard[order(baseline_hazard$time), ]
+baseline_hazard$cumhazard <- cumsum(baseline_hazard$hazard)
+
 # Merge frailty estimates on data
+# df_sample <- df_model
 df_sample <- merge(df_sample, frailty_df, by = "ihme_loc_id", all.x = TRUE)
 
 # Calculate linear predictor (fixed effects only)
@@ -191,7 +324,7 @@ get_cumhaz_baseline <- function(time, basehaz_df) {
   if (time <= 0) return(0)
   idx <- max(which(basehaz_df$time <= time))
   if (length(idx) == 0 || idx == 0) return(0)
-  return(basehaz_df$hazard[idx])
+  return(basehaz_df$cumhazard[idx])
 }
 
 # Calculate cumulative baseline hazard at each observation time
@@ -227,31 +360,77 @@ df_sample$mortality_fe_manual <- 1 - df_sample$survival_fe_manual
 
 ## Predict mixed effects and fixed effects using package predict function
 
-# # get predictions of model over same data set - with random effects
+# # # get predictions of model over same data set - with random effects
 # pred_surv <- predict(model, df_sample, quantity = "survival",type="conditional")
 # 
 # surv_at_obs_time <- sapply(seq_len(nrow(df_sample)), function(i) {
 #   surv_df <- pred_surv[[i]]
-#   obs_time <- df_sample$age_year_at_year_end[i]
+#   obs_time <- df_sample$age_month[i]
 #   idx <- max(which(surv_df$time <= obs_time))
 #   surv_df$survival[idx]
 # })
 # 
 # df_sample$mortality_me_auto <- 1-surv_at_obs_time
-# 
-# # get predictions of model over same data set - without random effects
+# # 
+# # # get predictions of model over same data set - without random effects
 # pred_surv <- predict(model, df_sample, quantity = "survival",type="marginal")
 # 
 # surv_at_obs_time <- sapply(seq_len(nrow(df_sample)), function(i) {
 #   surv_df <- pred_surv[[i]]
-#   obs_time <- df_sample$age_year_at_year_end[i]
+#   obs_time <- df_sample$age_month[i]
 #   idx <- max(which(surv_df$time <= obs_time))
 #   surv_df$survival[idx]
 # })
 # 
 # df_sample$mortality_fe_auto <- 1-surv_at_obs_time
+# 
+# print("model predictions done")
+# 
+# # diagnose differences:
+# 
+# # manual vs auto
+# ggplot(df_sample,aes(x=mortality_me_manual,y=mortality_me_auto))+
+#   geom_point()+
+#   ylim(0.0,0.06)+
+#   xlim(0.0,0.06)
+# # looks different. Upper bound for auto is ~0.04, but greater variation within 
+# # that range.
+# 
+# ggplot(df_sample,aes(x=mortality_fe_manual,y=mortality_fe_auto))+
+#   geom_point()+
+#   ylim(0.0,0.06)+
+#   xlim(0.0,0.06)
+# # mostly the same with a couple different from the auto
+# 
+# # me manual vs fe manual
+ggplot(df_sample, aes(x = mortality_me_manual, y = mortality_fe_manual))+
+  geom_point() 
+p <- ggplot(df_sample, aes(x = mortality_me_manual, y = mortality_fe_manual, color = days_over_30C)) +
+  geom_point() +
+  ylim(0.0, 0.06) +
+  xlim(0.0, 0.06) +
+  scale_color_gradientn(
+    colors = c("white", "orange", "darkred"),
+    name = "Days > 30°C"
+  ) +
+  theme_minimal()
+ggsave(paste0(plot_dir, "predictions_fe_vs_me_manual",summary_file,".png"), plot = p, width = 8, height = 10)
 
-print("model predictions done")
+library(dplyr)
+loc_residuals <- df_sample %>%
+  group_by(ihme_loc_id) %>%
+  summarise(
+    actual = mean(child_mortality),
+    predicted = mean(mortality_me_manual),
+    residual = actual - predicted,
+    n = n()
+  )
+
+# 
+# # me auto vs fe auto
+# ggplot(df_sample,aes(x=mortality_me_auto,y=mortality_fe_auto))+
+#   geom_point()
+# # exactly the same. Package implementation does not distinguish. 
 
 
 # save results

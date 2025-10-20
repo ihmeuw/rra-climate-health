@@ -431,8 +431,18 @@ px.scatter(
 # df["child_mortality_scaled"] = df["child_mortality"] * df["time_alived_weight"]
 
 # df = df_model.copy()
-df["child_mortality_scaled"] = 1 - (df["age_month"] / 60)  # 60 months = 5 years
-df["child_mortality_scaled"] *= df["child_mortality"]  # 0 if alive, 1 if died
+df["age_month_scaled"] = 1 - (df["age_month"] / 60)  # 60 months = 5 years
+df_model_fe["age_month_scaled"] = 1 - (df_model_fe["age_month"] / 60)
+df_model_me["age_month_scaled"] = 1 - (df_model_me["age_month"] / 60)
+df["child_mortality_scaled"] = (
+    df["child_mortality"] * df["age_month_scaled"]
+)  # 0 if alive, 1 if died
+df_model_fe["model_predictions_scaled"] = (
+    df_model_fe["model_predictions"] * df_model_fe["age_month_scaled"]
+)
+df_model_me["model_predictions_scaled"] = (
+    df_model_me["model_predictions"] * df_model_me["age_month_scaled"]
+)
 # df.drop(columns=["mortality_me_manual", "mortality_fe_manual"], inplace=True)
 
 raw_heatmap_df = df.copy()
@@ -465,9 +475,9 @@ me_heatmap_df["consumption"], ldi_bins = pd.qcut(
 all_values = []
 for data in [raw_heatmap_df, fe_heatmap_df, me_heatmap_df]:
     for col in columns_to_bin:
-        if "model_predictions" in data.columns:
+        if "model_predictions_scaled" in data.columns:
             vals = (
-                data.groupby(["consumption", f"{col}_bin"])["model_predictions"]
+                data.groupby(["consumption", f"{col}_bin"])["model_predictions_scaled"]
                 .mean()
                 .values
             )
@@ -481,14 +491,14 @@ for data in [raw_heatmap_df, fe_heatmap_df, me_heatmap_df]:
             )
             print(f"transformed: {vals}")
             all_values.append(vals)
-        elif "child_mortality" in data.columns:
-            vals = (
-                data.groupby(["consumption", f"{col}_bin"])["child_mortality"]
-                .mean()
-                .values
-            )
-            print(f"raw: {vals}")
-            all_values.append(vals)
+        # elif "child_mortality" in data.columns:
+        #     vals = (
+        #         data.groupby(["consumption", f"{col}_bin"])["child_mortality"]
+        #         .mean()
+        #         .values
+        #     )
+        #     print(f"raw: {vals}")
+        #     all_values.append(vals)
 
 all_values = np.concatenate(all_values)
 vmin = all_values.min()
@@ -501,7 +511,7 @@ plot_heat_map(
             "child_mortality_scaled": "model_predictions",
         }
     ),
-    outfile="raw_heatmap_child_mortality_10_16_6",
+    outfile="raw_heatmap_child_mortality_10_20",
     title="Raw Data Child Mortality",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -511,7 +521,7 @@ plot_heat_map(
 # plot fe model heatmaps with consistent color scale
 plot_heat_map(
     data=df_model_fe.copy(),
-    outfile="fe_100pc_do30_heatmap_child_mortality",
+    outfile="fe_100pc_do30_heatmap_child_mortality_10_20",
     title="Modeled Child Mortality without Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -521,7 +531,7 @@ plot_heat_map(
 # plot me model heatmaps with consistent color scale
 plot_heat_map(
     data=df_model_me.copy(),
-    outfile="me_100pc_do30_heatmap_child_mortality",
+    outfile="me_100pc_do30_heatmap_child_mortality_10_20",
     title="Modeled Child Mortality with Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
