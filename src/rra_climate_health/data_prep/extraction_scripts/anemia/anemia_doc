@@ -1,0 +1,13 @@
+Data Seeking Sources can be found in the Teams Sources List document.
+
+ 
+
+The team that extracts Anemia gave us finalized extractions with BRINDA variables and GPS information.  
+
+ 
+
+The extractions were compiled using compile_anemia_sources.R  
+
+Input: "/mnt/team/anemia/pub/anemia_envelope/rapid_response/" 
+
+Output:  "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/anemia/anemia_extracts_compiled_09_02_2025.parquet" 

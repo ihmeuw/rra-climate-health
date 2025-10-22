@@ -1,0 +1,186 @@
+Data Seeking sources can be found in the Teams Source List.
+
+
+Data Extraction Pipeline scripts: 
+
+ 
+
+1_compile_mortality_sources.R: This script compiles all of the mortality data with and without GPS ] into csvs. 
+
+2_reextraction_data_compile.R: This script cleans and compiles the re extracted data that was missing the interview year variable and geomatches the data to GPS information, saving to a parquet file. 
+
+3_compile_and_merge_GPS_sources.R: This script filters the mortality extractions and matches the GPS information to the data, both through the geocodebook function and GPS merge code, then binds all information, included the reextractions, into a final dataset. Saving to a parquet file. 
+
+
+#1_compile_mortality_sources.R: 
+
+Set up  
+
+Define the path to the old compiled data (compiled_old), a Parquet file). 
+
+Specify main input/output folders and a list of folders to exclude. 
+
+Set today’s date(today_date) for use in output filenames. 
+
+Compiled Old: "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/..." The old compiled file will be in this folder 
+
+ Input: "/mnt/team/demographics/priv/data/winnower/8/"   
+
+Output:"/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/"   
+
+Compile all the files  
+
+In the beginning, more folders were being processed, that's why there is the exclusion element. Only "dem_br" is included now. 
+
+Quality Checks 
+
+Check for new NIDs added: Compare NID values in the new combined data against the old compiled data to find any new NIDs. 
+
+Check for NIDs dropped: Identify NIDs present in the old data but missing in the new combined data. 
+
+ Save Output 
+
+
+#2_mortality_reextraction_data_compile.R 
+
+ 
+
+Set up 
+
+New Compiled data and old compile data can be found here :  "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/mort_reextractions/" 
+
+Before compiled into a parquet file, re-extractions from winnower were dta files and they were output to "/mnt/team/surge/pub/aserfe/mort_extract" 
+
+Re_extract_date : Always use today's date for output file. 
+
+Output: "mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/mort_rextractions/" 
+
+2. Data Hotfixes 
+
+Parent/Child NID Correction (NID 275090): 
+
+Update nid based on int_year to match correct child NIDs for GPS linkage (years 2003–2008). 
+
+3. Geocodebook 
+
+  Prefer to use MBG where point = 1, but in some cases SAE might be need to be vetted if MBG is missing or is attached to shapefile. 
+
+7. Quality Control 
+
+NIDs Added: Identify NIDs in the new extraction that are not in the old compiled data. 
+
+NIDs Dropped: Identify NIDs in the old data that are missing in the new extraction. 
+
+8. Output 
+
+Write the final merged dataset to Parquet, using the extraction date in the filename. 
+
+ Error Handling 
+
+Geocodebook overlap: Preference logic avoids double-counting and ensures best geospatial metadata per survey. 
+
+
+#3_compile_and_merge_GPS_sources.R 
+
+ 
+Setup  
+
+ Use today's date in today_date. 
+
+ Load new, old, and re-extracted survey data files. 
+
+input: "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/" 
+
+compiled_old: use the last dataset compiled here  
+
+reextracted: "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/mort_rextractions/FILE" 
+
+output:"/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/FILE"  
+
+Cleaning 
+
+Remove records corresponding to re-extracted NIDs from the main compiled dataset to avoid 
+
+Duplication. We will add them back at the end. 
+
+ Filter surveys likely to have GPS data based on known survey types (e.g., DHS, UNICEF_MICS, WHO, RHS) 
+
+  
+
+Geocodebook 
+
+  
+
+ Retrieve MBG (Model-Based Geostatistics) and SAE (Small Area Estimation) geocodebooks using NIDs present in the data. We prefer MBG for point data, but if unavailable see if it's in SAE. 
+
+ 
+
+For surveys with both MBG and SAE geocodebooks: 
+
+Prefer MBG if only point data is available or if MBG has specific administrative geomatching missing in SAE. 
+
+Prefer SAE otherwise. 
+
+Remove redundant geocodebook entries and combine into a single dataset. 
+
+ Merge compiled survey data with geocodebook data using NID, location, and geospatial identifiers. 
+
+  
+
+ Final Cleaning 
+
+Add back records for NIDs that required re-extractio 
+
+Manual GPS File Merging for surveys where there was GPS files, but either it was not in the codebook correctly or not in the database at all. 
+
+Remove surveys (by NID) that lack GPS information. 
+
+Remove NIDs with missing age-at-death (aod_months) for deceased children. 
+
+  
+
+Quality Assurance 
+
+ Summarize missingness of latitude and longitude per NID. 
+
+Identify and export surveys with 100% missing GPS data for further review, using Records + NID tool from GHDx: https://internal-ghdx.healthdata.org/records-files-by-nid/ 
+
+Filter out these surveys without GPS from final dataset. 
+
+ Identify and report NIDs added or dropped compared to the previous compiled file. 
+
+  
+
+Output 
+
+Export the cleaned and merged dataset to Parquet format. 
+
+  
+
+Dropped NIDS: 
+
+#21622 is dropped because demographics teams flagged it for being only child mortality 
+
+#358824 Peru Demographic and Family Health Survey 2017 - lat/long in codebook but not matching - trying to recreate the geospatial id in te geocodebook so it will match. 
+
+  
+
+##NIDS WITH NO GPS INFO -  
+
+# Look for GPS in file again - to double check, but probably not there 
+
+# 375362 Laos Multiple Indicator Cluster Survey 2017 
+
+# 427778 Lesotho Multiple Indicator Cluster Survey 2018 
+
+# 462027 Kosovo Multiple Indicator Cluster Survey 2019-2020 
+
+# 4779 Guatemala Reproductive Health Survey 2008-2009 
+
+# 487664 Fiji Multiple Indicator Cluster Survey 2021 
+
+# 490966 Honduras Multiple Indicator Cluster Survey 2019 
+
+# 505452 Nigeria Multiple Indicator Cluster Survey and National Immunization Coverage Survey 2021 
+
+# 165390 India District Level Household Survey 2012-2014 - vetted, and unable to match due to parsing of latitude and longitude degrees and min - that's why its a shapefile 

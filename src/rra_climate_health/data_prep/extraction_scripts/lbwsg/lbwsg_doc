@@ -1,0 +1,140 @@
+Data Seeking Sources can be found in the Teams Sources List document.
+
+
+compile_lbwsg_sources.R 
+
+  
+
+1. Setup 
+
+Change processing date (today_date). This is important for the quality checks.  
+
+J drive input:: "/mnt/team/nch/pub/lbwsg/gbd25_microdata_extractions/" 
+
+L drive input: "/ihme/limited_use/LIMITED_USE/LU_GBD/ubcov_extractions/lbwsga/2025_06_30/" 
+
+Re-extracts input: "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/lbwsg/re_extract/" 
+
+Output:'/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/lbwsg/'  
+
+ 
+
+#Change to your folder 
+
+output_folder <- '/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/lbwsg/'   
+
+Change date for last dataset in (compiled_old) 
+
+  
+
+2. Load Data 
+
+Read Survey Files: 
+
+ Read survey data from J:/, L:/, and the re_extract folder. 
+
+Exclude VR and Vital information data, subset to survey providers that we know have GPS information. 
+
+The re_extract folder was created when NCH team identified there were older surveys that needed to be re-extracted, 65 NIDS. 2 were dropped due to Winnower breaking, and empty rows in Winnmiill. 
+
+Combine all three data objects. 
+
+  
+
+Quality Checks 
+
+Make sure all NIDS from the re-extracted folder have made it into the pre-processed dataset before moving on. Re-extraction may be needed. 
+
+ Check that expected NIDs from LBWSG codebook are included. 
+
+Report any missing NIDs, which may require re-extraction. 
+
+ 
+
+Hot Fixes: 
+
+ Adjust specific NIDs for Peru surveys to match year-specific GPS data.(Parent to child NIDS) 
+
+  
+
+4. Geocodebook 
+
+  
+
+Load MBG geocodebook data (geo_mbg). 
+
+Optionally load SAE data, but prefer MBG if point data exists or has appropriate admin-level matches. 
+
+As a quick alternative to get around geocodebook function error happening, MBG data was downloaded from Geocodebook Database. Then, to make sure we weren't missing at lat/long from SAE – the final missing nids(bottom of script) were checked in the geocodebook database to identify missing lat/longs. None were found, SAE had shapefile information for those NIDS. 
+
+  
+
+Remove geocodebook entries without valid geographic info. 
+
+   
+
+5. Data Merge 
+
+ 
+
+Convert NIDs to character for consistency. 
+
+Merge survey data (compiled_dt) with geography data (sae_mbg_bind) on NID, country code, and geospatial ID. 
+
+Clean and rename columns for clarity. 
+
+  
+
+6. Special Handling for Missing GPS: 
+
+These surveys have GPS information, but that data is currently missing in database. So the temp. fix is to add them here: 
+
+ Tanzania (538795)  - missing GPS in database, merged to GPS file 
+
+ Bangladesh (527880) - missing GPS in database, merged to GPS file 
+
+Then, remove duplicate NIDs from main dataset before adding corrected rows. 
+
+  
+
+7. Final Dataset Assembly and Filtering 
+
+ 
+
+Combine all data into final, ensuring uniqueness. 
+
+Missing Latitude/Longitude: 
+
+Summarize missingness by NID 
+
+Go to GHDX Tools: https://internal-ghdx.healthdata.org/records-files-by-nid/ to identify surveys where there could be GPS data 
+
+ Remove surveys where lat/long is 100% missing.  
+
+ 
+
+Quality Checks: 
+
+Identify new and dropped NIDs compared to previous dataset. 
+
+Output summary table of surveys. 
+
+  
+
+Output 
+
+  Save the final dataset as a .parquet file   
+
+  
+
+Notes & Limitations 
+
+Excludes VR surveys due to missing geographic info. 
+
+Hot fixes are applied for specific NIDs (Peru, Tanzania, Bangladesh) to align data by year or correct GPS info. 
+
+Assumes access to external tools like geocodebook databases and GHDX Record + NID Tool for further missing data checks. 
+
+Commented code for SAE/MBG preference logic is left for future refinement. 
+
+Certain file paths and filenames must be filled in by the user. 
