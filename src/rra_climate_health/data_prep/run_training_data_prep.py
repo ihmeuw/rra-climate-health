@@ -1997,7 +1997,7 @@ def run_training_data_prep_child_mortality(
     df_climate["consumption"] = df_climate["ldipc_weighted_no_match"]
 
     # save out neonatal data set
-    df_neo = df_climate[df_climate["age_month"] == 0].copy()
+    df_neo = df_climate[df_climate["age_month"] == 1].copy()
     df_neo.to_parquet(Path(output_path_version) / "neonatal_data.parquet")
 
     # collapse by average climate var exposure for each child
