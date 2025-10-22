@@ -1574,7 +1574,9 @@ def plot_indvs_by_age_group(data):
     # Get individuals per age_month
     if "indv_id" not in data.columns:
         data = data.copy()
-        data["indv_id"] = data[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
+        data["indv_id"] = (
+            data[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
+        )
     agg_age = (
         data.groupby(["age_month"])["indv_id"]
         .nunique()
@@ -1585,7 +1587,9 @@ def plot_indvs_by_age_group(data):
     ax = agg_age.plot(x="age_month", y="unique_individuals", kind="bar", legend=False)
     plt.title("Unique Individuals per Age Month in Raw Data")
     months = agg_age["age_month"].values
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: format(int(x), ",")))
+    ax.yaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda x, p: format(int(x), ","))
+    )
     plt.tight_layout()
 
 
@@ -1773,12 +1777,17 @@ def run_training_data_prep_child_mortality(
     #     df_merged["int_year"] - df_merged["birth_year"]
     # ) + (df_merged["int_month"] - df_merged["birth_month"])
     # df_merged_backup = df_merged.copy()
-    # df_dropped = df_merged_backup.query("int_birth_year_diff_months > 60")
-    # df_merged = df_merged.query("int_birth_year_diff_months <= 60")  # 5 years
+    # df_dropped = df_merged_backup.query("int_birth_year_diff_months > 120")
+    # df_merged = df_merged.query("int_birth_year_diff_months <= 120")  # 10 years
     # logging.info(
     #     f"Dropped {before_rows - len(df_merged):,} rows, {before_nids - df_merged['nid'].nunique():,} nids for which int_year > birth_year + 5"
     # )
     # df_merged.drop(columns=["int_birth_year_diff_months"], inplace=True)
+
+    # Include difference between int_year and birth_year for sensitivity analysis
+    df_merged["int_birth_year_diff_months"] = 12 * (
+        df_merged["int_year"] - df_merged["birth_year"]
+    ) + (df_merged["int_month"] - df_merged["birth_month"])
 
     # Assign age group
     before_rows = len(df_merged)
@@ -1799,13 +1808,21 @@ def run_training_data_prep_child_mortality(
     # create list of years between birth year and year that the age_month lands on.
     df_merged["age_month"] = df_merged["age_month"].astype(int)
     df_merged["year_of_recorded_age"] = (
-        df_merged["birth_year"] * 12 + df_merged["birth_month"] + df_merged["age_month"]
+        df_merged["birth_year"] * 12
+        + df_merged["birth_month"]
+        + df_merged["age_month"]
+        - 1
     ) // 12
     df_merged["year_of_recorded_age"] = df_merged["year_of_recorded_age"].astype(int)
 
     # filter to up to 6 years to expand
     df_merged["years_to_expand"] = df_merged.apply(
-        lambda x: [y for y in range(x["birth_year"], min(x["year_of_recorded_age"] + 1, x["birth_year"] + 6))],
+        lambda x: [
+            y
+            for y in range(
+                x["birth_year"], min(x["year_of_recorded_age"] + 1, x["birth_year"] + 6)
+            )
+        ],
         axis=1,
     )
 
@@ -1822,7 +1839,9 @@ def run_training_data_prep_child_mortality(
     # For rows with age_month >59, set to 59. These are remainder months after 5 years,
     # but the 5 year cutoff was already implemented above when exploding to max 6 years.
     df_exploded.loc[df_exploded.age_month > 59, "age_month"] = 59
-    df_exploded.loc[df_exploded.age_month_at_year_end > 59, "age_month_at_year_end"] = 59
+    df_exploded.loc[df_exploded.age_month_at_year_end > 59, "age_month_at_year_end"] = (
+        59
+    )
 
     # override age_month
     df_exploded["age_month"] = df_exploded["age_month_at_year_end"]
@@ -1867,7 +1886,7 @@ def run_training_data_prep_child_mortality(
 
     def get_months_child_alive_in_year(row):
         """
-        Get the number of months child was alive in the int_year, to be used for 
+        Get the number of months child was alive in the int_year, to be used for
         taken weighted averages of climate vars.
         """
         int_year = row["int_year"]
@@ -1875,13 +1894,15 @@ def run_training_data_prep_child_mortality(
         birth_month = row["birth_month"]
         age_month = row["age_month"]
         # get num months alive in birth_year
-        remaining_months_in_birth_year = 12-birth_month + 1
-        if (age_month<=remaining_months_in_birth_year)&(birth_year==int_year):
+        remaining_months_in_birth_year = 12 - birth_month + 1
+        if (age_month <= remaining_months_in_birth_year) & (birth_year == int_year):
             return age_month
 
         else:
-            months_at_beginning_of_year = 12*(int_year - birth_year-1) + remaining_months_in_birth_year 
-            months_in_year = min(age_month - months_at_beginning_of_year,12)
+            months_at_beginning_of_year = (
+                12 * (int_year - birth_year - 1) + remaining_months_in_birth_year
+            )
+            months_in_year = min(age_month - months_at_beginning_of_year, 12)
             return months_in_year
 
     # Calculate number of months child alive for given year (to be used for taking
@@ -1890,12 +1911,16 @@ def run_training_data_prep_child_mortality(
         get_months_child_alive_in_year, axis=1
     )
 
-    df_exploded["years_child_alive_in_year"] = df_exploded["months_child_alive_in_year"] / 12
+    df_exploded["years_child_alive_in_year"] = (
+        df_exploded["months_child_alive_in_year"] / 12
+    )
 
     # remove rows with months_child_alive_in_year =0
     before_rows = len(df_exploded)
     df_exploded = df_exploded[df_exploded["months_child_alive_in_year"] > 0]
-    logging.info(f"Dropped {before_rows - len(df_exploded):,} rows with months_child_alive_in_year=0")
+    logging.info(
+        f"Dropped {before_rows - len(df_exploded):,} rows with months_child_alive_in_year=0"
+    )
 
     # for rows with child_alive==0, replace with child_alive=1 if int_year < year_of_recorded_age
     df_exploded["child_alive"] = df_exploded["child_alive"].astype(int)
@@ -1956,30 +1981,46 @@ def run_training_data_prep_child_mortality(
         index=False,
     )
 
-    # df_climate = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data.parquet")
-    
+    # df_climate = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_with_climate.parquet")
+
     # get unique invidiuals and clean variables
     df_climate["line_id"] = df_climate["line_id"].astype(int)
 
-    df_climate["indv_id"] = df_climate[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
+    df_climate["indv_id"] = (
+        df_climate[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
+    )
     logging.info(f"{df_climate['indv_id'].nunique():,} unique individuals in data")
 
     # flip child_alive so 1 = died, 0 = alive for easier interpretation
     df_climate["child_mortality"] = 1 - df_climate["child_alive"]
 
-    # df_climate.rename(columns={"ldipc_weighted_no_match": "consumption"}, inplace=True)
+    df_climate["consumption"] = df_climate["ldipc_weighted_no_match"]
+
+    # save out neonatal data set
+    df_neo = df_climate[df_climate["age_month"] == 0].copy()
+    df_neo.to_parquet(Path(output_path_version) / "neonatal_data.parquet")
 
     # collapse by average climate var exposure for each child
     climate_vars = [
-        'mean_temperature', 'days_over_30C', 'precipitation_days',
-       'total_precipitation', 'mean_low_temperature', 'mean_high_temperature',
-       'relative_humidity', 'days_over_26C', 'days_over_27C', 'days_over_28C',
-       'days_over_29C', 'days_over_31C', 'days_over_32C', 'days_over_33C',
-       'elevation'
+        "mean_temperature",
+        "days_over_30C",
+        "precipitation_days",
+        "total_precipitation",
+        "mean_low_temperature",
+        "mean_high_temperature",
+        "relative_humidity",
+        "days_over_26C",
+        "days_over_27C",
+        "days_over_28C",
+        "days_over_29C",
+        "days_over_31C",
+        "days_over_32C",
+        "days_over_33C",
+        "elevation",
     ]
 
     df_max_age = df_climate.copy()
-    
+
     # Get the index of the row with the max age_month_at_year_end for each indv_id
     df_max_age = (
         df_climate.sort_values("age_month")
@@ -1988,21 +2029,35 @@ def run_training_data_prep_child_mortality(
         .reset_index(drop=True)
     )
 
-    # For each climate variable, replace its value in df_max_age with the average 
+    # For each climate variable, replace its value in df_max_age with the average
     # for that indv_id. This should be weighted by 'years_child_alive_in_year'
-    def weighted_mean(group, value_cols, weight_col):
-        return pd.DataFrame({
-            col: np.average(group[col], weights=group[weight_col]) for col in value_cols
-        }, index=[group.name])
+    # def weighted_mean(group, value_cols, weight_col):
+    #     return pd.DataFrame({
+    #         col: np.average(group[col], weights=group[weight_col]) for col in value_cols
+    #     }, index=[group.name])
+    # weighted_climate_means = (
+    #     df_climate
+    #     .groupby("indv_id")
+    #     .apply(weighted_mean, value_cols=climate_vars, weight_col="years_child_alive_in_year")
+    #     .reset_index()
+    # )
+    def weighted_avg(group):
+        d = {}
+        w = group["years_child_alive_in_year"]
+        for col in climate_vars:
+            d[col] = np.average(group[col], weights=w)
+        return pd.Series(d)
+
     weighted_climate_means = (
-        df_climate
-        .groupby("indv_id")
-        .apply(weighted_mean, value_cols=climate_vars, weight_col="years_child_alive_in_year")
+        df_climate.groupby("indv_id", group_keys=False)
+        .apply(weighted_avg)
         .reset_index()
     )
-    # climate_means = df_climate.groupby("indv_id")[climate_vars].mean()
-    df_max_age = df_max_age.drop(columns=climate_vars).merge(weighted_climate_means, on="indv_id", how="left")
 
+    # climate_means = df_climate.groupby("indv_id")[climate_vars].mean()
+    df_max_age = df_max_age.drop(columns=climate_vars).merge(
+        weighted_climate_means, on="indv_id", how="left"
+    )
 
     # df_max_age.to_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data_avg_climate.parquet")
 
