@@ -39,8 +39,8 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-sample_percent <- 0.05
-summary_file <- "subset_05pct_model_do30"
+sample_percent <- 1.0
+summary_file <- "subset_100pct_model_no_interaction"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_22.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_22.01/"
@@ -124,7 +124,6 @@ setnames(neo_df,old="ldipc_weighted_no_match",new="consumption")
 # fit model with days_over_30C, days_over_30C*consumption, and birth_year
 model <- emfrail(Surv(age_month, child_mortality) ~ consumption + 
                    days_over_30C + 
-                   days_over_30C*consumption +
                    sex_id + 
                    birth_year + 
                    survival::cluster(ihme_loc_id), 
@@ -172,7 +171,6 @@ beta_consumption <- coefs["consumption"]
 beta_days_over_30C <- coefs["days_over_30C"]
 beta_sex_female <- coefs["sex_idFemale"]
 beta_birth_year <- coefs["birth_year"]
-beta_interaction <- coefs["consumption:days_over_30C"]
 
 
 # Extract baseline hazard - Note this is only as long as unique months in which
@@ -193,7 +191,6 @@ df_sample <- merge(df_sample, frailty_df, by = "ihme_loc_id", all.x = TRUE)
 df_sample$linear_pred <- (
   beta_consumption * df_sample$consumption +
     beta_days_over_30C * df_sample$days_over_30C +
-    beta_interaction * (df_sample$consumption * df_sample$days_over_30C) +
     beta_sex_female * (df_sample$sex_id == "Female")+
     beta_birth_year * (df_sample$birth_year)
 )

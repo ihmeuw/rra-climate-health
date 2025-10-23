@@ -1,5 +1,5 @@
 ################################################################################
-# DESCRIPTION: Script to run baseline model on child mortality on subset of data.
+# DESCRIPTION: Script to run baseline model on neonatal mortality data.
 # PROJECT: Climate nutrition
 # DATE: 2025-10-07
 ################################################################################
@@ -39,10 +39,9 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-sample_percent <- 0.05
-summary_file <- "subset_05pct_model_do30"
+summary_file <- "neonatal_v1"
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_22.01/data.parquet"
+
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_22.01/"
 # cov_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/covariates/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
@@ -55,19 +54,15 @@ dir.create(model_summary_dir, recursive = TRUE, showWarnings = FALSE)
 neonatal_dir <- paste0(results_dir,"neonatal/")
 dir.create(neonatal_dir, recursive = TRUE, showWarnings = FALSE)
 
+# Read in neonatal df (must be made from full dataset)
+neo_df <- read_parquet(neo_version)
+neo_df <- data.table(neo_df)
+
+neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
+neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
+
+
 ## Read and format data
-df <- read_parquet(data_version)
-df <- data.table(df)
-
-df[,location_id := as.integer(location_id)]
-
-# setnames(df,old="ldipc_weighted_no_match",new="consumption")
-# load SDI estimates
-# sdi <- fread(paste0(cov_dir,"sdi.csv"))
-# setnames(sdi,old=c("mean_value","year_id"),new=c("sdi","int_year"))
-# 
-# sdi <- unique(sdi[,.(location_id,int_year,sdi)])
-# df <- merge(df,sdi,by=c("location_id","int_year"),all.x=TRUE)
 
 climate_vars <- c(
   "mean_temperature",
@@ -80,39 +75,8 @@ climate_vars <- c(
   "days_over_26C"
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","birth_year", climate_vars)
-df_model <- df[, ..cols]
-df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
-df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
+df_model <- neo_df[, ..cols]
 
-# Sample data, keeping all observations for any sampled individual child, and 
-# balancing countries
-df_model <- data.table(df_model)
-
-## Cut off age at 48 months
-# df_model <- df_model[age_year_at_year_end<4]
-
-# get sample
-indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
-indv_counts <- indv_dt[, .N, by = ihme_loc_id]
-indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
-indv_dt[, n_sample := floor(sample_percent * N)]
-
-set.seed(42)
-sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
-df_sample <- df_model[indv_id %in% sampled_indv]
-
-# remove some countries to test if fe different from me
-# unique_countries <- unique(df_sample$ihme_loc_id)
-# df_sample <- df_sample[ihme_loc_id %in% unique_countries[1:40]]
-# df_sample[,ihme_loc_id:=as.factor(ihme_loc_id)]
-
-# Read in neonatal df (must be made from full dataset)
-neo_df <- read_parquet(neo_version)
-neo_df <- data.table(neo_df)
-
-neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
-neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
-setnames(neo_df,old="ldipc_weighted_no_match",new="consumption")
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
@@ -128,7 +92,7 @@ model <- emfrail(Surv(age_month, child_mortality) ~ consumption +
                    sex_id + 
                    birth_year + 
                    survival::cluster(ihme_loc_id), 
-                 data = df_sample,
+                 data = df_model,
                  verbose = TRUE)
 
 # Extract frailty estimates for each cluster (ihme_loc_id)
