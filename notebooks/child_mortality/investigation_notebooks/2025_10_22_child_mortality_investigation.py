@@ -113,6 +113,82 @@ def plot_heat_map(
         plt.close()
 
 
+def plot_heat_map_alt(
+    data: pd.DataFrame,
+    outfile: str,
+    title: str,
+    bin_cols: list,
+    format: str = ".2f",
+    vmin: float = None,
+    vmax: float = None,
+):
+
+    heatmap_df = data.copy()
+    for col in bin_cols:
+        heatmap_df[f"{col}_bin"] = pd.qcut(
+            heatmap_df[col], 10, retbins=False, duplicates="drop"
+        )
+    heatmap_df["consumption"], ldi_bins = pd.qcut(
+        heatmap_df.consumption, 10, retbins=True, duplicates="drop"
+    )
+
+    # Create a discrete colormap with steps matching your rounded values
+    # bounds = np.round(np.arange(0, round(vmax + 0.002, 4), 0.001), 4)  # steps of 0.001
+    # norm = mcolors.BoundaryNorm(boundaries=bounds, ncolors=256)
+
+    for col in columns_to_bin:
+        plt.figure(figsize=(10, 8))
+        heatmap_data = (
+            heatmap_df.groupby(["consumption", f"{col}_bin"])["model_predictions"]
+            .sum()
+            .unstack()
+            / heatmap_df.groupby(["consumption", f"{col}_bin"])["age_month"]
+            .sum()
+            .unstack()
+        )
+
+        if vmin and vmax:
+            ax1 = sns.heatmap(
+                heatmap_data,
+                annot=True,
+                fmt=format,
+                cmap="YlOrBr",
+                vmin=vmin,
+                vmax=vmax,
+                # norm=norm,
+            )
+        else:
+            ax1 = sns.heatmap(
+                heatmap_data,
+                annot=True,
+                fmt=format,
+                cmap="YlOrBr",
+            )
+        plt.title(
+            f"{title}\nby Consumption and {col.replace('_', ' ').title()}",
+            fontsize=20,
+        )
+
+        # Set rounded axis labels
+        ax1.set_xticklabels(
+            [f"{int(x.left)}–{int(x.right)}" for x in heatmap_data.columns],
+            rotation=45,
+            ha="right",
+            fontsize=10,
+        )
+        ax1.set_yticklabels(
+            [f"{int(y.left)}–{int(y.right)}" for y in heatmap_data.index],
+            rotation=0,
+            fontsize=10,
+        )
+        ax1.set_xlabel("Binned " + col.replace("_", " ").title(), fontsize=16)
+        ax1.set_ylabel("Consumption Bin", fontsize=16)
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(PLOT_PATH, f"{outfile}_{col}.png"))
+        plt.close()
+
+
 ## READ IN DATA
 
 # Raw data
