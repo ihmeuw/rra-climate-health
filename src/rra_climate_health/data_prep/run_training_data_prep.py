@@ -1964,6 +1964,8 @@ def run_training_data_prep_child_mortality(
         index=False,
     )
 
+    # df_exploded = pd.read_csv("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv")
+
     # Merge with climate data
     logging.info("Processing climate data...")
     climate_vars = get_climate_vars_for_dataframe(df_exploded)
@@ -1996,10 +1998,6 @@ def run_training_data_prep_child_mortality(
 
     df_climate["consumption"] = df_climate["ldipc_weighted_no_match"]
 
-    # save out neonatal data set
-    df_neo = df_climate[df_climate["age_month"] == 1].copy()
-    df_neo.to_parquet(Path(output_path_version) / "neonatal_data.parquet")
-
     # collapse by average climate var exposure for each child
     climate_vars = [
         "mean_temperature",
@@ -2019,9 +2017,36 @@ def run_training_data_prep_child_mortality(
         "elevation",
     ]
 
-    df_max_age = df_climate.copy()
+    # Neonatal
+    # get the index of the row with the min age_month_at_year_end for each indv_id
+    df_min_age = df_climate.copy()
+    df_min_age = (
+        df_climate.sort_values("age_month")
+        .groupby("indv_id", as_index=False)
+        .head(1)
+        .reset_index(drop=True)
+    )
+
+    # for any child with age_month > 1, set their age_month to 1,
+    # child_mortality to 0, and child_alive to 1. This should get true neonatal
+    # mortality for all individuals.
+    df_min_age.loc[df_min_age.age_month > 1, "child_alive"] = 1
+    df_min_age.loc[df_min_age.age_month > 1, "child_mortality"] = 0
+    df_min_age.loc[df_min_age.age_month > 1, "age_month"] = 1
+
+    # df_min_age = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_22.01/neonatal_data.parquet")
+
+    # make version of consumption that is per day
+    df_min_age["consumption_pd"] = df_min_age["consumption"] / 365
+
+    # make any day over 30C variable binary
+    df_min_age["any_days_over_30C"] = np.where(df_min_age["days_over_30C"] > 0, 1, 0)
+
+    # save out neonatal data set
+    df_min_age.to_parquet(Path(output_path_version) / "neonatal_data.parquet")
 
     # Get the index of the row with the max age_month_at_year_end for each indv_id
+    df_max_age = df_climate.copy()
     df_max_age = (
         df_climate.sort_values("age_month")
         .groupby("indv_id", as_index=False)
@@ -2060,6 +2085,13 @@ def run_training_data_prep_child_mortality(
     )
 
     # df_max_age.to_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data_avg_climate.parquet")
+    # df_max_age = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_22.01/data.parquet")
+
+    # make version of consumption that is per day
+    df_max_age["consumption_pd"] = df_max_age["consumption"] / 365
+
+    # make any day over 30C variable binary
+    df_max_age["any_days_over_30C"] = np.where(df_max_age["days_over_30C"] > 0, 1, 0)
 
     # Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
