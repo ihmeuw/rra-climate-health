@@ -42,10 +42,9 @@ options(scipen = 999) # turn off scientific notation
 summary_file <- "neonatal_logistic_interaction"
 
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_22.01/"
-# cov_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/covariates/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
 
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_22.01/neonatal_data.parquet"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet"
 
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -81,37 +80,27 @@ climate_vars <- c(
   "mean_low_temperature",
   "precipitation_days",
   "days_over_30C",
-  "days_over_26C"
+  "days_over_26C",
+  "any_days_over_30C"
 )
-cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","birth_year", climate_vars)
+cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- neo_df[, ..cols]
 
 # Scale data
-df_model$consumption <- scale(df_model$consumption)
-df_model$days_over_30C <- scale(df_model$days_over_30C)
-df_model$birth_year <- scale(df_model$birth_year)
+# df_model$consumption <- scale(df_model$consumption)
+# df_model$days_over_30C <- scale(df_model$days_over_30C)
+# df_model$birth_year <- scale(df_model$birth_year)
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
 
-# tmp override: 
-# df_sample <- df_model
-
-# fit model with days_over_30C, days_over_30C*consumption, and birth_year
-# model <- emfrail(Surv(age_month, child_mortality) ~ consumption + 
-#                    days_over_30C + 
-#                    days_over_30C*consumption +
-#                    sex_id + 
-#                    birth_year + 
-#                    survival::cluster(ihme_loc_id), 
-#                  data = df_model,
-#                  verbose = TRUE)
 
 model <- glmer(
-  child_mortality ~ consumption +
+  child_mortality ~ consumption_pd +
     days_over_30C +
-    days_over_30C*consumption +
+    any_days_over_30C +
+    any_days_over_30C*consumption_pd +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
