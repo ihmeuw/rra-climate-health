@@ -48,7 +48,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "updated_units_model"
+summary_file <- "cm_v6"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
@@ -94,7 +94,7 @@ df_model <- data.table(df_model)
 model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd + 
                    days_over_30C + 
                    mean_temperature +
-                   any_days_over_30C*consumption_pd +
+                   any_days_over_30C:consumption_pd +
                    sex_id + 
                    birth_year + 
                    survival::cluster(ihme_loc_id), 

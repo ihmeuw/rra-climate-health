@@ -50,7 +50,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "neonatal_logistic_interaction"
+summary_file <- "nm_v7"
 
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
@@ -111,7 +111,7 @@ model <- glmer(
   child_mortality ~ consumption_pd +
     days_over_30C +
     total_precipitation +
-    any_days_over_30C*consumption_pd +
+    any_days_over_30C:consumption_pd +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),

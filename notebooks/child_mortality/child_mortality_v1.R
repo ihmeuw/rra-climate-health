@@ -101,6 +101,9 @@ model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd +
                  data = df_model,
                  verbose = TRUE)
 
+
+# model = readRDS(file = paste0(results_dir, summary_file,".rds"))
+
 # Extract frailty estimates for each cluster (ihme_loc_id)
 frailty_effects <- model$frail
 
@@ -113,7 +116,7 @@ frailty_df <- data.frame(
 # save model parameters for future use:
 saveRDS(model, file = paste0(results_dir, summary_file,".rds"))
 
-# model = readRDS(file = paste0(results_dir, summary_file,".rds"))
+
 # save model summary:
 summary_file_path <- paste0(model_summary_dir, summary_file, ".txt")
 capture.output(summary(model), file = summary_file_path)
@@ -229,4 +232,77 @@ print("model predictions done")
 # save results
 write_parquet(df_model,paste0(results_dir,"predictions_",summary_file,".parquet"))
 print(paste0("child mortality predictions saved to ",paste0(results_dir,"predictions_",summary_file,".parquet")))
+
+#==============================================================================
+# SECTION 4: Get average model predictions for each age month
+#==============================================================================
+
+# store results in data table with age_month, avg actual mortality,
+# avg cum mortality probability, and avg point mortality probability
+probs_dt <- data.table(
+  age_month = seq(1,60,1),
+  avg_mortality = rep(NA_real_,60),
+  avg_probs_me = rep(NA_real_,60),
+  avg_probs_fe = rep(NA_real_,60),
+  avg_cum_probs_me = rep(NA_real_,60),
+  avg_cum_probs_fe = rep(NA_real_,60)
+)
+
+for (i in seq_along(probs_dt$age_month)){
+  month <- probs_dt$age_month[i]
+  
+  # get avg mortality
+  numerator <- nrow(df_model[(age_month==month)&(child_mortality==1)])
+  denominator <- nrow(df_model[age_month>=month])
+  probs_dt[age_month==month,avg_mortality:=numerator/denominator]
+  
+  # get avg prob of mortality for that point in time
+  df_tmp <- copy(df_model)
+  df_tmp[,age_month := month]
+  df_tmp <- merge(df_tmp, baseline_hazard[, c("time", "hazard")], 
+                    by.x = "age_month", by.y = "time", all.x = TRUE, suffixes = c("", "_point"))
+  
+  # Calculate point hazard for each observation
+  df_tmp$hazard_point_me <- df_tmp$frailty * df_tmp$hazard * exp(df_tmp$linear_pred)
+  df_tmp$hazard_point_fe <- df_tmp$hazard * exp(df_tmp$linear_pred)
+  
+  # Convert to point mortality probability (probability of dying in that month)
+  df_tmp$mortality_point_me <- 1 - exp(-df_tmp$hazard_point_me)
+  df_tmp$mortality_point_fe <- 1 - exp(-df_tmp$hazard_point_fe)
+  
+  probs_dt[age_month==month,avg_probs_me:=mean(df_tmp$mortality_point_me)]
+  probs_dt[age_month==month,avg_probs_fe:=mean(df_tmp$mortality_point_fe)]
+  
+  # get avg cumulative prob of mortality
+  df_tmp$cumhaz_baseline <- sapply(df_tmp$age_month, function(t) {
+    get_cumhaz_baseline(t, baseline_hazard)
+  })
+  
+  df_tmp$cumhaz_me <- df_tmp$frailty * 
+    df_tmp$cumhaz_baseline * 
+    exp(df_tmp$linear_pred)
+  
+  df_tmp$cumhaz_fe <- df_tmp$cumhaz_baseline * 
+    exp(df_tmp$linear_pred)
+  
+  # Survival probability = exp(-cumulative hazard)
+  df_tmp$survival_me <- exp(-df_tmp$cumhaz_me)
+  
+  # Mortality probability = 1 - survival
+  df_tmp$mortality_me <- 1 - df_tmp$survival_me
+  
+  # Survival probability = exp(-cumulative hazard)
+  df_tmp$survival_fe <- exp(-df_tmp$cumhaz_fe)
+  
+  # Mortality probability = 1 - survival
+  df_tmp$mortality_fe <- 1 - df_tmp$survival_fe
+  
+  probs_dt[age_month==month,avg_cum_probs_me:=mean(df_tmp$mortality_me)]
+  probs_dt[age_month==month,avg_cum_probs_fe:=mean(df_tmp$mortality_fe)]
+  
+}
+
+write.csv(probs_dt,paste0(model_summary_dir,"avg_prob_table.csv"),row.names = FALSE)
+
+
 

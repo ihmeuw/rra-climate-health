@@ -3,7 +3,6 @@
 # model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd + 
 #                    days_over_30C + 
 #                    total_precipitation +
-#                    any_days_over_30C +
 #                    any_days_over_30C*consumption_pd +
 #                    sex_id + 
 #                    birth_year + 
@@ -49,7 +48,8 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_v3"
+sample_percent <- 0.15
+summary_file <- "cm_v7_subset"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
@@ -84,6 +84,16 @@ df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Femal
 
 df_model <- data.table(df_model)
 
+# get sample
+indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
+indv_counts <- indv_dt[, .N, by = ihme_loc_id]
+indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
+indv_dt[, n_sample := floor(sample_percent * N)]
+
+set.seed(42)
+sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
+df_sample <- df_model[indv_id %in% sampled_indv]
+
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
@@ -95,12 +105,11 @@ df_model <- data.table(df_model)
 model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd + 
                    days_over_30C + 
                    total_precipitation +
-                   any_days_over_30C +
-                   any_days_over_30C*consumption_pd +
+                   any_days_over_30C:consumption_pd +
                    sex_id + 
                    birth_year + 
                    survival::cluster(ihme_loc_id), 
-                 data = df_model,
+                 data = df_sample,
                  verbose = TRUE)
 
 # Extract frailty estimates for each cluster (ihme_loc_id)
@@ -144,7 +153,6 @@ coefs <- coef(model)
 beta_consumption <- coefs["consumption_pd"]
 beta_total_precipitation <- coefs["total_precipitation"]
 beta_days_over_30C <- coefs["days_over_30C"]
-beta_any_days_over_30C <- coefs["any_days_over_30C"]
 beta_sex_female <- coefs["sex_idFemale"]
 beta_birth_year <- coefs["birth_year"]
 beta_interaction <- coefs["consumption_pd:any_days_over_30C"]
@@ -169,7 +177,6 @@ df_model$linear_pred <- (
   beta_consumption * df_model$consumption_pd +
     beta_days_over_30C * df_model$days_over_30C +
     beta_total_precipitation * df$total_precipitation + 
-    beta_any_days_over_30C * df_model$any_days_over_30C +
     beta_interaction * (df_model$consumption_pd*df_model$any_days_over_30C) +
     beta_sex_female * (df_model$sex_id == "Female")+
     beta_birth_year * (df_model$birth_year)
