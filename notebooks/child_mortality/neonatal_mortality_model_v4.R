@@ -4,6 +4,8 @@
 # model <- glmer(
 #   child_mortality ~ consumption_pd +
 #     days_over_30C +
+#     mean_temperature + 
+#     total_precipitation + 
 #     any_days_over_30C +
 #     any_days_over_30C*consumption_pd +
 #     sex_id +
@@ -110,6 +112,8 @@ df_model <- neo_df[, ..cols]
 model <- glmer(
   child_mortality ~ consumption_pd +
     days_over_30C +
+    mean_temperature +
+    total_precipitation +
     any_days_over_30C +
     any_days_over_30C*consumption_pd +
     sex_id +
