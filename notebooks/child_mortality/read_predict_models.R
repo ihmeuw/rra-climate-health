@@ -39,11 +39,11 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/data.parquet"
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/neonatal.parquet"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data_filtered.parquet"
+# neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_16.01/neonatal.parquet"
 # data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv"
-plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_16.01/"
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_16.01/"
+plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_24.01/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
 neonatal_dir <- paste0(results_dir,"neonatal/")
@@ -53,14 +53,14 @@ dir.create(neonatal_dir, recursive = TRUE, showWarnings = FALSE)
 df <- read_parquet(data_version)
 df <- data.table(df)
 
-df[,ihme_loc_id:=as.factor(ihme_loc_id)]
-df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
-
-neo_df <- read_parquet(neo_version)
-neo_df <- data.table(neo_df)
-
-neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
-neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
+# df[,ihme_loc_id:=as.factor(ihme_loc_id)]
+# df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
+# 
+# neo_df <- read_parquet(neo_version)
+# neo_df <- data.table(neo_df)
+# 
+# neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
+# neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
 
 #==============================================================================
 # SECTION 2: READ MODELS
@@ -68,6 +68,317 @@ neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"
 
 
 ## Read in and print model summaries from successful runs:
+
+# 10/29 - data with censored survivors filtered as well as 7 year cutoff
+# normal subset
+summary_file <- "cm_v7_subset"
+
+model <- readRDS(file = paste0(results_dir, summary_file,".rds"))
+
+df_model <- read_parquet(paste0(results_dir,"predictions_",summary_file,".parquet"))
+
+baseline_hazard <- model$hazard  
+baseline_hazard <- data.frame(
+  time = model$tev,
+  hazard = baseline_hazard
+)
+
+baseline_hazard <- baseline_hazard[order(baseline_hazard$time), ]
+baseline_hazard$cumhazard <- cumsum(baseline_hazard$hazard)
+
+# Extract frailty estimates for each cluster (ihme_loc_id)
+frailty_effects <- model$frail
+
+# Create frailty lookup data frame
+frailty_df <- data.frame(
+  ihme_loc_id = names(frailty_effects),
+  frailty = as.numeric(frailty_effects)
+)
+
+setorder(frailty_df,frailty)
+
+summary_file_path <- paste0(model_summary_dir, summary_file, ".txt")
+
+capture.output(summary(model, width=500), file = summary_file_path)
+
+# Append frailty estimates
+cat("\n\n", file = summary_file_path, append = TRUE)
+cat("================================================================================\n", 
+    file = summary_file_path, append = TRUE)
+cat("CLUSTER-SPECIFIC FRAILTY ESTIMATES (RANDOM EFFECTS)\n", 
+    file = summary_file_path, append = TRUE)
+cat("================================================================================\n\n", 
+    file = summary_file_path, append = TRUE)
+frailty_output <- capture.output(print(frailty_df, row.names = FALSE))
+cat(paste(frailty_output, collapse = "\n"), file = summary_file_path, append = TRUE)
+
+baseline_hazard_normal <- copy(baseline_hazard)
+
+# Function to get cumulative baseline hazard at a given time
+get_cumhaz_baseline <- function(time, basehaz_df) {
+  if (time <= 0) return(0)
+  idx <- max(which(basehaz_df$time <= time))
+  if (length(idx) == 0 || idx == 0) return(0)
+  return(basehaz_df$cumhazard[idx])
+}
+
+# store results in data table with age_month, avg actual mortality,
+# avg cum mortality probability, and avg point mortality probability
+probs_dt <- data.table(
+  age_month = seq(1,60,1),
+  avg_mortality = rep(NA_real_,60),
+  avg_probs_me = rep(NA_real_,60),
+  avg_probs_fe = rep(NA_real_,60),
+  avg_cum_probs_me = rep(NA_real_,60),
+  avg_cum_probs_fe = rep(NA_real_,60),
+  avg_mortality_alt = rep(NA_real_,60)
+)
+
+
+for (i in seq_along(probs_dt$age_month)){
+  month <- probs_dt$age_month[i]
+  
+  # get avg mortality
+  numerator <- nrow(df_model[(age_month==month)&(child_mortality==1)])
+  denominator <- nrow(df_model[age_month>=month])
+  
+  denominator_alt <- nrow(df_model[(age_month>=month)|(child_mortality==0)])
+  
+  probs_dt[age_month==month,avg_mortality:=numerator/denominator]
+  probs_dt[age_month==month,avg_mortality_alt:=numerator/denominator_alt]
+  
+  # get avg prob of mortality for that point in time
+  df_tmp <- copy(df_model)
+  df_tmp$hazard <- NULL
+  df_tmp[,age_month := month]
+  setDT(baseline_hazard)
+  baseline_merge <- baseline_hazard[, .(time, hazard)]
+  setnames(baseline_merge,old="time",new="age_month")
+  df_tmp <- merge(df_tmp, baseline_merge,
+                  by = "age_month", all.x = TRUE)
+  
+  # Calculate point hazard for each observation
+  df_tmp$hazard_point_me <- df_tmp$frailty * df_tmp$hazard * exp(df_tmp$linear_pred)
+  df_tmp$hazard_point_fe <- df_tmp$hazard * exp(df_tmp$linear_pred)
+  
+  # Convert to point mortality probability (probability of dying in that month)
+  df_tmp$mortality_point_me <- 1 - exp(-df_tmp$hazard_point_me)
+  df_tmp$mortality_point_fe <- 1 - exp(-df_tmp$hazard_point_fe)
+  
+  probs_dt[age_month==month,avg_probs_me:=mean(df_tmp$mortality_point_me)]
+  probs_dt[age_month==month,avg_probs_fe:=mean(df_tmp$mortality_point_fe)]
+  
+  # get avg cumulative prob of mortality
+  df_tmp$cumhaz_baseline <- sapply(df_tmp$age_month, function(t) {
+    get_cumhaz_baseline(t, baseline_hazard)
+  })
+  
+  df_tmp$cumhaz_me <- df_tmp$frailty *
+    df_tmp$cumhaz_baseline *
+    exp(df_tmp$linear_pred)
+  
+  df_tmp$cumhaz_fe <- df_tmp$cumhaz_baseline *
+    exp(df_tmp$linear_pred)
+  
+  # Survival probability = exp(-cumulative hazard)
+  df_tmp$survival_me <- exp(-df_tmp$cumhaz_me)
+  
+  # Mortality probability = 1 - survival
+  df_tmp$mortality_me <- 1 - df_tmp$survival_me
+  
+  # Survival probability = exp(-cumulative hazard)
+  df_tmp$survival_fe <- exp(-df_tmp$cumhaz_fe)
+  
+  # Mortality probability = 1 - survival
+  df_tmp$mortality_fe <- 1 - df_tmp$survival_fe
+  
+  probs_dt[age_month==month,avg_cum_probs_me:=mean(df_tmp$mortality_me)]
+  probs_dt[age_month==month,avg_cum_probs_fe:=mean(df_tmp$mortality_fe)]
+  
+}
+
+write.csv(probs_dt,paste0(model_summary_dir,"avg_prob_table_subset.csv"),row.names = FALSE)
+
+
+probs_dt_normal <- fread(paste0(model_summary_dir,"avg_prob_table_subset.csv"))
+
+
+# filtered data
+summary_file <- "cm_v7_filtered"
+
+model <- readRDS(file = paste0(results_dir, summary_file,".rds"))
+
+df_model <- read_parquet(paste0(results_dir,"predictions_",summary_file,".parquet"))
+
+# what is the avg effect of the random effects?
+mean(df_model$frailty) # 1.070184... so me >fe
+
+baseline_hazard <- model$hazard  
+baseline_hazard <- data.frame(
+  time = model$tev,
+  hazard = baseline_hazard
+)
+
+baseline_hazard <- baseline_hazard[order(baseline_hazard$time), ]
+baseline_hazard$cumhazard <- cumsum(baseline_hazard$hazard)
+
+baseline_hazard_filtered <- copy(baseline_hazard)
+
+################################################################################
+# Plot survival curve for an individual that includes linear effects. Separate
+# one that also includes frailty
+# Extract fixed effect coefficients
+coefs <- coef(model)
+beta_consumption <- coefs["consumption_pd"]
+beta_total_precipitation <- coefs["total_precipitation"]
+beta_days_over_30C <- coefs["days_over_30C"]
+beta_sex_female <- coefs["sex_idFemale"]
+beta_birth_year <- coefs["birth_year"]
+
+# Create frailty lookup data frame
+frailty_effects <- model$frail
+frailty_df <- data.frame(
+  ihme_loc_id = names(frailty_effects),
+  frailty = as.numeric(frailty_effects)
+)
+baseline_hazard <- model$hazard  
+baseline_hazard <- data.frame(
+  time = model$tev,
+  hazard = baseline_hazard
+)
+baseline_hazard <- baseline_hazard[order(baseline_hazard$time), ]
+baseline_hazard$cumhazard <- cumsum(baseline_hazard$hazard)
+
+df_test <- copy(df_model)
+df_test$cumhaz_me
+df_test$frailty
+df_test$linear_pred
+df_test$
+df_test <- merge(df_model, frailty_df, by = "ihme_loc_id", all.x = TRUE)
+
+# Calculate linear predictor (fixed effects only)
+df_model$linear_pred <- (
+  beta_consumption * df_model$consumption_pd +
+    beta_days_over_30C * df_model$days_over_30C +
+    beta_total_precipitation * df$total_precipitation + 
+    beta_sex_female * (df_model$sex_id == "Female")+
+    beta_birth_year * (df_model$birth_year)
+)
+df_model$cumhaz_me <- df_model$frailty * 
+  df_model$cumhaz_baseline * 
+  exp(df_model$linear_pred)
+
+
+# Survival probability = exp(-cumulative hazard)
+df_model$survival_me <- exp(-df_model$cumhaz_me)
+
+# Mortality probability = 1 - survival
+df_model$mortality_me <- 1 - df_model$survival_me
+
+################################################################################
+
+# Function to get cumulative baseline hazard at a given time
+get_cumhaz_baseline <- function(time, basehaz_df) {
+  if (time <= 0) return(0)
+  idx <- max(which(basehaz_df$time <= time))
+  if (length(idx) == 0 || idx == 0) return(0)
+  return(basehaz_df$cumhazard[idx])
+}
+
+# store results in data table with age_month, avg actual mortality,
+# avg cum mortality probability, and avg point mortality probability
+probs_dt <- data.table(
+  age_month = seq(1,60,1),
+  avg_mortality = rep(NA_real_,60),
+  avg_probs_me = rep(NA_real_,60),
+  avg_probs_fe = rep(NA_real_,60),
+  avg_cum_probs_me = rep(NA_real_,60),
+  avg_cum_probs_fe = rep(NA_real_,60),
+  avg_mortality_alt = rep(NA_real_,60)
+)
+
+
+for (i in seq_along(probs_dt$age_month)){
+  month <- probs_dt$age_month[i]
+  
+  # get avg mortality
+  numerator <- nrow(df_model[(age_month==month)&(child_mortality==1)])
+  denominator <- nrow(df_model[age_month>=month])
+  
+  denominator_alt <- nrow(df_model[(age_month>=month)|(child_mortality==0)])
+  
+  probs_dt[age_month==month,avg_mortality:=numerator/denominator]
+  probs_dt[age_month==month,avg_mortality_alt:=numerator/denominator_alt]
+  
+  # get avg prob of mortality for that point in time
+  df_tmp <- copy(df_model)
+  df_tmp$hazard <- NULL
+  df_tmp[,age_month := month]
+  setDT(baseline_hazard)
+  baseline_merge <- baseline_hazard[, .(time, hazard)]
+  setnames(baseline_merge,old="time",new="age_month")
+  df_tmp <- merge(df_tmp, baseline_merge,
+                  by = "age_month", all.x = TRUE)
+  
+  # Calculate point hazard for each observation
+  df_tmp$hazard_point_me <- df_tmp$frailty * df_tmp$hazard * exp(df_tmp$linear_pred)
+  df_tmp$hazard_point_fe <- df_tmp$hazard * exp(df_tmp$linear_pred)
+  
+  # Convert to point mortality probability (probability of dying in that month)
+  df_tmp$mortality_point_me <- 1 - exp(-df_tmp$hazard_point_me)
+  df_tmp$mortality_point_fe <- 1 - exp(-df_tmp$hazard_point_fe)
+  
+  probs_dt[age_month==month,avg_probs_me:=mean(df_tmp$mortality_point_me)]
+  probs_dt[age_month==month,avg_probs_fe:=mean(df_tmp$mortality_point_fe)]
+  
+  # get avg cumulative prob of mortality
+  df_tmp$cumhaz_baseline <- sapply(df_tmp$age_month, function(t) {
+    get_cumhaz_baseline(t, baseline_hazard)
+  })
+  
+  df_tmp$cumhaz_me <- df_tmp$frailty *
+    df_tmp$cumhaz_baseline *
+    exp(df_tmp$linear_pred)
+  
+  df_tmp$cumhaz_fe <- df_tmp$cumhaz_baseline *
+    exp(df_tmp$linear_pred)
+  
+  # Survival probability = exp(-cumulative hazard)
+  df_tmp$survival_me <- exp(-df_tmp$cumhaz_me)
+  
+  # Mortality probability = 1 - survival
+  df_tmp$mortality_me <- 1 - df_tmp$survival_me
+  
+  # Survival probability = exp(-cumulative hazard)
+  df_tmp$survival_fe <- exp(-df_tmp$cumhaz_fe)
+  
+  # Mortality probability = 1 - survival
+  df_tmp$mortality_fe <- 1 - df_tmp$survival_fe
+  
+  probs_dt[age_month==month,avg_cum_probs_me:=mean(df_tmp$mortality_me)]
+  probs_dt[age_month==month,avg_cum_probs_fe:=mean(df_tmp$mortality_fe)]
+  
+}
+
+write.csv(probs_dt,paste0(model_summary_dir,"avg_prob_table_filtered.csv"),row.names = FALSE)
+
+probs_dt <- fread(paste0(model_summary_dir,"avg_prob_table_filtered.csv"))
+probs_dt_filtered <- copy(probs_dt)
+
+# observation: on filtered data avg predicted prob is more often higher than 
+# actual mortality rate, whereas the opposite is the case for unfiltered
+probs_dt_filtered[avg_probs_me>avg_mortality,.N] # 57
+probs_dt_normal[avg_probs_me>avg_mortality,.N] # 21
+
+probs_dt_filtered[avg_probs_fe>avg_mortality,.N] # 0
+probs_dt_normal[avg_probs_fe>avg_mortality,.N] # 11
+
+
+# Look at results from yearly model
+model_yr <- readRDS(file = paste0(results_dir, "cm_v7_subset_yearly",".rds"))
+probs_yr <- fread(paste0(model_summary_dir,"avg_prob_table_yearly.csv"))
+
+
 
 # 10/17 - using manual me and fe predictions
 
@@ -102,39 +413,39 @@ neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"
 # 
 # # save out for heat maps
 # write_parquet(neo_df,paste0(neonatal_dir,"neonatal_mortality_",model_name,".parquet"))
-
-# compare re vs fe for unseen data
-# Predict model on non-included data
-# test_df <- df[!(indv_id %in% unique(model_pred$indv_id))]
-test_df <- df
-
-# mixed effects predictions
-pred_surv_me <- predict(model, test_df, quantity = "survival",type="conditional")  # make mixed effects predictions
-surv_at_obs_time <- sapply(seq_len(nrow(test_df)), function(i) {
-  surv_df <- pred_surv_me[[i]]
-  obs_time <- test_df$age_year_at_year_end[i]
-  idx <- max(which(surv_df$time <= obs_time))
-  surv_df$survival[idx]
-})
-
-test_df$model_predictions_me <- 1-surv_at_obs_time
-
-# fixed effects predictions
-# pred_surv_fe <- predict(model, test_df,re.form = ~0, quantity = "survival") # make fixed effects predictions
-pred_surv_fe <- predict(model, test_df,quantity = "survival",type="marginal")
-surv_at_obs_time <- sapply(seq_len(nrow(test_df)), function(i) {
-  surv_df <- pred_surv_fe[[i]]
-  obs_time <- test_df$age_year_at_year_end[i]
-  idx <- max(which(surv_df$time <= obs_time))
-  surv_df$survival[idx]
-})
-
-test_df$model_predictions_fe <- 1-surv_at_obs_time
-
-write_parquet(test_df,paste0(results_dir,"test_set_predictions_me_fe_",model_name,".parquet"))
-
-# plot survival curves in next section
-pred_surv <-pred_surv_me
+# 
+# # compare re vs fe for unseen data
+# # Predict model on non-included data
+# # test_df <- df[!(indv_id %in% unique(model_pred$indv_id))]
+# test_df <- df
+# 
+# # mixed effects predictions
+# pred_surv_me <- predict(model, test_df, quantity = "survival",type="conditional")  # make mixed effects predictions
+# surv_at_obs_time <- sapply(seq_len(nrow(test_df)), function(i) {
+#   surv_df <- pred_surv_me[[i]]
+#   obs_time <- test_df$age_year_at_year_end[i]
+#   idx <- max(which(surv_df$time <= obs_time))
+#   surv_df$survival[idx]
+# })
+# 
+# test_df$model_predictions_me <- 1-surv_at_obs_time
+# 
+# # fixed effects predictions
+# # pred_surv_fe <- predict(model, test_df,re.form = ~0, quantity = "survival") # make fixed effects predictions
+# pred_surv_fe <- predict(model, test_df,quantity = "survival",type="marginal")
+# surv_at_obs_time <- sapply(seq_len(nrow(test_df)), function(i) {
+#   surv_df <- pred_surv_fe[[i]]
+#   obs_time <- test_df$age_year_at_year_end[i]
+#   idx <- max(which(surv_df$time <= obs_time))
+#   surv_df$survival[idx]
+# })
+# 
+# test_df$model_predictions_fe <- 1-surv_at_obs_time
+# 
+# write_parquet(test_df,paste0(results_dir,"test_set_predictions_me_fe_",model_name,".parquet"))
+# 
+# # plot survival curves in next section
+# pred_surv <-pred_surv_me
 
 
 # # 10/14 - Collapsing data to have average climate vars per child
@@ -314,6 +625,24 @@ pred_surv <-pred_surv_me
 #==============================================================================
 # SECTION 3: MAKE PLOTS
 #==============================================================================
+
+library(survival)
+coxph_model <- coxph(Surv(age_month, child_mortality) ~ 1, data = df_model)
+basehaz <- basehaz(coxph_model, centered = FALSE)
+plot(basehaz$time, basehaz$hazard, type = "l")
+
+# hist(exp(df_model$linear_pred), breaks = 50, main = "Distribution of exp(linear_pred)", xlab = "exp(linear_pred)")
+hist(df_model$linear_pred, breaks = 50, main = "Distribution of linear_pred", xlab = "linear_pred")
+summary(exp(df_model$linear_pred))
+
+indiv_row <- df_model[1, ]
+pred_surv <- predict(model, newdata = indiv_row, quantity = "survival")
+ggplot(pred_surv, aes(x = time, y = survival)) +
+  geom_line() +
+  labs(title = "Predicted Survival Curve for Individual 1",
+       x = "Time",
+       y = "Survival Probability") +
+  theme_minimal()
 
 # Plot random effects
 country_effects_plot <- autoplot(model, type = "frail")

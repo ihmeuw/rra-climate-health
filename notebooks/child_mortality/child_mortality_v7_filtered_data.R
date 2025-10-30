@@ -2,7 +2,7 @@
 # DESCRIPTION: Script to run baseline model on child mortality on subset of data.
 # model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd + 
 #                    days_over_30C + 
-#                    mean_temperature +
+#                    total_precipitation +
 #                    sex_id + 
 #                    birth_year + 
 #                    survival::cluster(ihme_loc_id), 
@@ -47,9 +47,9 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_v6"
+summary_file <- "cm_v7_filtered"
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data.parquet"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data_filtered.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
@@ -92,7 +92,7 @@ df_model <- data.table(df_model)
 # fit model with days_over_30C, days_over_30C*consumption, and birth_year
 model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd + 
                    days_over_30C + 
-                   mean_temperature +
+                   total_precipitation +
                    sex_id + 
                    birth_year + 
                    survival::cluster(ihme_loc_id), 
@@ -138,7 +138,7 @@ write.csv(frailty_df, paste0(model_summary_dir, "frailty_estimates_", summary_fi
 # Extract fixed effect coefficients
 coefs <- coef(model)
 beta_consumption <- coefs["consumption_pd"]
-beta_mean_temp <- coefs["mean_temperature"]
+beta_total_precipitation <- coefs["total_precipitation"]
 beta_days_over_30C <- coefs["days_over_30C"]
 beta_sex_female <- coefs["sex_idFemale"]
 beta_birth_year <- coefs["birth_year"]
@@ -161,8 +161,8 @@ df_model <- merge(df_model, frailty_df, by = "ihme_loc_id", all.x = TRUE)
 # Calculate linear predictor (fixed effects only)
 df_model$linear_pred <- (
   beta_consumption * df_model$consumption_pd +
-    beta_mean_temp * df_model$mean_temperature +
-    beta_interaction * (df_model$consumption_pd*df_model$any_days_over_30C) +
+    beta_days_over_30C * df_model$days_over_30C +
+    beta_total_precipitation * df$total_precipitation + 
     beta_sex_female * (df_model$sex_id == "Female")+
     beta_birth_year * (df_model$birth_year)
 )
@@ -226,3 +226,89 @@ print("model predictions done")
 write_parquet(df_model,paste0(results_dir,"predictions_",summary_file,".parquet"))
 print(paste0("child mortality predictions saved to ",paste0(results_dir,"predictions_",summary_file,".parquet")))
 
+
+#==============================================================================
+# SECTION 4: Get average model predictions for each age month
+#==============================================================================
+
+# store results in data table with age_month, avg actual mortality,
+# avg cum mortality probability, and avg point mortality probability
+probs_dt <- data.table(
+  age_month = seq(1,60,1),
+  avg_mortality = rep(NA_real_,60),
+  avg_probs_me = rep(NA_real_,60),
+  avg_probs_fe = rep(NA_real_,60),
+  avg_cum_probs_me = rep(NA_real_,60),
+  avg_cum_probs_fe = rep(NA_real_,60)
+)
+
+# probs_dt$avg_mortality_alt <- rep(NA_real_,60)
+
+for (i in seq_along(probs_dt$age_month)){
+  month <- probs_dt$age_month[i]
+  
+  # get avg mortality
+  numerator <- nrow(df_model[(age_month==month)&(child_mortality==1)])
+  # denominator <- nrow(df_model[age_month>=month])
+  
+  denominator <- nrow(df_model[(age_month>=month)|(child_mortality==0)])
+  
+  # probs_dt[age_month==month,avg_mortality:=numerator/denominator]
+  probs_dt[age_month==month,avg_mortality_alt:=numerator/denominator]
+  
+  # get avg prob of mortality for that point in time
+  df_tmp <- copy(df_model)
+  df_tmp[,age_month := month]
+  df_tmp <- merge(df_tmp, baseline_hazard[, c("time", "hazard")],
+                  by.x = "age_month", by.y = "time", all.x = TRUE, suffixes = c("", "_point"))
+  
+  # Calculate point hazard for each observation
+  df_tmp$hazard_point_me <- df_tmp$frailty * df_tmp$hazard * exp(df_tmp$linear_pred)
+  df_tmp$hazard_point_fe <- df_tmp$hazard * exp(df_tmp$linear_pred)
+  
+  # Convert to point mortality probability (probability of dying in that month)
+  df_tmp$mortality_point_me <- 1 - exp(-df_tmp$hazard_point_me)
+  df_tmp$mortality_point_fe <- 1 - exp(-df_tmp$hazard_point_fe)
+  
+  probs_dt[age_month==month,avg_probs_me:=mean(df_tmp$mortality_point_me)]
+  probs_dt[age_month==month,avg_probs_fe:=mean(df_tmp$mortality_point_fe)]
+  
+  # get avg cumulative prob of mortality
+  df_tmp$cumhaz_baseline <- sapply(df_tmp$age_month, function(t) {
+    get_cumhaz_baseline(t, baseline_hazard)
+  })
+  
+  df_tmp$cumhaz_me <- df_tmp$frailty *
+    df_tmp$cumhaz_baseline *
+    exp(df_tmp$linear_pred)
+  
+  df_tmp$cumhaz_fe <- df_tmp$cumhaz_baseline *
+    exp(df_tmp$linear_pred)
+  
+  # Survival probability = exp(-cumulative hazard)
+  df_tmp$survival_me <- exp(-df_tmp$cumhaz_me)
+  
+  # Mortality probability = 1 - survival
+  df_tmp$mortality_me <- 1 - df_tmp$survival_me
+  
+  # Survival probability = exp(-cumulative hazard)
+  df_tmp$survival_fe <- exp(-df_tmp$cumhaz_fe)
+  
+  # Mortality probability = 1 - survival
+  df_tmp$mortality_fe <- 1 - df_tmp$survival_fe
+  
+  probs_dt[age_month==month,avg_cum_probs_me:=mean(df_tmp$mortality_me)]
+  probs_dt[age_month==month,avg_cum_probs_fe:=mean(df_tmp$mortality_fe)]
+  
+}
+
+write.csv(probs_dt,paste0(model_summary_dir,"avg_prob_table_filtered.csv"),row.names = FALSE)
+
+# 
+# probs_dt[,fe_me_dif := avg_probs_me-avg_probs_fe]
+# probs_dt[,fe_raw_dif_pc := (avg_mortality-avg_probs_fe)/avg_mortality]
+# probs_dt[,me_raw_dif_pc := (avg_mortality-avg_probs_me)/avg_mortality]
+# 
+# probs_dt[,fe_raw2_dif_pc := (avg_mortality_alt-avg_probs_fe)/avg_mortality_alt]
+# 
+# sub <- probs_dt[age_month %in% c(1,13,25,37,49,60)]

@@ -1,8 +1,10 @@
 ################################################################################
 # DESCRIPTION: Script to run baseline model on child mortality on subset of data.
-# model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd + 
+# using a yearly version of the data to check if data sparsity is causing an issue
+# with the baseline hazards.
+# model <- emfrail(Surv(age_year_recoded, child_mortality) ~ consumption_pd + 
 #                    days_over_30C + 
-#                    mean_temperature +
+#                    total_precipitation +
 #                    sex_id + 
 #                    birth_year + 
 #                    survival::cluster(ihme_loc_id), 
@@ -47,9 +49,10 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_v6"
+sample_percent <- 0.1
+summary_file <- "cm_v7_subset_yearly"
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data.parquet"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data_yearly.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
@@ -74,13 +77,23 @@ climate_vars <- c(
   "days_over_26C",
   "any_days_over_30C"
 )
-cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
+cols <- c("indv_id","child_mortality", "age_month","age_year_recoded", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- df[, ..cols]
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
 df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
 
 
 df_model <- data.table(df_model)
+
+# get sample
+indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
+indv_counts <- indv_dt[, .N, by = ihme_loc_id]
+indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
+indv_dt[, n_sample := floor(sample_percent * N)]
+
+set.seed(42)
+sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
+df_sample <- df_model[indv_id %in% sampled_indv]
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
@@ -90,13 +103,13 @@ df_model <- data.table(df_model)
 # df_model <- df_model
 
 # fit model with days_over_30C, days_over_30C*consumption, and birth_year
-model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd + 
+model <- emfrail(Surv(age_year_recoded, child_mortality) ~ consumption_pd + 
                    days_over_30C + 
-                   mean_temperature +
+                   total_precipitation +
                    sex_id + 
                    birth_year + 
                    survival::cluster(ihme_loc_id), 
-                 data = df_model,
+                 data = df_sample,
                  verbose = TRUE)
 
 # Extract frailty estimates for each cluster (ihme_loc_id)
@@ -138,7 +151,7 @@ write.csv(frailty_df, paste0(model_summary_dir, "frailty_estimates_", summary_fi
 # Extract fixed effect coefficients
 coefs <- coef(model)
 beta_consumption <- coefs["consumption_pd"]
-beta_mean_temp <- coefs["mean_temperature"]
+beta_total_precipitation <- coefs["total_precipitation"]
 beta_days_over_30C <- coefs["days_over_30C"]
 beta_sex_female <- coefs["sex_idFemale"]
 beta_birth_year <- coefs["birth_year"]
@@ -161,8 +174,8 @@ df_model <- merge(df_model, frailty_df, by = "ihme_loc_id", all.x = TRUE)
 # Calculate linear predictor (fixed effects only)
 df_model$linear_pred <- (
   beta_consumption * df_model$consumption_pd +
-    beta_mean_temp * df_model$mean_temperature +
-    beta_interaction * (df_model$consumption_pd*df_model$any_days_over_30C) +
+    beta_days_over_30C * df_model$days_over_30C +
+    beta_total_precipitation * df$total_precipitation + 
     beta_sex_female * (df_model$sex_id == "Female")+
     beta_birth_year * (df_model$birth_year)
 )
@@ -210,7 +223,7 @@ df_model$mortality_fe <- 1 - df_model$survival_fe
 
 # Also get point probability estimates
 df_model <- merge(df_model, baseline_hazard[, c("time", "hazard")], 
-                   by.x = "age_month", by.y = "time", all.x = TRUE, suffixes = c("", "_point"))
+                   by.x = "age_year_recoded", by.y = "time", all.x = TRUE, suffixes = c("", "_point"))
 
 # Calculate point hazard for each observation
 df_model$hazard_point_me <- df_model$frailty * df_model$hazard * exp(df_model$linear_pred)
@@ -225,4 +238,87 @@ print("model predictions done")
 # save results
 write_parquet(df_model,paste0(results_dir,"predictions_",summary_file,".parquet"))
 print(paste0("child mortality predictions saved to ",paste0(results_dir,"predictions_",summary_file,".parquet")))
+
+
+# store results in data table with age_month, avg actual mortality,
+# avg cum mortality probability, and avg point mortality probability
+probs_dt <- data.table(
+  age_year_recoded = seq(1,6,1),
+  avg_mortality = rep(NA_real_,6),
+  avg_probs_me = rep(NA_real_,6),
+  avg_probs_fe = rep(NA_real_,6),
+  avg_cum_probs_me = rep(NA_real_,6),
+  avg_cum_probs_fe = rep(NA_real_,6),
+  avg_mortality_alt = rep(NA_real_,6),
+  avg_haz_prob_me = rep(NA_real_,6),
+  avg_haz_prob_fe = rep(NA_real_,6)
+)
+
+
+for (i in seq_along(probs_dt$age_year_recoded)){
+  yr <- probs_dt$age_year_recoded[i]
+  
+  # get avg mortality
+  numerator <- nrow(df_model[(age_year_recoded==yr)&(child_mortality==1)])
+  denominator <- nrow(df_model[age_year_recoded>=yr])
+  
+  denominator_alt <- nrow(df_model[(age_year_recoded>=yr)|(child_mortality==0)])
+  
+  probs_dt[age_year_recoded==yr,avg_mortality:=numerator/denominator]
+  probs_dt[age_year_recoded==yr,avg_mortality_alt:=numerator/denominator_alt]
+  
+  # get avg prob of mortality for that point in time
+  df_tmp <- copy(df_model)
+  df_tmp$hazard <- NULL
+  df_tmp[,age_year_recoded := yr]
+  setDT(baseline_hazard)
+  baseline_merge <- baseline_hazard[, .(time, hazard)]
+  setnames(baseline_merge,old="time",new="age_year_recoded")
+  df_tmp <- merge(df_tmp, baseline_merge,
+                  by = "age_year_recoded", all.x = TRUE)
+  
+  # Calculate point hazard for each observation
+  df_tmp$hazard_point_me <- df_tmp$frailty * df_tmp$hazard * exp(df_tmp$linear_pred)
+  df_tmp$hazard_point_fe <- df_tmp$hazard * exp(df_tmp$linear_pred)
+  
+  # Convert to point mortality probability (probability of dying in that yr)
+  df_tmp$mortality_point_me <- 1 - exp(-df_tmp$hazard_point_me)
+  df_tmp$mortality_point_fe <- 1 - exp(-df_tmp$hazard_point_fe)
+  
+  probs_dt[age_year_recoded==yr,avg_probs_me:=mean(df_tmp$mortality_point_me)]
+  probs_dt[age_year_recoded==yr,avg_probs_fe:=mean(df_tmp$mortality_point_fe)]
+  
+  probs_dt[age_year_recoded==yr,avg_haz_prob_me:=mean(df_tmp$hazard_point_me)]
+  probs_dt[age_year_recoded==yr,avg_haz_prob_fe:=mean(df_tmp$hazard_point_fe)]
+  
+  # get avg cumulative prob of mortality
+  df_tmp$cumhaz_baseline <- sapply(df_tmp$age_year_recoded, function(t) {
+    get_cumhaz_baseline(t, baseline_hazard)
+  })
+  
+  df_tmp$cumhaz_me <- df_tmp$frailty *
+    df_tmp$cumhaz_baseline *
+    exp(df_tmp$linear_pred)
+  
+  df_tmp$cumhaz_fe <- df_tmp$cumhaz_baseline *
+    exp(df_tmp$linear_pred)
+  
+  # Survival probability = exp(-cumulative hazard)
+  df_tmp$survival_me <- exp(-df_tmp$cumhaz_me)
+  
+  # Mortality probability = 1 - survival
+  df_tmp$mortality_me <- 1 - df_tmp$survival_me
+  
+  # Survival probability = exp(-cumulative hazard)
+  df_tmp$survival_fe <- exp(-df_tmp$cumhaz_fe)
+  
+  # Mortality probability = 1 - survival
+  df_tmp$mortality_fe <- 1 - df_tmp$survival_fe
+  
+  probs_dt[age_year_recoded==yr,avg_cum_probs_me:=mean(df_tmp$mortality_me)]
+  probs_dt[age_year_recoded==yr,avg_cum_probs_fe:=mean(df_tmp$mortality_fe)]
+  
+}
+
+write.csv(probs_dt,paste0(model_summary_dir,"avg_prob_table_yearly.csv"),row.names = FALSE)
 

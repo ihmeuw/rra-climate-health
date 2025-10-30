@@ -4,7 +4,6 @@
 #                    days_over_30C + 
 #                    mean_temperature +
 #                    total_precipitation +
-#                    any_days_over_30C*consumption_pd +
 #                    sex_id + 
 #                    birth_year + 
 #                    survival::cluster(ihme_loc_id), 
@@ -49,7 +48,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-sample_percent <- 0.15
+sample_percent <- 0.25
 summary_file <- "cm_v8_subset"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data.parquet"
@@ -107,7 +106,6 @@ model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd +
                    days_over_30C + 
                    mean_temperature +
                    total_precipitation +
-                   any_days_over_30C:consumption_pd +
                    sex_id + 
                    birth_year + 
                    survival::cluster(ihme_loc_id), 
@@ -158,7 +156,6 @@ beta_total_precipitation <- coefs["total_precipitation"]
 beta_any_days_over_30C <- coefs["any_days_over_30C"]
 beta_sex_female <- coefs["sex_idFemale"]
 beta_birth_year <- coefs["birth_year"]
-beta_interaction <- coefs["consumption_pd:any_days_over_30C"]
 
 
 # Extract baseline hazard - Note this is only as long as unique months in which
@@ -181,7 +178,6 @@ df_model$linear_pred <- (
     beta_mean_temp * df_model$mean_temperature +
     beta_total_precipitation * df$total_precipitation + 
     beta_days_over_30C * df_model$days_over_30C +
-    beta_interaction * (df_model$consumption_pd*df_model$any_days_over_30C) +
     beta_sex_female * (df_model$sex_id == "Female")+
     beta_birth_year * (df_model$birth_year)
 )

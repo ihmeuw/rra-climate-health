@@ -113,7 +113,7 @@ def plot_heat_map(
             fontsize=10,
         )
         ax1.set_yticklabels(
-            [f"{int(y.left)}–{int(y.right)}" for y in heatmap_data.index],
+            [f"{y.left:.1f}–{y.right:.1f}" for y in heatmap_data.index],
             rotation=0,
             fontsize=10,
         )
@@ -199,7 +199,7 @@ def plot_heat_map_person_time(
             fontsize=10,
         )
         ax1.set_yticklabels(
-            [f"{int(y.left)}–{int(y.right)}" for y in heatmap_data.index],
+            [f"{y.left:.1f}–{y.right:.1f}" for y in heatmap_data.index],
             rotation=0,
             fontsize=10,
         )
@@ -217,17 +217,23 @@ def plot_heat_map_person_time(
 df = pd.read_parquet(DATA_PATH)
 
 # Modeled data
-df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v7_subset.parquet")
+# df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v7_subset.parquet")
 # df_model = pd.read_parquet(
 #     RESULTS_PATH + "predictions_subset_100pct_model_no_interaction.parquet"
 # )
 # df_model = pd.read_parquet(
 #     RESULTS_PATH + "predictions_subset_100pct_model_10yr_cutoff.parquet"
 # )
+# df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v7_filtered.parquet")
+df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v7_subset.parquet")
+# df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v3_subset.parquet")
+# df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v7_subset_yearly.parquet")
+
+df_model_cutoff = df_model.query("int_birth_year_diff_months<=60")
 
 # Neonatal predictions
 neonatal = pd.read_parquet(
-    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/neonatal/predictions_neonatal_logistic_interaction.parquet"
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/neonatal/predictions_nm_v7.parquet"
 )
 
 ## CONSTANTS
@@ -262,6 +268,8 @@ plot_heat_map(
     # vmin=vmin,
     # vmax=vmax,
 )
+
+################################################################################
 
 # Make plots for cumulative estimates ###############################################
 
@@ -315,8 +323,8 @@ plot_heat_map_person_time(
     bin_cols=columns_to_bin,
     format=".3f",
     multiply_by=1000,
-    vmin=vmin,
-    vmax=vmax,
+    vmin=0.5,  # vmin,
+    vmax=4,  # vmax,
 )
 
 # plot unscaled fixed effects predictions
@@ -329,12 +337,12 @@ plot_heat_map_person_time(
     outfile="fe_heatmap_child_mortality_10_28_v7_ppt",
     title="Modeled Child Mortality without Random Effects (per Person-Time)",
     bin_cols=columns_to_bin,
-    format=".3f",
+    # format=".3f",
     multiply_by=1000,
-    vmin=vmin,
-    vmax=vmax,
+    vmin=0.5,  # vmin,
+    vmax=4,  # vmax,
 )
-# plot unscaled mixed effects predictions
+
 plot_heat_map_person_time(
     data=df_model.rename(
         columns={
@@ -346,8 +354,54 @@ plot_heat_map_person_time(
     bin_cols=columns_to_bin,
     format=".3f",
     multiply_by=1000,
-    vmin=vmin,
-    vmax=vmax,
+    vmin=0.5,  # vmin,
+    vmax=4,  # vmax,
+)
+
+plot_heat_map_person_time(
+    data=df_model_cutoff.rename(
+        columns={
+            "child_mortality": "model_predictions",
+        }
+    ),
+    outfile="raw_heatmap_child_mortality_10_28_ppt",
+    title="Raw Data Child Mortality (per Person-Time)",
+    bin_cols=columns_to_bin,
+    format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
+)
+
+# plot unscaled fixed effects predictions
+plot_heat_map_person_time(
+    data=df_model_cutoff.rename(
+        columns={
+            "mortality_fe": "model_predictions",
+        }
+    ),
+    outfile="fe_heatmap_child_mortality_10_28_v7_ppt",
+    title="Modeled Child Mortality without Random Effects (per Person-Time)",
+    bin_cols=columns_to_bin,
+    # format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
+)
+# plot unscaled mixed effects predictions
+plot_heat_map_person_time(
+    data=df_model.rename(
+        columns={
+            "mortality_me": "model_predictions",
+        }
+    ),
+    outfile="me_heatmap_child_mortality_10_28_v7_ppt",
+    title="Modeled Child Mortality with Random Effects (per Person-Time)",
+    bin_cols=columns_to_bin,
+    # format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
 )
 
 # Test alternative plots using point estimates instead of cumulative ###########
@@ -361,23 +415,261 @@ plot_heat_map(
     title="Modeled Child Mortality with Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
-    # multiply_by=1000,
+    multiply_by=1000,
     # vmin=vmin,
     # vmax=vmax,
 )
-plot_heat_map_person_time(
+
+plot_heat_map(
     data=df_model.rename(
         columns={
-            "mortality_point_me": "model_predictions",
+            "hazard_point_me": "model_predictions",
         }
     ),
     outfile="me_heatmap_child_mortality_10_28_v7_pp",
     title="Modeled Child Mortality with Random Effects",
     bin_cols=columns_to_bin,
     format=".3f",
-    # multiply_by=1000,
+    multiply_by=1000,
     # vmin=vmin,
     # vmax=vmax,
+)
+
+df_model["hazard_time_me"] = df_model["hazard_point_me"] * df_model["age_month"]
+
+plot_heat_map_person_time(
+    data=df_model.rename(
+        columns={
+            "hazard_time_me": "model_predictions",
+        }
+    ),
+    outfile="me_heatmap_child_mortality_10_28_v7_ppt",
+    title="Modeled Child Mortality with Random Effects (per Person-Time)",
+    bin_cols=columns_to_bin,
+    # format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
+)
+
+df_model["hazard_time_fe"] = df_model["hazard_point_fe"] * df_model["age_month"]
+
+plot_heat_map_person_time(
+    data=df_model.rename(
+        columns={
+            "hazard_time_fe": "model_predictions",
+        }
+    ),
+    outfile="me_heatmap_child_mortality_10_28_v7_ppt",
+    title="",
+    bin_cols=columns_to_bin,
+    # format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
+)
+
+df_model["prob_time_fe"] = df_model["mortality_point_fe"] * df_model["age_month"]
+
+plot_heat_map_person_time(
+    data=df_model.rename(
+        columns={
+            "prob_time_fe": "model_predictions",
+        }
+    ),
+    outfile="me_heatmap_child_mortality_10_28_v7_ppt",
+    title="",
+    bin_cols=columns_to_bin,
+    # format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
+)
+
+df_model["prob_time_me"] = df_model["mortality_point_me"] * df_model["age_month"]
+
+plot_heat_map_person_time(
+    data=df_model.rename(
+        columns={
+            "prob_time_me": "model_predictions",
+        }
+    ),
+    outfile="me_heatmap_child_mortality_10_28_v7_ppt",
+    title="",
+    bin_cols=columns_to_bin,
+    # format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
+)
+
+
+plot_heat_map_person_time(
+    data=df_model.rename(
+        columns={
+            "cumhaz_fe": "model_predictions",
+        }
+    ),
+    outfile="me_heatmap_child_mortality_10_28_v7_pp",
+    title="Modeled Child Mortality with Random Effects",
+    bin_cols=columns_to_bin,
+    # format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
+)
+
+plot_heat_map_person_time(
+    data=df_model.rename(
+        columns={
+            "mortality_fe": "model_predictions",
+        }
+    ),
+    outfile="me_heatmap_child_mortality_10_28_v7_pp",
+    title="Modeled Child Mortality with Random Effects",
+    bin_cols=columns_to_bin,
+    # format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
+)
+
+
+plot_heat_map(
+    data=df_model.rename(
+        columns={
+            "hazard_point_me": "model_predictions",
+        }
+    ),
+    outfile="me_heatmap_child_mortality_10_29_v7_pp",
+    title="Modeled Child Mortality with Random Effects",
+    bin_cols=columns_to_bin,
+    # format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
+)
+
+plot_heat_map_person_time(
+    data=df_model.rename(
+        columns={
+            "hazard_point_me": "model_predictions",
+        }
+    ),
+    outfile="me_heatmap_child_mortality_10_29_v7_pp",
+    title="Modeled Child Mortality with Random Effects",
+    bin_cols=columns_to_bin,
+    # format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
+)
+
+plot_heat_map(
+    data=df_model.rename(
+        columns={
+            "mortality_me": "model_predictions",
+        }
+    ),
+    outfile="me_heatmap_child_mortality_10_29_v7_pp",
+    title="Modeled Child Mortality with Random Effects",
+    bin_cols=columns_to_bin,
+    # format=".3f",
+    multiply_by=1000,
+    # vmin=vmin,
+    # vmax=vmax,
+)
+
+multiply_by = 1000
+col = "days_over_30C"
+version = "hazard_point_me"
+heatmap_df = df_model.copy()
+for col in columns_to_bin:
+    heatmap_df[f"{col}_bin"] = pd.qcut(
+        heatmap_df[col], 10, retbins=False, duplicates="drop"
+    )
+heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
+    heatmap_df.consumption_pd, 10, retbins=True
+)
+heatmap_data = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])[version].sum().unstack()
+    / heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["age_month"].sum().unstack()
+)
+heatmap_data *= multiply_by
+
+plt.figure(figsize=(10, 8))
+ax1 = sns.heatmap(
+    heatmap_data,
+    annot=True,
+    # fmt=format,
+    cmap="YlOrBr",
+)
+
+# compare numerators
+
+# pick a cell to inspect: days_over_30C_bin = , consumption_pd =
+
+group_test = heatmap_df.groupby(["consumption_pd", f"{col}_bin"]).unstack()
+
+heatmap_data_cm_sum_num = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["child_mortality"]
+    .sum()
+    .unstack()
+)
+
+heatmap_data_hazme_sum_num = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["hazard_point_me"]
+    .sum()
+    .unstack()
+)
+
+heatmap_data_cumhazme_sum_num = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["cumhaz_me"].sum().unstack()
+)
+
+heatmap_data_hazme_mean = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["hazard_point_me"]
+    .mean()
+    .unstack()
+)
+
+
+heatmap_data_model_point_sum_num = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["mortality_point_me"]
+    .sum()
+    .unstack()
+)
+
+heatmap_data_model_cum_sum_num = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["mortality_me"].sum().unstack()
+)
+
+denom = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["age_month"].sum().unstack()
+)
+
+heatmap_data_cm_mean_num = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["child_mortality"]
+    .mean()
+    .unstack()
+)
+
+heatmap_data_model_point_mean_num = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["mortality_point_me"]
+    .mean()
+    .unstack()
+)
+
+heatmap_data_model_point_fe_mean_num = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["mortality_point_fe"]
+    .mean()
+    .unstack()
+)
+
+heatmap_data_model_cum_mean_num = (
+    heatmap_df.groupby(["consumption_pd", f"{col}_bin"])["mortality_me"]
+    .mean()
+    .unstack()
 )
 
 ## Neonatal
@@ -423,7 +715,7 @@ plot_heat_map(
             "child_mortality": "model_predictions",
         }
     ),
-    outfile="raw_heatmap_neonatal_consumption_pd_10_27",
+    outfile="raw_heatmap_neonatal_consumption_pd_10_28",
     title="Raw Data Neonatal Child Mortality",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -438,7 +730,7 @@ plot_heat_map(
             "pred_fe": "model_predictions",
         }
     ),
-    outfile="fe_heatmap_neonatal_consumption_pd_10_27",
+    outfile="fe_heatmap_neonatal_consumption_pd_10_28",
     title="Neonatal Modeled Child Mortality (without random effects)",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -453,7 +745,7 @@ plot_heat_map(
             "pred_me": "model_predictions",
         }
     ),
-    outfile="me_heatmap_neonatal_consumption_pd_10_27",
+    outfile="me_heatmap_neonatal_consumption_pd_10_28",
     title="Neonatal Modeled Child Mortality (with random effects)",
     bin_cols=columns_to_bin,
     format=".3f",

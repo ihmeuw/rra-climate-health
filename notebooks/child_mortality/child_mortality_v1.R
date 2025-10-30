@@ -248,55 +248,61 @@ probs_dt <- data.table(
   avg_cum_probs_fe = rep(NA_real_,60)
 )
 
+# probs_dt$avg_mortality_alt <- rep(NA_real_,60)
+
 for (i in seq_along(probs_dt$age_month)){
   month <- probs_dt$age_month[i]
   
   # get avg mortality
   numerator <- nrow(df_model[(age_month==month)&(child_mortality==1)])
-  denominator <- nrow(df_model[age_month>=month])
-  probs_dt[age_month==month,avg_mortality:=numerator/denominator]
+  # denominator <- nrow(df_model[age_month>=month])
   
+  denominator <- nrow(df_model[(age_month>=month)|(child_mortality==0)])
+  
+  # probs_dt[age_month==month,avg_mortality:=numerator/denominator]
+  probs_dt[age_month==month,avg_mortality_alt:=numerator/denominator]
+
   # get avg prob of mortality for that point in time
   df_tmp <- copy(df_model)
   df_tmp[,age_month := month]
-  df_tmp <- merge(df_tmp, baseline_hazard[, c("time", "hazard")], 
+  df_tmp <- merge(df_tmp, baseline_hazard[, c("time", "hazard")],
                     by.x = "age_month", by.y = "time", all.x = TRUE, suffixes = c("", "_point"))
-  
+
   # Calculate point hazard for each observation
   df_tmp$hazard_point_me <- df_tmp$frailty * df_tmp$hazard * exp(df_tmp$linear_pred)
   df_tmp$hazard_point_fe <- df_tmp$hazard * exp(df_tmp$linear_pred)
-  
+
   # Convert to point mortality probability (probability of dying in that month)
   df_tmp$mortality_point_me <- 1 - exp(-df_tmp$hazard_point_me)
   df_tmp$mortality_point_fe <- 1 - exp(-df_tmp$hazard_point_fe)
-  
+
   probs_dt[age_month==month,avg_probs_me:=mean(df_tmp$mortality_point_me)]
   probs_dt[age_month==month,avg_probs_fe:=mean(df_tmp$mortality_point_fe)]
-  
+
   # get avg cumulative prob of mortality
   df_tmp$cumhaz_baseline <- sapply(df_tmp$age_month, function(t) {
     get_cumhaz_baseline(t, baseline_hazard)
   })
-  
-  df_tmp$cumhaz_me <- df_tmp$frailty * 
-    df_tmp$cumhaz_baseline * 
+
+  df_tmp$cumhaz_me <- df_tmp$frailty *
+    df_tmp$cumhaz_baseline *
     exp(df_tmp$linear_pred)
-  
-  df_tmp$cumhaz_fe <- df_tmp$cumhaz_baseline * 
+
+  df_tmp$cumhaz_fe <- df_tmp$cumhaz_baseline *
     exp(df_tmp$linear_pred)
-  
+
   # Survival probability = exp(-cumulative hazard)
   df_tmp$survival_me <- exp(-df_tmp$cumhaz_me)
-  
+
   # Mortality probability = 1 - survival
   df_tmp$mortality_me <- 1 - df_tmp$survival_me
-  
+
   # Survival probability = exp(-cumulative hazard)
   df_tmp$survival_fe <- exp(-df_tmp$cumhaz_fe)
-  
+
   # Mortality probability = 1 - survival
   df_tmp$mortality_fe <- 1 - df_tmp$survival_fe
-  
+
   probs_dt[age_month==month,avg_cum_probs_me:=mean(df_tmp$mortality_me)]
   probs_dt[age_month==month,avg_cum_probs_fe:=mean(df_tmp$mortality_fe)]
   
@@ -304,5 +310,11 @@ for (i in seq_along(probs_dt$age_month)){
 
 write.csv(probs_dt,paste0(model_summary_dir,"avg_prob_table.csv"),row.names = FALSE)
 
-
-
+# 
+# probs_dt[,fe_me_dif := avg_probs_me-avg_probs_fe]
+# probs_dt[,fe_raw_dif_pc := (avg_mortality-avg_probs_fe)/avg_mortality]
+# probs_dt[,me_raw_dif_pc := (avg_mortality-avg_probs_me)/avg_mortality]
+# 
+# probs_dt[,fe_raw2_dif_pc := (avg_mortality_alt-avg_probs_fe)/avg_mortality_alt]
+# 
+# sub <- probs_dt[age_month %in% c(1,13,25,37,49,60)]

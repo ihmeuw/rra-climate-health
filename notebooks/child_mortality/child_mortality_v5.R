@@ -2,7 +2,6 @@
 # DESCRIPTION: Script to run baseline model on child mortality on subset of data.
 # model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd + 
 #                    days_over_30C + 
-#                    any_days_over_30C*consumption_pd +
 #                    sex_id + 
 #                    birth_year + 
 #                    survival::cluster(ihme_loc_id), 
@@ -92,7 +91,6 @@ df_model <- data.table(df_model)
 # fit model with days_over_30C, days_over_30C*consumption, and birth_year
 model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd + 
                    days_over_30C + 
-                   any_days_over_30C:consumption_pd +
                    sex_id + 
                    birth_year + 
                    survival::cluster(ihme_loc_id), 
@@ -141,7 +139,6 @@ beta_consumption <- coefs["consumption_pd"]
 beta_days_over_30C <- coefs["days_over_30C"]
 beta_sex_female <- coefs["sex_idFemale"]
 beta_birth_year <- coefs["birth_year"]
-beta_interaction <- coefs["consumption_pd:any_days_over_30C"]
 
 
 # Extract baseline hazard - Note this is only as long as unique months in which
@@ -162,7 +159,6 @@ df_model <- merge(df_model, frailty_df, by = "ihme_loc_id", all.x = TRUE)
 df_model$linear_pred <- (
   beta_consumption * df_model$consumption_pd +
     beta_days_over_30C * df_model$days_over_30C +
-    beta_interaction * (df_model$consumption_pd*df_model$any_days_over_30C) +
     beta_sex_female * (df_model$sex_id == "Female")+
     beta_birth_year * (df_model$birth_year)
 )
