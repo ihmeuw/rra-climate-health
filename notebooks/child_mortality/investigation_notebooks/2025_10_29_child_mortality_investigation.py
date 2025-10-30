@@ -15,6 +15,28 @@ PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutritio
 
 os.makedirs(PLOT_PATH, exist_ok=True, mode=0o777)
 
+## READ IN DATA
+
+# Raw data
+df = pd.read_parquet(DATA_PATH)
+
+# Modeled data
+
+# df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v7_filtered.parquet")
+# df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v7_subset.parquet")
+# df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v3_subset.parquet")
+# df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v7.parquet")
+df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v3.parquet")
+
+
+# Neonatal predictions
+neonatal = pd.read_parquet(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/neonatal/predictions_nm_v3.parquet"
+)
+
+neonatal = pd.read_parquet(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/neonatal/predictions_nm_v7.parquet"
+)
 
 ## FUNCTIONS:
 
@@ -190,23 +212,6 @@ def plot_heat_map_person_time(
         plt.close()
 
 
-## READ IN DATA
-
-# Raw data
-df = pd.read_parquet(DATA_PATH)
-
-# Modeled data
-
-# df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v7_filtered.parquet")
-# df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v7_subset.parquet")
-df_model = pd.read_parquet(RESULTS_PATH + "predictions_cm_v3_subset.parquet")
-
-
-# Neonatal predictions
-neonatal = pd.read_parquet(
-    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/neonatal/predictions_nm_v3.parquet"
-)
-
 ## CONSTANTS
 
 # Heat maps of variables
@@ -271,7 +276,7 @@ plot_heat_map_person_time(
             "child_mortality": "model_predictions",
         }
     ),
-    outfile="raw_heatmap_child_mortality_10_28_ppt",
+    outfile="raw_heatmap_child_mortality_10_30_ppt",
     title="Raw Data Child Mortality (per Person-Time)",
     bin_cols=columns_to_bin,
     format=".2f",
@@ -287,7 +292,7 @@ plot_heat_map_person_time(
             "cumhaz_me": "model_predictions",
         }
     ),
-    outfile="me_heatmap_child_mortality_10_29_ppt_v3",
+    outfile="me_heatmap_child_mortality_10_30_ppt_v3",
     title="Modeled Child Mortality with Random Effects",
     bin_cols=columns_to_bin,
     format=".2f",
@@ -302,7 +307,7 @@ plot_heat_map_person_time(
             "cumhaz_fe": "model_predictions",
         }
     ),
-    outfile="fe_heatmap_child_mortality_10_29_ppt_v3",
+    outfile="fe_heatmap_child_mortality_10_30_ppt_v3",
     title="Modeled Child Mortality without Random Effects",
     bin_cols=columns_to_bin,
     format=".2f",
@@ -370,7 +375,7 @@ plot_heat_map(
             "pred_fe": "model_predictions",
         }
     ),
-    outfile="fe_heatmap_neonatal_consumption_pd_10_29_v3",
+    outfile="fe_heatmap_neonatal_consumption_pd_10_29_v7",
     title="Neonatal Modeled Child Mortality (without random effects)",
     bin_cols=columns_to_bin,
     format=".3f",
@@ -385,7 +390,7 @@ plot_heat_map(
             "pred_me": "model_predictions",
         }
     ),
-    outfile="me_heatmap_neonatal_consumption_pd_10_29_v3",
+    outfile="me_heatmap_neonatal_consumption_pd_10_29_v7",
     title="Neonatal Modeled Child Mortality (with random effects)",
     bin_cols=columns_to_bin,
     format=".3f",
