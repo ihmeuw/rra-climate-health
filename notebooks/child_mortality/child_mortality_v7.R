@@ -76,11 +76,12 @@ climate_vars <- c(
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- df[, ..cols]
+df_model <- data.table(df_model)
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
+df_model[,birth_year:=as.factor(birth_year)]
 df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
 
 
-df_model <- data.table(df_model)
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
