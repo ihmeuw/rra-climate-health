@@ -47,8 +47,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-sample_percent <- 0.5
-summary_file <- "cm_v7_subset_birth_year"
+summary_file <- "cm_v7_factored_birth_year"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
@@ -77,22 +76,11 @@ climate_vars <- c(
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- df[, ..cols]
+df_model <- data.table(df_model)
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
 df_model[,birth_year:=as.factor(birth_year)]
 df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
 
-
-df_model <- data.table(df_model)
-
-# get sample
-indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
-indv_counts <- indv_dt[, .N, by = ihme_loc_id]
-indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
-indv_dt[, n_sample := floor(sample_percent * N)]
-
-set.seed(42)
-sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
-df_sample <- df_model[indv_id %in% sampled_indv]
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
@@ -107,8 +95,8 @@ model <- emfrail(Surv(age_month, child_mortality) ~ consumption_pd +
                    total_precipitation +
                    sex_id + 
                    birth_year + 
-                   survival::cluster(ihme_loc_id),
-                 data = df_sample,
+                   survival::cluster(ihme_loc_id), 
+                 data = df_model,
                  verbose = TRUE)
 
 # Extract frailty estimates for each cluster (ihme_loc_id)
@@ -144,9 +132,9 @@ write.csv(frailty_df, paste0(model_summary_dir, "frailty_estimates_", summary_fi
 #==============================================================================
 # SECTION 3: PREDICT MODEL ON ALL AGES
 #==============================================================================
-
+# 
 # ## Predict mixed effects and fixed effects manually
-
+# 
 # # Extract fixed effect coefficients
 # coefs <- coef(model)
 # beta_consumption <- coefs["consumption_pd"]
@@ -154,8 +142,8 @@ write.csv(frailty_df, paste0(model_summary_dir, "frailty_estimates_", summary_fi
 # beta_days_over_30C <- coefs["days_over_30C"]
 # beta_sex_female <- coefs["sex_idFemale"]
 # beta_birth_year <- coefs["birth_year"]
-
-
+# 
+# 
 # # Extract baseline hazard - Note this is only as long as unique months in which
 # # someone died.
 # baseline_hazard <- model$hazard  
@@ -163,13 +151,13 @@ write.csv(frailty_df, paste0(model_summary_dir, "frailty_estimates_", summary_fi
 #   time = model$tev,
 #   hazard = baseline_hazard
 # )
-
+# 
 # baseline_hazard <- baseline_hazard[order(baseline_hazard$time), ]
 # baseline_hazard$cumhazard <- cumsum(baseline_hazard$hazard)
-
+# 
 # # Merge frailty estimates on data
 # df_model <- merge(df_model, frailty_df, by = "ihme_loc_id", all.x = TRUE)
-
+# 
 # # Calculate linear predictor (fixed effects only)
 # df_model$linear_pred <- (
 #   beta_consumption * df_model$consumption_pd +
@@ -178,7 +166,7 @@ write.csv(frailty_df, paste0(model_summary_dir, "frailty_estimates_", summary_fi
 #     beta_sex_female * (df_model$sex_id == "Female")+
 #     beta_birth_year * (df_model$birth_year)
 # )
-
+# 
 # # Function to get cumulative baseline hazard at a given time
 # get_cumhaz_baseline <- function(time, basehaz_df) {
 #   if (time <= 0) return(0)
@@ -186,54 +174,54 @@ write.csv(frailty_df, paste0(model_summary_dir, "frailty_estimates_", summary_fi
 #   if (length(idx) == 0 || idx == 0) return(0)
 #   return(basehaz_df$cumhazard[idx])
 # }
-
+# 
 # # Calculate cumulative baseline hazard at each observation time
 # df_model$cumhaz_baseline <- sapply(df_model$age_month, function(t) {
 #   get_cumhaz_baseline(t, baseline_hazard)
 # })
-
+# 
 # # MANUAL PREDICTION WITH RANDOM EFFECTS (Mixed Effects)
 # # Formula: H(t|X,Z) = Z * H0(t) * exp(X'β)
 # # where Z is the frailty for that cluster
 # df_model$cumhaz_me <- df_model$frailty * 
 #   df_model$cumhaz_baseline * 
 #   exp(df_model$linear_pred)
-
-
+# 
+# 
 # # Survival probability = exp(-cumulative hazard)
 # df_model$survival_me <- exp(-df_model$cumhaz_me)
-
+# 
 # # Mortality probability = 1 - survival
 # df_model$mortality_me <- 1 - df_model$survival_me
-
-
+# 
+# 
 # # MANUAL PREDICTION WITHOUT RANDOM EFFECTS (Fixed Effects Only)
 # # Formula: H(t|X) = H0(t) * exp(X'β)
 # # Equivalent to setting frailty Z = 1 (or E[Z] = 1)
 # df_model$cumhaz_fe <- df_model$cumhaz_baseline * 
 #   exp(df_model$linear_pred)
-
+# 
 # # Survival probability = exp(-cumulative hazard)
 # df_model$survival_fe <- exp(-df_model$cumhaz_fe)
-
+# 
 # # Mortality probability = 1 - survival
 # df_model$mortality_fe <- 1 - df_model$survival_fe
-
-
+# 
+# 
 # # Also get point probability estimates
 # df_model <- merge(df_model, baseline_hazard[, c("time", "hazard")], 
 #                    by.x = "age_month", by.y = "time", all.x = TRUE, suffixes = c("", "_point"))
-
+# 
 # # Calculate point hazard for each observation
 # df_model$hazard_point_me <- df_model$frailty * df_model$hazard * exp(df_model$linear_pred)
 # df_model$hazard_point_fe <- df_model$hazard * exp(df_model$linear_pred)
-
+# 
 # # Convert to point mortality probability (probability of dying in that month)
 # df_model$mortality_point_me <- 1 - exp(-df_model$hazard_point_me)
 # df_model$mortality_point_fe <- 1 - exp(-df_model$hazard_point_fe)
 # print("model predictions done")
-
-
+# 
+# 
 # # save results
 # write_parquet(df_model,paste0(results_dir,"predictions_",summary_file,".parquet"))
 # print(paste0("child mortality predictions saved to ",paste0(results_dir,"predictions_",summary_file,".parquet")))

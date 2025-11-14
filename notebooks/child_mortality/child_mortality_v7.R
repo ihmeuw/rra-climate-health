@@ -78,7 +78,7 @@ cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "co
 df_model <- df[, ..cols]
 df_model <- data.table(df_model)
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
-df_model[,birth_year:=as.factor(birth_year)]
+# df_model[,birth_year:=as.factor(birth_year)]
 df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
 
 

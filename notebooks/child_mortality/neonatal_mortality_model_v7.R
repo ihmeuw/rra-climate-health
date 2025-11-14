@@ -50,7 +50,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "nm_v7"
+summary_file <- "nm_v7_factored_yr"
 
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
@@ -79,7 +79,7 @@ neo_df <- neo_df[age_month==1]
 
 neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
-
+neo_df[,birth_year:=as.factor(birth_year)]
 
 ## Read and format data
 
@@ -150,11 +150,11 @@ write.csv(re_df, paste0(model_summary_dir, "re_estimates_", summary_file, ".csv"
 # # SECTION 3: PREDICT MODEL FOR NEONATAL
 # #==============================================================================
 
-# Predict WITHOUT random effects (fixed effects only)
-df_model$pred_fe <- predict(model, newdata = df_model, type = "response", re.form = NA)
-
-# Predict WITH random effects (mixed effects)
-df_model$pred_me <- predict(model, newdata = df_model, type = "response", re.form = NULL)
-
-# Save predictions to parquet
-write_parquet(df_model, paste0(neonatal_dir, "predictions_", summary_file, ".parquet"))
+# # Predict WITHOUT random effects (fixed effects only)
+# df_model$pred_fe <- predict(model, newdata = df_model, type = "response", re.form = NA)
+# 
+# # Predict WITH random effects (mixed effects)
+# df_model$pred_me <- predict(model, newdata = df_model, type = "response", re.form = NULL)
+# 
+# # Save predictions to parquet
+# write_parquet(df_model, paste0(neonatal_dir, "predictions_", summary_file, ".parquet"))
