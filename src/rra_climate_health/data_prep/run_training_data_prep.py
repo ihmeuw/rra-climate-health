@@ -136,6 +136,133 @@ def merge_left_without_inflating(df_left, df_right, **kwargs):
     return df
 
 
+def get_lookup_months(birth_year, birth_month):
+    """Returns list of year-month tuples to lookup climate data for."""
+
+    return_tuple = []
+    return_tuple.append((birth_year, birth_month, "prev_0_mo"))
+    for i in range(1, 10):
+        lookup_month = birth_month - i
+        lookup_year = birth_year
+        if lookup_month <= 0:
+            lookup_month += 12
+            lookup_year -= 1
+        return_tuple.append((lookup_year, lookup_month, f"prev_{i}_mo"))
+
+    return return_tuple
+
+
+def get_climate_vars_for_months(
+    month_df: pd.DataFrame,
+    climate_variables: list[str],
+    look_up_year: int,
+    look_up_month: int,
+    prev_time_suffix: str,
+    lat_col: str = "lat",
+    long_col: str = "long",
+) -> pd.DataFrame:
+    """
+    returns data for previous months
+    """
+    temp_df = month_df.copy()
+    lats = xr.DataArray(temp_df[lat_col], dims="point")
+    lons = xr.DataArray(temp_df[long_col], dims="point")
+
+    for climate_variable in climate_variables:
+        # climate_ds = ClimateMalnutritionData(Path(DEFAULT_ROOT)/'stunting').load_climate_raster(climate_variable, 'ssp245', yr, 0)
+        # Temporary workaround for climate data loading
+        climate_ds = xr.open_dataset(
+            f"/mnt/share/erf/climate_downscale/results/monthly/raw/historical/{climate_variable}/{look_up_year}_era5.nc"
+        ).sel(month=look_up_month)["value"]
+        temp_df[f"{climate_variable}_{prev_time_suffix}"] = (
+            climate_ds.sel(latitude=lats, longitude=lons, method="nearest")
+            .to_numpy()
+            .flatten()  # the flatten also wasn't there before
+        )
+    return temp_df
+
+
+def get_climate_vars_for_prev_months(
+    month_df: pd.DataFrame,
+    climate_variables: list[str],
+    year_col: str = "birth_year",
+    month_col: str = "birth_month",
+    lat_col: str = "lat",
+    long_col: str = "long",
+) -> pd.DataFrame:
+    """
+    returns data for previous months
+    """
+    temp_df = month_df.copy()
+    lats = xr.DataArray(temp_df[lat_col], dims="point")
+    lons = xr.DataArray(temp_df[long_col], dims="point")
+
+    lookup_year_months = get_lookup_months(
+        temp_df[year_col].iloc[0], temp_df[month_col].iloc[0]
+    )
+
+    for climate_variable in climate_variables:
+        for look_up_year, look_up_month, prev_time_suffix in lookup_year_months:
+
+            climate_ds = xr.open_dataset(
+                f"/mnt/share/erf/climate_downscale/results/monthly/raw/historical/{climate_variable}/{look_up_year}_era5.nc"
+            ).sel(month=look_up_month)["value"]
+            temp_df[f"{climate_variable}_{prev_time_suffix}"] = (
+                climate_ds.sel(latitude=lats, longitude=lons, method="nearest")
+                .to_numpy()
+                .flatten()  # the flatten also wasn't there before
+            )
+    return temp_df
+
+
+def get_prev_monthly_climate_vars_for_dataframe(
+    df: pd.DataFrame,
+    lat_col: str = "lat",
+    long_col: str = "long",
+) -> pd.DataFrame:
+    var_names = [
+        "mean_temperature",
+        "days_over_30C",
+        "precipitation_days",
+        "total_precipitation",
+        "mean_low_temperature",
+        "mean_high_temperature",
+        "relative_humidity",
+        # "days_over_26C",
+        # "days_over_27C",
+        "days_over_28C",
+        # "days_over_29C",
+        # "days_over_31C",
+        "days_over_32C",
+        # "days_over_33C",
+    ]
+
+    unique_coords = df[
+        [lat_col, long_col, "birth_year", "birth_month"]
+    ].drop_duplicates()
+    unique_coords_grouped = unique_coords.groupby(["birth_year", "birth_month"])
+    df_splits = []
+    for (birth_year, birth_month), group in unique_coords_grouped:
+        df_split = group.copy()
+        df_splits.append(df_split)
+
+    p = mp.Pool(processes=25)
+    results_df = pd.concat(
+        p.map(
+            partial(
+                get_climate_vars_for_prev_months,
+                climate_variables=var_names,
+                year_col="birth_year",
+                month_col="birth_month",
+            ),
+            df_splits,
+        )
+    )
+    p.close()
+    p.join()
+    return results_df
+
+
 def get_climate_vars_for_year(
     year_df: pd.DataFrame,
     climate_variables: list[str],
@@ -2034,8 +2161,6 @@ def run_training_data_prep_child_mortality(
     df_min_age.loc[df_min_age.age_month > 1, "child_mortality"] = 0
     df_min_age.loc[df_min_age.age_month > 1, "age_month"] = 1
 
-    # df_min_age = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_22.01/neonatal_data.parquet")
-
     # make version of consumption that is per day
     df_min_age["consumption_pd"] = df_min_age["consumption"] / 365
 
@@ -2044,6 +2169,8 @@ def run_training_data_prep_child_mortality(
 
     # save out neonatal data set
     df_min_age.to_parquet(Path(output_path_version) / "neonatal_data.parquet")
+
+    # df_min_age = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet")
 
     # Get the index of the row with the max age_month_at_year_end for each indv_id
     df_max_age = df_climate.copy()
@@ -2113,6 +2240,35 @@ def run_training_data_prep_child_mortality(
                 f.write(message)
 
 
+def quick_fix_update_neonatal(
+    output_root: str,
+    data_source_type: str,
+):
+    """
+    temporary function to update neonatal data with previous monthly variables,
+    rather than run through whole data prep function again.
+    """
+    # use last df
+    df_min_age = pd.read_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet"
+    )
+
+    output_root += "/training_data/2025_11_19.01/neonatal"
+    os.makedirs(Path(output_root), exist_ok=True, mode=0o777)
+
+    # get previous monthly climate variables
+    climate_vars = get_prev_monthly_climate_vars_for_dataframe(df_min_age)
+    climate_vars.to_parquet(Path(output_root) / "climate_vars.parquet")
+
+    print("climate vars extracted successfully")
+
+    df_min_age_updated = merge_left_without_inflating(
+        df_min_age, climate_vars, on=["birth_year", "birth_month", "lat", "long"]
+    )
+
+    df_min_age_updated.to_parquet(Path(output_root) / "neonatal_data.parquet")
+
+
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
 @clio.with_source_type(allow_all=True)
@@ -2144,6 +2300,11 @@ def run_training_data_prep_main(  # noqa: PLR0915
     elif data_source_type == "child_mortality":
         run_training_data_prep_child_mortality(
             output_root, data_source_type, module=module
+        )
+    elif data_source_type == "neonatal_mortality":
+        quick_fix_update_neonatal(
+            output_root,
+            data_source_type,
         )
     else:
         msg = f"Data source {data_source_type} not implemented yet."
