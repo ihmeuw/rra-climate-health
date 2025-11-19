@@ -22,7 +22,9 @@ def get_choice_callback(
     choices: list[str],
 ) -> Callable[[Any, Any, Any], list[str] | str]:
     if allow_all:
-        return lambda ctx, param, value: choices if value == RUN_ALL else [value]  # noqa: ARG005
+        return lambda ctx, param, value: (
+            choices if value == RUN_ALL else [value]
+        )  # noqa: ARG005
     else:
         return lambda ctx, param, value: value  # noqa: ARG005
 
@@ -46,6 +48,7 @@ VALID_SOURCE_TYPES = [
     "cgf",
     "anemia",
     "child_mortality",
+    "neonatal_mortality",
 ]
 
 
@@ -64,12 +67,12 @@ def with_source_type(
 
 
 VALID_CMIP6_SCENARIOS = [
-    #"ssp119",
+    # "ssp119",
     "ssp126",
     "ssp245",
     # "ssp370",
     "ssp585",
-    #"constant_climate",
+    # "constant_climate",
 ]
 
 
@@ -106,7 +109,7 @@ def with_sex_id(
     )
 
 
-VALID_AGE_GROUP_IDS = ['388', '389', '238', '34']
+VALID_AGE_GROUP_IDS = ["388", "389", "238", "34"]
 
 
 def with_age_group_id(
@@ -180,6 +183,7 @@ def with_model_version() -> ClickOption[_P, _T]:
         help="The model version to run.",
     )
 
+
 def with_wealth_version() -> ClickOption[_P, _T]:
     return click.option(
         "--wealth-version",
@@ -188,6 +192,7 @@ def with_wealth_version() -> ClickOption[_P, _T]:
         required=True,
         help="The version of wealth (income/consumption) to use.",
     )
+
 
 def with_n_draws() -> ClickOption[_P, _T]:
     return click.option(
@@ -199,6 +204,7 @@ def with_n_draws() -> ClickOption[_P, _T]:
         help="The number of draws to run.",
     )
 
+
 def with_draw() -> ClickOption[_P, _T]:
     return click.option(
         "--draw",
@@ -207,6 +213,7 @@ def with_draw() -> ClickOption[_P, _T]:
         required=True,
         help="The draw to run.",
     )
+
 
 __all__ = [
     "VALID_MEASURES",
@@ -226,5 +233,5 @@ __all__ = [
     "with_results_version",
     "with_model_version",
     "with_queue",
-    "with_wealth_version"
+    "with_wealth_version",
 ]
