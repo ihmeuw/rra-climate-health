@@ -152,6 +152,17 @@ def get_lookup_months(birth_year, birth_month):
     return return_tuple
 
 
+def get_prev_climate_var_months(climate_var: str, num_months: int) -> list[str]:
+    """
+    Helper function to retrieve relavant previous monthly climate variable names
+    to construct cumulative exposures.
+    """
+    return_vars = []
+    for i in range(num_months):
+        return_vars.append(f"{climate_var}_prev_{i}_mo")
+    return return_vars
+
+
 def get_climate_vars_for_months(
     month_df: pd.DataFrame,
     climate_variables: list[str],
@@ -2265,6 +2276,34 @@ def quick_fix_update_neonatal(
     df_min_age_updated = merge_left_without_inflating(
         df_min_age, climate_vars, on=["birth_year", "birth_month", "lat", "long"]
     )
+
+    var_names = [
+        "mean_temperature",
+        "days_over_30C",
+        "precipitation_days",
+        "total_precipitation",
+        "mean_low_temperature",
+        "mean_high_temperature",
+        "relative_humidity",
+        # "days_over_26C",
+        # "days_over_27C",
+        "days_over_28C",
+        # "days_over_29C",
+        # "days_over_31C",
+        "days_over_32C",
+        # "days_over_33C",
+    ]
+
+    for v in var_names:
+        for i in [3, 6, 9]:
+            prev_vars = get_prev_climate_var_months(v, i)
+            df_min_age_updated[f"{v}_prev_{i}_mo_avg"] = df_min_age_updated[
+                prev_vars
+            ].mean(axis=1)
+            if ("days_over" in v) or ("precipitation" in v):
+                df_min_age_updated[f"{v}_prev_{i}_mo_sum"] = df_min_age_updated[
+                    prev_vars
+                ].mean(axis=1)
 
     df_min_age_updated.to_parquet(Path(output_root) / "neonatal_data.parquet")
 
