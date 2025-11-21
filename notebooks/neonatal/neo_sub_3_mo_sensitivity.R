@@ -50,7 +50,7 @@ options(scipen = 999) # turn off scientific notation
 
 ## set parameters
 sample_percent <- 0.15
-summary_file <- paste0("nnm_015_1_mo_model_summary")
+summary_file <- paste0("nnm_015_3_mo_sensititivy_model_summary")
 
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_11_20.01/"
@@ -70,6 +70,10 @@ dir.create(model_objects_dir, recursive = TRUE, showWarnings = FALSE)
 # Read in neonatal df (must be made from full dataset)
 neo_df <- read_parquet(neo_version)
 neo_df <- data.table(neo_df)
+
+# sensitivity test: restrict obs to no more than 5 years between birth year and 
+# interview year
+neo_df <- neo_df[int_birth_year_diff_months<=60]
 
 neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 # convert sex_id to int between 0 and 1, where 0 is male and 1 is female
@@ -126,8 +130,8 @@ df_sample <- df_model[indv_id %in% sampled_indv]
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    days_over_30C_prev_0_mo +
-    total_precipitation_prev_0_mo +
+    days_over_30C_prev_3_mo_avg +
+    total_precipitation_prev_3_mo_avg +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
@@ -167,16 +171,16 @@ write.csv(re_df, paste0(model_summary_dir, "re_estimates_", summary_file, ".csv"
 # SECTION 3: PREDICT MODEL FOR NEONATAL ON AVG BIRTH YEAR, SEX, PRECIPITATION
 #==============================================================================
 
-df_avg <- copy(df_model)
+df_avg <- copy(neo_df)
 
 setDT(df_avg)
 # # override existing variables to be able to use predict function from package
 df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0),
-                              levels = levels(df_model_neo$birth_year))]
+                              levels = levels(neo_df$birth_year))]
 
-df_avg[,sex_id:= mean(as.numeric(df_avg$sex_id))-1]
+df_avg[,sex_id:= mean(df_avg$sex_id)]
 
-df_avg[,total_precipitation_prev_0_mo:= mean(df_avg$total_precipitation_prev_0_mo)]
+df_avg[,total_precipitation_prev_3_mo_avg:= mean(df_avg$total_precipitation_prev_3_mo_avg)]
 
 # # Predict WITHOUT random effects (fixed effects only)
 df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)

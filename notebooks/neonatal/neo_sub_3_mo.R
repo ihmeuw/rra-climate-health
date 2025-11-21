@@ -50,7 +50,7 @@ options(scipen = 999) # turn off scientific notation
 
 ## set parameters
 sample_percent <- 0.15
-summary_file <- paste0("nnm_015_1_mo_model_summary")
+summary_file <- paste0("nnm_015_3_mo_model_summary")
 
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_11_20.01/"
@@ -126,8 +126,8 @@ df_sample <- df_model[indv_id %in% sampled_indv]
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    days_over_30C_prev_0_mo +
-    total_precipitation_prev_0_mo +
+    days_over_30C_prev_3_mo_avg +
+    total_precipitation_prev_3_mo_avg +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
@@ -176,7 +176,7 @@ df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 
 
 df_avg[,sex_id:= mean(as.numeric(df_avg$sex_id))-1]
 
-df_avg[,total_precipitation_prev_0_mo:= mean(df_avg$total_precipitation_prev_0_mo)]
+df_avg[,total_precipitation_prev_3_mo_avg:= mean(df_avg$total_precipitation_prev_3_mo_avg)]
 
 # # Predict WITHOUT random effects (fixed effects only)
 df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)
