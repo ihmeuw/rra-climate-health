@@ -49,25 +49,22 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-# sample_percent <- 0.5
-summary_file <- "nnm_full_1_mo_model_summary"
+sample_percent <- 0.01
+summary_file <- paste0("nnm_015_1_mo_model_summary")
 
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_11_20.01/"
 
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_11_20.01/neonatal/neonatal_data.parquet"
 
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
 
 
-neonatal_dir <- paste0(results_dir,"neonatal/")
-dir.create(neonatal_dir, recursive = TRUE, showWarnings = FALSE)
-
-model_summary_dir <- paste0(neonatal_dir,"model_summaries/")
+model_summary_dir <- paste0(results_dir,"model_summaries/")
 dir.create(model_summary_dir, recursive = TRUE, showWarnings = FALSE)
 
-model_objects_dir <- paste0(neonatal_dir,"model_objects/")
+model_objects_dir <- paste0(results_dir,"model_objects/")
 dir.create(model_objects_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Read in neonatal df (must be made from full dataset)
@@ -83,28 +80,36 @@ neo_df[,birth_year:=as.factor(birth_year)]
 ## Read and format data
 
 climate_vars <- c(
-  "mean_temperature",
-  "total_precipitation",
-  "relative_humidity",
-  "mean_high_temperature",
-  "mean_low_temperature",
-  "precipitation_days",
-  "days_over_30C",
-  "days_over_26C",
-  "any_days_over_30C"
+  # "mean_temperature",
+  # "total_precipitation",
+  # "relative_humidity",
+  # "mean_high_temperature",
+  # "mean_low_temperature",
+  # "precipitation_days",
+  # "days_over_30C",
+  # "days_over_26C",
+  # "any_days_over_30C",
+  "days_over_30C_prev_0_mo",
+  "days_over_30C_prev_3_mo_avg",
+  "days_over_30C_prev_6_mo_avg",
+  "days_over_30C_prev_9_mo_avg",
+  "total_precipitation_prev_0_mo",
+  "total_precipitation_prev_3_mo_avg",
+  "total_precipitation_prev_6_mo_avg",
+  "total_precipitation_prev_9_mo_avg"
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- neo_df[, ..cols]
 
 # get sample
-# indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
-# indv_counts <- indv_dt[, .N, by = ihme_loc_id]
-# indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
-# indv_dt[, n_sample := floor(sample_percent * N)]
+indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
+indv_counts <- indv_dt[, .N, by = ihme_loc_id]
+indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
+indv_dt[, n_sample := floor(sample_percent * N)]
 
-# set.seed(42)
-# sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
-# df_sample <- df_model[indv_id %in% sampled_indv]
+set.seed(42)
+sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
+df_sample <- df_model[indv_id %in% sampled_indv]
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
@@ -113,8 +118,8 @@ df_model <- neo_df[, ..cols]
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    days_over_30C +
-    total_precipitation +
+    days_over_30C_prev_0_mo +
+    total_precipitation_prev_0_mo +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
@@ -172,4 +177,4 @@ write.csv(re_df, paste0(model_summary_dir, "re_estimates_", summary_file, ".csv"
 # df_model$pred_me <- predict(model, newdata = df_model, type = "response", re.form = NULL)
 
 # # Save predictions to parquet
-# write_parquet(df_model, paste0(neonatal_dir, "predictions_", summary_file, ".parquet"))
+# write_parquet(df_model, paste0(results_dir, "predictions_", summary_file, ".parquet"))

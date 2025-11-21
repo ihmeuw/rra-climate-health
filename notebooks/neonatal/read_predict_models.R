@@ -115,58 +115,29 @@ df_model_neo <- neo_df[, ..cols]
 summary_file <- "cm_v7_factored_birth_year"
 model_object_file <- "nm_v7_factored_yr"
 model = readRDS(file = paste0(model_objects_dir, model_object_file,".rds"))
-df_model <- copy(df_model_neo)
-setDT(df_model)
+df_avg <- copy(df_model_neo)
+
+setDT(df_avg)
 # override existing variables to be able to use predict function from package
-df_model[,birth_year:=as.numeric(birth_year)]
-df_model[,sex_id:=as.numeric(sex_id)]
+df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0), 
+                              levels = levels(df_model_neo$birth_year))]
 
-df_model[,total_precipitation:= mean(df_model$total_precipitation)]
-df_model[,birth_year:= mean(df_model$birth_year)]
 # note that data is coded as 1=male, 2=female
-df_model[,sex_id:= mean(as.numeric(df_model$sex_id))-1]
+df_avg[,sex_id:=df_model_neo$sex_id[100]]
+# df_avg[,sex_id:= mean(as.numeric(df_avg$sex_id))-1]
 
-# get coefficients from model
-coefs <- lme4::fixef(model)
-beta_intercept <- coefs["(Intercept)"]
-beta_consumption <- coefs["consumption_pd"]
-beta_days_over_30C <- coefs["days_over_30C"]
-beta_total_precipitation <- coefs["total_precipitation"]
-beta_sex_female <- coefs["sex_idFemale"]
-beta_birth_year <- coefs["birth_year"]
+df_avg[,total_precipitation:= mean(df_avg$total_precipitation)]
 
-ranef_df <- as.data.frame(lme4::ranef(model)$ihme_loc_id)
-ranef_df$ihme_loc_id <- rownames(lme4::ranef(model)$ihme_loc_id)
-colnames(ranef_df)[1] <- "random_intercept"
-
-df_model <- merge(df_model, ranef_df, by = "ihme_loc_id", all.x = TRUE)
-
-df_model$linear_pred_fe <- (
-  beta_intercept +
-    beta_consumption * df_model$consumption_pd +
-    beta_days_over_30C * df_model$days_over_30C +
-    beta_total_precipitation * df_model$total_precipitation +
-    beta_sex_female * df_model$sex_id +  
-    beta_birth_year * df_model$birth_year
-)
-
-df_model$linear_pred_me <- (
-  beta_intercept +
-    beta_consumption * df_model$consumption_pd +
-    beta_days_over_30C * df_model$days_over_30C +
-    beta_total_precipitation * df_model$total_precipitation +
-    beta_sex_female * df_model$sex_id + 
-    beta_birth_year * df_model$birth_year +
-    df_model$random_intercept
-)
+# Predict WITHOUT random effects (fixed effects only)
+df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)
 
 
-df_model$pred_fe <- 1 / (1 + exp(-df_model$linear_pred_fe))
-df_model$pred_me <- 1 / (1 + exp(-df_model$linear_pred_me))
+# Predict WITH random effects (mixed effects)
+df_avg$pred_me <- predict(model, newdata = df_avg, type = "response", re.form = NULL)
 
 # Save predictions to parquet
-write_parquet(df_model, paste0(neonatal_dir, "predictions_", summary_file, "_means.parquet"))
-paste0(neonatal_dir, "predictions_", summary_file, "_means.parquet")
+write_parquet(df_avg, paste0(neonatal_dir, "predictions_", summary_file, ".parquet"))
+
 
 # 10/30 - predict models on mean values for birth year, precipitation, sex_id
 # summary_file <- "cm_v7"
