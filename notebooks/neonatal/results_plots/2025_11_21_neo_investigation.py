@@ -130,9 +130,10 @@ def plot_heat_map(
         ax.set_ylabel("Daily consumption", fontsize=13)
         ax.set_title(title, fontsize=18)
 
-        plt.tight_layout()
-        plt.savefig(os.path.join(PLOT_PATH, f"{outfile}_{col}.png"))
-        plt.close()
+        # plt.tight_layout()
+        # plt.savefig(os.path.join(PLOT_PATH, f"{outfile}_{col}.png"))
+        # plt.close()
+        plt.show()
 
 
 ## CONSTANTS
@@ -145,9 +146,9 @@ columns_to_bin = [
     # "mean_high_temperature",
     # "mean_low_temperature",
     # "precipitation_days",
-    # "days_over_30C",
+    "days_over_30C",
     # "days_over_26C",
-    "days_over_30C_prev_3_mo_avg"
+    # "days_over_30C_prev_3_mo_avg"
 ]
 
 

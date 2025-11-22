@@ -154,22 +154,22 @@ write.csv(re_df, paste0(model_summary_dir, "re_estimates_", summary_file, ".csv"
 # SECTION 3: PREDICT MODEL FOR NEONATAL ON AVG BIRTH YEAR, SEX, PRECIPITATION
 #==============================================================================
 
-# df_avg <- copy(df_model)
+df_avg <- copy(neo_df)
 
-# setDT(df_avg)
+setDT(df_avg)
 # # override existing variables to be able to use predict function from package
-# df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0), 
-#                               levels = levels(df_model_neo$birth_year))]
+df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0),
+                              levels = levels(neo_df$birth_year))]
 
-# df_avg[,sex_id:= mean(as.numeric(df_avg$sex_id))-1]
+df_avg[,sex_id:= mean(df_avg$sex_id)]
 
-# df_avg[,total_precipitation:= mean(df_avg$total_precipitation)]
+df_avg[,total_precipitation_prev_3_mo_avg:= mean(df_avg$total_precipitation_prev_3_mo_avg)]
 
 # # Predict WITHOUT random effects (fixed effects only)
-# df_model$pred_fe <- predict(model, newdata = df_model, type = "response", re.form = NA)
+df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)
 
 # # Predict WITH random effects (mixed effects)
-# df_model$pred_me <- predict(model, newdata = df_model, type = "response", re.form = NULL)
+df_avg$pred_me <- predict(model, newdata = df_avg, type = "response", re.form = NULL)
 
 # # Save predictions to parquet
-# write_parquet(df_model, paste0(neonatal_dir, "predictions_", summary_file, ".parquet"))
+write_parquet(df_avg, paste0(results_dir, "predictions_", summary_file, ".parquet"))
