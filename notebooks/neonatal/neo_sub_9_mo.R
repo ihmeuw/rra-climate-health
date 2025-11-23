@@ -131,8 +131,9 @@ model <- glmer(
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
-  data = df_model,
-  family = binomial(link = "logit")
+  data = df_sample,
+  family = binomial(link = "logit"),
+  control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1e5))
 )
 
 

@@ -49,25 +49,21 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-# sample_percent <- 0.5
-summary_file <- "nnm_full_1_mo_model_summary"
+summary_file <- paste0("nnm_full_1_mo_model_summary")
 
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_11_20.01/"
 
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_11_20.01/neonatal/neonatal_data.parquet"
 
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
 
 
-neonatal_dir <- paste0(results_dir,"neonatal/")
-dir.create(neonatal_dir, recursive = TRUE, showWarnings = FALSE)
-
-model_summary_dir <- paste0(neonatal_dir,"model_summaries/")
+model_summary_dir <- paste0(results_dir,"model_summaries/")
 dir.create(model_summary_dir, recursive = TRUE, showWarnings = FALSE)
 
-model_objects_dir <- paste0(neonatal_dir,"model_objects/")
+model_objects_dir <- paste0(results_dir,"model_objects/")
 dir.create(model_objects_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Read in neonatal df (must be made from full dataset)
@@ -83,15 +79,23 @@ neo_df[,birth_year:=as.factor(birth_year)]
 ## Read and format data
 
 climate_vars <- c(
-  "mean_temperature",
-  "total_precipitation",
-  "relative_humidity",
-  "mean_high_temperature",
-  "mean_low_temperature",
-  "precipitation_days",
-  "days_over_30C",
-  "days_over_26C",
-  "any_days_over_30C"
+  # "mean_temperature",
+  # "total_precipitation",
+  # "relative_humidity",
+  # "mean_high_temperature",
+  # "mean_low_temperature",
+  # "precipitation_days",
+  # "days_over_30C",
+  # "days_over_26C",
+  # "any_days_over_30C",
+  "days_over_30C_prev_0_mo",
+  "days_over_30C_prev_3_mo_avg",
+  "days_over_30C_prev_6_mo_avg",
+  "days_over_30C_prev_9_mo_avg",
+  "total_precipitation_prev_0_mo",
+  "total_precipitation_prev_3_mo_avg",
+  "total_precipitation_prev_6_mo_avg",
+  "total_precipitation_prev_9_mo_avg"
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- neo_df[, ..cols]
@@ -109,17 +113,26 @@ df_model <- neo_df[, ..cols]
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
-
+## Options
+# "days_over_30C_prev_0_mo",
+# "days_over_30C_prev_3_mo_avg",
+# "days_over_30C_prev_6_mo_avg",
+# "days_over_30C_prev_9_mo_avg",
+# "total_precipitation_prev_0_mo",
+# "total_precipitation_prev_3_mo_avg",
+# "total_precipitation_prev_6_mo_avg",
+# "total_precipitation_prev_9_mo_avg"
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    days_over_30C +
-    total_precipitation +
+    days_over_30C_prev_0_mo +
+    total_precipitation_prev_0_mo +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
   data = df_model,
-  family = binomial(link = "logit")
+  family = binomial(link = "logit"),
+  control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1e5))
 )
 
 
@@ -163,7 +176,7 @@ df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 
 
 df_avg[,sex_id:= mean(df_avg$sex_id)]
 
-df_avg[,total_precipitation_prev_3_mo_avg:= mean(df_avg$total_precipitation_prev_3_mo_avg)]
+df_avg[,total_precipitation_prev_0_mo:= mean(df_avg$total_precipitation_prev_0_mo)]
 
 # # Predict WITHOUT random effects (fixed effects only)
 df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)

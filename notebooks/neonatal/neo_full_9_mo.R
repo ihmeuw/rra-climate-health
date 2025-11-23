@@ -49,8 +49,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-sample_percent <- 0.15
-summary_file <- paste0("nnm_015_6_mo_alt_optimizer_summary")
+summary_file <- paste0("nnm_full_9_mo_model_summary")
 
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_11_20.01/"
@@ -102,14 +101,14 @@ cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "co
 df_model <- neo_df[, ..cols]
 
 # get sample
-indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
-indv_counts <- indv_dt[, .N, by = ihme_loc_id]
-indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
-indv_dt[, n_sample := floor(sample_percent * N)]
+# indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
+# indv_counts <- indv_dt[, .N, by = ihme_loc_id]
+# indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
+# indv_dt[, n_sample := floor(sample_percent * N)]
 
-set.seed(42)
-sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
-df_sample <- df_model[indv_id %in% sampled_indv]
+# set.seed(42)
+# sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
+# df_sample <- df_model[indv_id %in% sampled_indv]
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
@@ -126,8 +125,8 @@ df_sample <- df_model[indv_id %in% sampled_indv]
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    days_over_30C_prev_6_mo_avg +
-    total_precipitation_prev_6_mo_avg +
+    days_over_30C_prev_9_mo_avg +
+    total_precipitation_prev_9_mo_avg +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
@@ -177,7 +176,7 @@ df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 
 
 df_avg[,sex_id:= mean(df_avg$sex_id)]
 
-df_avg[,days_over_30C_prev_6_mo_avg:= mean(df_avg$days_over_30C_prev_6_mo_avg)]
+df_avg[,total_precipitation_prev_9_mo_avg:= mean(df_avg$total_precipitation_prev_9_mo_avg)]
 
 # # Predict WITHOUT random effects (fixed effects only)
 df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)
