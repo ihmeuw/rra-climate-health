@@ -2418,13 +2418,13 @@ def quick_fix_update_neonatal(
     # os.makedirs(Path(output_root), exist_ok=True, mode=0o777)
 
     # # get previous monthly climate variables
-    # climate_vars_da = get_all_climate_vars_year_months_for_latlongs(df_min_age)
+    climate_vars_da = get_all_climate_vars_year_months_for_latlongs(df_min_age)
 
-    # climate_vars_da.to_netcdf(Path(output_root) / "climate_vars_for_locs_with_orig.nc")
-    # print("climate vars extracted successfully")
-    # # climate_vars_da = xr.open_dataarray(Path(output_root) / "climate_vars_for_locs.nc")
-    # climate_vars_df = climate_vars_da.to_dataframe().reset_index()
-    # climate_vars_df.to_parquet(Path(output_root) / "climate_vars_for_locs.parquet")
+    climate_vars_da.to_netcdf(Path(output_root) / "climate_vars_for_locs_with_orig.nc")
+    print("climate vars extracted successfully")
+    # climate_vars_da = xr.open_dataarray(Path(output_root) / "climate_vars_for_locs.nc")
+    climate_vars_df = climate_vars_da.to_dataframe().reset_index()
+    climate_vars_df.to_parquet(Path(output_root) / "climate_vars_for_locs.parquet")
 
     # print("converted to df")
     climate_vars_df = pd.read_parquet(
@@ -2529,6 +2529,10 @@ def quick_fix_update_neonatal(
     )
 
     df_min_age_updated.to_parquet(
+        Path(output_root) / "neonatal_merged_all_prev_months.parquet"
+    )
+    # reload before calculating averages
+    df_min_age_updated = pd.read_parquet(
         Path(output_root) / "neonatal_merged_all_prev_months.parquet"
     )
     for v in var_names:

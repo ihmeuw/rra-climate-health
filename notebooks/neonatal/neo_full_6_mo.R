@@ -167,22 +167,31 @@ write.csv(re_df, paste0(model_summary_dir, "re_estimates_", summary_file, ".csv"
 # SECTION 3: PREDICT MODEL FOR NEONATAL ON AVG BIRTH YEAR, SEX, PRECIPITATION
 #==============================================================================
 
-df_avg <- copy(neo_df)
+df_avg <- copy(df_model)
 
-setDT(df_avg)
-# # override existing variables to be able to use predict function from package
-df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0),
-                              levels = levels(neo_df$birth_year))]
+# Extract levels for a specific factor
+birth_year_levels <- levels(model@frame$birth_year)
+ihme_loc_id_levels <- levels(model@frame$ihme_loc_id)
 
-df_avg[,sex_id:= mean(df_avg$sex_id)]
+df_avg$birth_year <- factor(df_avg$birth_year, levels = birth_year_levels)
+df_avg$ihme_loc_id <- factor(df_avg$ihme_loc_id, levels = ihme_loc_id_levels)
 
-df_avg[,days_over_30C_prev_6_mo_avg:= mean(df_avg$days_over_30C_prev_6_mo_avg)]
-
-# # Predict WITHOUT random effects (fixed effects only)
-df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)
+# remove any NAs imposed from above step (could be because some years didn't make it in the subset)
+df_avg <- df_avg[!is.na(birth_year)]
 
 # # Predict WITH random effects (mixed effects)
 df_avg$pred_me <- predict(model, newdata = df_avg, type = "response", re.form = NULL)
+
+# # override existing variables to be able to use predict function from package
+df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0),
+                              levels = birth_year_levels)]
+
+df_avg[,sex_id:= mean(df_avg$sex_id)]
+
+df_avg[,total_precipitation_prev_6_mo:= mean(df_avg$total_precipitation_prev_6_mo)]
+
+# # Predict WITHOUT random effects (fixed effects only)
+df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)
 
 # # Save predictions to parquet
 write_parquet(df_avg, paste0(results_dir, "predictions_", summary_file, ".parquet"))
