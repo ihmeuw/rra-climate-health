@@ -2258,6 +2258,18 @@ def run_neonatal_update(
     """
     Partial run function to update previously-made neonatal data with previous
     monthly variables, rather than run through whole data prep function again.
+
+    Overall structure is:
+    1. Read in previous neonatal data (originally made with run_training_data_prep_child_mortality)
+    2. Extract previous monthly climate variables for all lat/longs and year/months,
+        keep in xarrays while retrieving data to save time.
+    3. Convert full results to data frame.
+    4. Add in the months that need to be looked up, occuring prior to birth month/year.
+        This creates a long-format df.
+    5. Convert long to wide such that data can be merged on original data using
+        birth month/year and lat/long.
+    6. Merge back to original neonatal data and save results.
+
     """
     var_names = [
         "mean_temperature",
