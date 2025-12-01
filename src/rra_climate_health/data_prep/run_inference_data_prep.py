@@ -2253,7 +2253,6 @@ def run_training_data_prep_child_mortality(
 
 def run_neonatal_update(
     output_root: str,
-    data_source_type: str,
 ):
     """
     Partial run function to update previously-made neonatal data with previous
@@ -2467,7 +2466,6 @@ def run_training_data_prep_main(  # noqa: PLR0915
     elif data_source_type == "neonatal_mortality":
         run_neonatal_update(
             output_root,
-            data_source_type,
         )
     else:
         msg = f"Data source {data_source_type} not implemented yet."
