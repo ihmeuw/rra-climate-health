@@ -872,3 +872,192 @@ with PdfPages(pdf_path) as pdf:
 print(f"PDF saved to {pdf_path}")
 
 ################################################################################
+# Plot days over 32 ############################################################
+
+# Set versions
+
+# Neonatal predictions
+model1 = pd.read_parquet(
+    RESULTS_PATH + "predictions_nnm_full_1_mo_do32_summary.parquet"
+)
+model3 = pd.read_parquet(
+    RESULTS_PATH + "predictions_nnm_full_3_mo_do32_summary.parquet"
+)
+model6 = pd.read_parquet(
+    RESULTS_PATH + "predictions_nnm_full_6_mo_do32_summary.parquet"
+)
+model9 = pd.read_parquet(
+    RESULTS_PATH + "predictions_nnm_full_9_mo_do32_summary.parquet"
+)
+
+
+## CONSTANTS
+
+# Heat maps of variables
+columns_to_bin = [
+    # "mean_temperature",
+    # "total_precipitation",
+    # "relative_humidity",
+    # "mean_high_temperature",
+    # "mean_low_temperature",
+    # "precipitation_days",
+    # "days_over_30C",
+    # "days_over_26C",
+    # "days_over_30C_prev_0_mo",
+    # "days_over_30C_prev_3_mo_avg",
+    # "days_over_30C_prev_6_mo_avg",
+    # "days_over_30C_prev_9_mo_avg",
+    # "mean_temperature_prev_0_mo",
+    # "mean_temperature_prev_3_mo_avg",
+    # "mean_temperature_prev_6_mo_avg",
+    # "mean_temperature_prev_9_mo_avg",
+    # "days_over_28C_prev_0_mo",
+    # "days_over_28C_prev_3_mo_avg",
+    # "days_over_28C_prev_6_mo_avg",
+    # "days_over_28C_prev_9_mo_avg",
+    # "days_over_30C_prev_0_mo",
+    # "days_over_30C_prev_3_mo_avg",
+    # "days_over_30C_prev_6_mo_avg",
+    # "days_over_30C_prev_9_mo_avg",
+    "days_over_32C_prev_0_mo",
+    "days_over_32C_prev_3_mo_avg",
+    "days_over_32C_prev_6_mo_avg",
+    "days_over_32C_prev_9_mo_avg",
+]
+
+
+# get min and max values for color scale consistency across plots
+
+# Explore bins
+# Extract the column
+col = "days_over_32C_prev_6_mo_avg"
+data = model6[col]  # Replace `model6` with the appropriate DataFrame
+
+# Calculate the frequency of each unique value
+value_counts = data.value_counts(normalize=True) * 100  # Normalize to get percentages
+
+# Sort the values for better visualization
+value_counts = value_counts.sort_index()
+
+# make custom bins for days-over30:
+# first will be 0 to the first non-zero value
+# the next 4 bins will be quartiles of the non-zero values
+# Separate zero and non-zero values
+zero_values = data[data == 0]  # All zero values
+non_zero_values = data[data > 0]  # All non-zero values
+
+# Get the first non-zero value
+first_non_zero = non_zero_values.min()
+
+# Calculate quartiles for non-zero values
+quartiles = np.percentile(non_zero_values, [25, 50, 75, 100])
+
+# Define custom bin edges
+custom_bins = [0, first_non_zero] + list(quartiles)
+
+
+models = [model1, model3, model6, model9]
+model_names = ["1-month", "3-month", "6-month", "9-month"]
+
+
+bin_col_dict = {
+    "1-month": "days_over_32C_prev_0_mo",
+    "3-month": "days_over_32C_prev_3_mo_avg",
+    "6-month": "days_over_32C_prev_6_mo_avg",
+    "9-month": "days_over_32C_prev_9_mo_avg",
+}
+
+# temp versions
+versions = [
+    "child_mortality",
+    "pred_fe",
+    "pred_me",
+]
+
+# get mix/maxes for plots
+multiply_by_val = 1000  # for easier to read heatmaps
+all_values = []
+
+for row, (model, model_name) in enumerate(zip(models, model_names)):
+    # for col, (version, version_label) in enumerate(versions):
+
+    custom_bins_for_model = create_custom_bins(model, bin_col_dict[model_name])
+
+    heatmap_df = model.copy()
+
+    heatmap_df[f"{bin_col_dict[model_name]}_bin"] = pd.cut(
+        heatmap_df[bin_col_dict[model_name]],
+        bins=custom_bins_for_model,
+        include_lowest=True,
+        right=False,
+    )
+    heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
+        heatmap_df.consumption_pd, 10, retbins=True
+    )
+
+    for version in versions:
+
+        vals = (
+            heatmap_df.groupby(["consumption_pd", f"{bin_col_dict[model_name]}_bin"])[
+                version
+            ]
+            .mean()
+            .values
+        )
+
+        vals = [v for v in vals if not np.isnan(v)]
+        all_values.append(vals)
+
+all_values = np.concatenate(all_values)
+
+
+vmin = all_values.min()
+vmax = all_values.max()
+
+vmin *= multiply_by_val
+vmax *= multiply_by_val
+
+# Plot all on same PDF
+# Update versions
+versions = [
+    ("child_mortality", "Child Mortality"),
+    ("pred_me", "Predicted ME"),
+    ("pred_fe", "Predicted FE"),
+]
+
+# Create a PDF to save the plots
+pdf_path = os.path.join(PLOT_PATH, "neonatal_100pc_days_over_32C_time_comparisons.pdf")
+
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 4 rows and 3 columns
+    fig, axes = plt.subplots(
+        nrows=4, ncols=3, figsize=(15, 20), constrained_layout=True
+    )
+
+    for row, (model, model_name) in enumerate(zip(models, model_names)):
+        for col, (version, version_label) in enumerate(versions):
+            # Prepare the data for the current model and version
+            data = model.rename(columns={version: "model_predictions"})
+
+            # custom_bins_for_model = create_custom_bins(model, bin_col_dict[model_name])
+
+            # Plot on the specific Axes
+            plot_heat_map_grid(
+                data=data,
+                bin_cols=[bin_col_dict[model_name]],
+                ax=axes[row, col],
+                title=f"{model_name} - {version_label}",
+                multiply_by=multiply_by_val,
+                vmin=vmin,
+                vmax=vmax,
+                show_colorbar=(col == 2),  # Show colorbar only for the last column
+                custom_bins=custom_bins,  # custom_bins_for_model,
+            )
+
+    # Save the figure to the PDF
+    pdf.savefig(fig)
+    plt.close(fig)
+
+print(f"PDF saved to {pdf_path}")
+
+################################################################################

@@ -21,7 +21,8 @@ from scipy.interpolate import PchipInterpolator
 
 import rra_climate_health.cli_options as clio
 from rra_climate_health import paths
-from rra_climate_health.data_prep import upstream_paths
+
+# from rra_climate_health.data_prep import upstream_paths
 from rra_climate_health.data import (
     DEFAULT_ROOT,
     ClimateMalnutritionData,
@@ -272,6 +273,89 @@ def get_prev_monthly_climate_vars_for_dataframe(
     p.close()
     p.join()
     return results_df
+
+
+## get thresholds
+def get_climate_thresholds_for_prev_months(
+    month_df: pd.DataFrame,
+    year_col: str = "birth_year",
+    month_col: str = "birth_month",
+    lat_col: str = "lat",
+    long_col: str = "long",
+) -> pd.DataFrame:
+    """
+    returns data for previous months
+    """
+    temp_df = month_df.copy()
+    lats = xr.DataArray(temp_df[lat_col], dims="point")
+    lons = xr.DataArray(temp_df[long_col], dims="point")
+
+    lookup_year_months = get_lookup_months(
+        temp_df[year_col].iloc[0], temp_df[month_col].iloc[0]
+    )
+
+    for look_up_year, look_up_month, prev_time_suffix in lookup_year_months:
+
+        climate_ds = xr.open_dataset(
+            f"/mnt/share/erf/climate_downscale/results/monthly/raw/historical/days_over_relative_threshold/{look_up_year}_era5.nc"
+        ).sel(month=look_up_month)["value"]
+        temp_df[f"{climate_variable}_{prev_time_suffix}"] = (
+            climate_ds.sel(latitude=lats, longitude=lons, method="nearest")
+            .to_numpy()
+            .flatten()  # the flatten also wasn't there before
+        )
+    return temp_df
+
+
+def get_prev_monthly_climate_thresholds_for_dataframe(
+    df: pd.DataFrame,
+    lat_col: str = "lat",
+    long_col: str = "long",
+) -> pd.DataFrame:
+    var_names = [
+        "mean_temperature",
+        "days_over_30C",
+        "precipitation_days",
+        "total_precipitation",
+        "mean_low_temperature",
+        "mean_high_temperature",
+        "relative_humidity",
+        # "days_over_26C",
+        # "days_over_27C",
+        "days_over_28C",
+        # "days_over_29C",
+        # "days_over_31C",
+        "days_over_32C",
+        # "days_over_33C",
+    ]
+
+    unique_coords = df[
+        [lat_col, long_col, "birth_year", "birth_month"]
+    ].drop_duplicates()
+    unique_coords_grouped = unique_coords.groupby(["birth_year", "birth_month"])
+    df_splits = []
+    for (birth_year, birth_month), group in unique_coords_grouped:
+        df_split = group.copy()
+        df_splits.append(df_split)
+
+    p = mp.Pool(processes=25)
+    results_df = pd.concat(
+        p.map(
+            partial(
+                get_climate_thresholds_for_prev_months,
+                climate_variables=var_names,
+                year_col="birth_year",
+                month_col="birth_month",
+            ),
+            df_splits,
+        )
+    )
+    p.close()
+    p.join()
+    return results_df
+
+
+##
 
 
 def get_climate_vars_for_year(
@@ -2260,52 +2344,99 @@ def quick_fix_update_neonatal(
     rather than run through whole data prep function again.
     """
     # use last df
-    df_min_age = pd.read_parquet(
-        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet"
-    )
+    # df_min_age = pd.read_parquet(
+    #     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet"
+    # )
 
-    output_root += "/training_data/2025_11_19.01/neonatal"
+    # output_root += "/training_data/2025_12_09.01/neonatal"
+    # os.makedirs(Path(output_root), exist_ok=True, mode=0o777)
+
+    # # get previous monthly climate variables
+    # climate_vars = get_prev_monthly_climate_vars_for_dataframe(df_min_age)
+    # climate_vars.to_parquet(Path(output_root) / "climate_vars.parquet")
+
+    # print("climate vars extracted successfully")
+
+    # df_min_age_updated = merge_left_without_inflating(
+    #     df_min_age, climate_vars, on=["birth_year", "birth_month", "lat", "long"]
+    # )
+
+    # var_names = [
+    #     "mean_temperature",
+    #     "days_over_30C",
+    #     "precipitation_days",
+    #     "total_precipitation",
+    #     "mean_low_temperature",
+    #     "mean_high_temperature",
+    #     "relative_humidity",
+    #     # "days_over_26C",
+    #     # "days_over_27C",
+    #     "days_over_28C",
+    #     # "days_over_29C",
+    #     # "days_over_31C",
+    #     "days_over_32C",
+    #     # "days_over_33C",
+    # ]
+
+    # for v in var_names:
+    #     for i in [3, 6, 9]:
+    #         prev_vars = get_prev_climate_var_months(v, i)
+    #         df_min_age_updated[f"{v}_prev_{i}_mo_avg"] = df_min_age_updated[
+    #             prev_vars
+    #         ].mean(axis=1)
+    #         if ("days_over" in v) or ("precipitation" in v):
+    #             df_min_age_updated[f"{v}_prev_{i}_mo_sum"] = df_min_age_updated[
+    #                 prev_vars
+    #             ].mean(axis=1)
+
+    # df_min_age_updated.to_parquet(Path(output_root) / "neonatal_data.parquet")
+
+    # continue by adding in thresholds
+    df_min_age = pd.read_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_11_26.01/neonatal_data.parquet"
+    )
+    output_root += "/training_data/2025_12_09.01/neonatal"
     os.makedirs(Path(output_root), exist_ok=True, mode=0o777)
 
-    # get previous monthly climate variables
+    # # get previous monthly climate variables
     climate_vars = get_prev_monthly_climate_vars_for_dataframe(df_min_age)
     climate_vars.to_parquet(Path(output_root) / "climate_vars.parquet")
 
-    print("climate vars extracted successfully")
+    # print("climate vars extracted successfully")
 
-    df_min_age_updated = merge_left_without_inflating(
-        df_min_age, climate_vars, on=["birth_year", "birth_month", "lat", "long"]
-    )
+    # df_min_age_updated = merge_left_without_inflating(
+    #     df_min_age, climate_vars, on=["birth_year", "birth_month", "lat", "long"]
+    # )
 
-    var_names = [
-        "mean_temperature",
-        "days_over_30C",
-        "precipitation_days",
-        "total_precipitation",
-        "mean_low_temperature",
-        "mean_high_temperature",
-        "relative_humidity",
-        # "days_over_26C",
-        # "days_over_27C",
-        "days_over_28C",
-        # "days_over_29C",
-        # "days_over_31C",
-        "days_over_32C",
-        # "days_over_33C",
-    ]
+    # var_names = [
+    #     "mean_temperature",
+    #     "days_over_30C",
+    #     "precipitation_days",
+    #     "total_precipitation",
+    #     "mean_low_temperature",
+    #     "mean_high_temperature",
+    #     "relative_humidity",
+    #     # "days_over_26C",
+    #     # "days_over_27C",
+    #     "days_over_28C",
+    #     # "days_over_29C",
+    #     # "days_over_31C",
+    #     "days_over_32C",
+    #     # "days_over_33C",
+    # ]
 
-    for v in var_names:
-        for i in [3, 6, 9]:
-            prev_vars = get_prev_climate_var_months(v, i)
-            df_min_age_updated[f"{v}_prev_{i}_mo_avg"] = df_min_age_updated[
-                prev_vars
-            ].mean(axis=1)
-            if ("days_over" in v) or ("precipitation" in v):
-                df_min_age_updated[f"{v}_prev_{i}_mo_sum"] = df_min_age_updated[
-                    prev_vars
-                ].mean(axis=1)
+    # for v in var_names:
+    #     for i in [3, 6, 9]:
+    #         prev_vars = get_prev_climate_var_months(v, i)
+    #         df_min_age_updated[f"{v}_prev_{i}_mo_avg"] = df_min_age_updated[
+    #             prev_vars
+    #         ].mean(axis=1)
+    #         if ("days_over" in v) or ("precipitation" in v):
+    #             df_min_age_updated[f"{v}_prev_{i}_mo_sum"] = df_min_age_updated[
+    #                 prev_vars
+    #             ].mean(axis=1)
 
-    df_min_age_updated.to_parquet(Path(output_root) / "neonatal_data.parquet")
+    # df_min_age_updated.to_parquet(Path(output_root) / "neonatal_data.parquet")
 
 
 @click.command()  # type: ignore[arg-type]
