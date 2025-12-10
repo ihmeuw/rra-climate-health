@@ -170,6 +170,17 @@ def get_prev_climate_var_months(climate_var: str, num_months: int) -> list[str]:
     return return_vars
 
 
+def get_prev_climate_threshold_months(threshold: str, num_months: int) -> list[str]:
+    """
+    Helper function to retrieve relavant previous monthly climate variable names
+    to construct cumulative exposures.
+    """
+    return_vars = []
+    for i in range(num_months):
+        return_vars.append(f"q{threshold}_prev_{i}_mo")
+    return return_vars
+
+
 def get_climate_vars_for_months(
     month_df: pd.DataFrame,
     climate_variables: list[str],
@@ -384,6 +395,15 @@ def get_all_climate_vars_year_months_for_latlongs(
     # Concatenate the xarrays along the "lookup_year" dimension
     results_da = xr.concat(results_xarrays, dim="year")
     return results_da
+
+
+## helper function to merge datasets in parallel
+def merge_dfs_in_parallel(df1, df2, merge_cols, year):
+    # data is too big
+    df2 = df2.query(f"lookup_year == {year}")
+    result = df1.merge(df2, how="left", on=merge_cols)
+
+    return result
 
 
 ## get thresholds get_climate_thresholds_for_prev_months
@@ -2459,6 +2479,7 @@ def quick_fix_update_neonatal(
     temporary function to update neonatal data with previous monthly variables,
     rather than run through whole data prep function again.
     output_root = DEFAULT_ROOT
+    data_source_type = "neonatal_mortality"
     """
     # var_names = [
     #     "mean_temperature",
@@ -2615,6 +2636,9 @@ def quick_fix_update_neonatal(
     df_min_age = pd.read_parquet(
         "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_11_26.01/neonatal_data.parquet"
     )
+    # add index for easier merging
+    df_min_age = df_min_age.reset_index()
+
     output_root += "/training_data/2025_12_09.01/neonatal"
     os.makedirs(Path(output_root), exist_ok=True, mode=0o777)
 
@@ -2623,12 +2647,6 @@ def quick_fix_update_neonatal(
     climate_vars.to_netcdf(Path(output_root) / "climate_thresholds.nc")
 
     climate_vars_df = climate_vars.to_dataframe().reset_index()
-    climate_vars_df.to_parquet(
-        Path(output_root) / "climate_thresholds_for_locs.parquet"
-    )
-    climate_vars_df = pd.read_parquet(
-        Path(output_root) / "climate_thresholds_for_locs.parquet"
-    )
 
     # climate_vars_df = climate_vars_df.sort_values(["climate_var", "year", "month"])
     climate_vars_df.drop(columns=["point", "last_year"], inplace=True)
@@ -2646,27 +2664,6 @@ def quick_fix_update_neonatal(
         climate_vars_df["quantile"].astype(str).str.replace("0.", "q")
     )
     climate_vars_df.drop(columns=["quantile"], inplace=True)
-    # don't do below for now
-    climate_vars_wide = climate_vars_df.pivot_table(
-        index=[
-            "longitude",
-            "latitude",
-            "lat_orig",
-            "long_orig",
-            "lookup_year",
-            "lookup_month",
-        ],
-        columns="quantile_str",
-        values="value",
-    ).reset_index()
-
-    climate_vars_wide.rename(
-        columns={
-            "lat_orig": "lat",
-            "long_orig": "long",
-        },
-        inplace=True,
-    )
 
     climate_vars_df.rename(
         columns={
@@ -2674,6 +2671,10 @@ def quick_fix_update_neonatal(
             "long_orig": "long",
         },
         inplace=True,
+    )
+
+    climate_vars_df.to_parquet(
+        Path(output_root) / "climate_thresholds_for_locs.parquet"
     )
 
     # # Apply get_lookup_months to each row and concatenate the results into a new DataFrame
@@ -2694,90 +2695,156 @@ def quick_fix_update_neonatal(
     df_min_age_lookup = pd.merge(
         df_min_age, lookup_df, on=["birth_year", "birth_month"], how="left"
     )
+    df_min_age_lookup.to_parquet(Path(output_root) / "df_min_age_lookup.parquet")
 
-    df_merged_tmp = df_min_age_lookup.merge(
-        climate_vars_wide,
-        on=["lookup_year", "lookup_month", "lat", "long"],
-        how="left",
-    )
-    df_merged_tmp_long = df_min_age_lookup.merge(
-        climate_vars_df,
-        on=["lookup_year", "lookup_month", "lat", "long"],
-        how="left",
+    # load and merge
+    output_root += "/training_data/2025_12_09.01/neonatal"
+    df_min_age_lookup = pd.read_parquet(Path(output_root) / "df_min_age_lookup.parquet")
+
+    climate_vars_df = pd.read_parquet(
+        Path(output_root) / "climate_thresholds_for_locs.parquet"
     )
 
-    df_merged_tmp_long.to_parquet(Path(output_root) / "df_merged_tmp_long.parquet")
-    print("complete")
+    # # naive way
+    # reduce size
+    climate_vars_df = climate_vars_df[
+        climate_vars_df["quantile_str"].isin(["q9", "q95"])
+    ]
 
-    # df_merged_tmp.rename(columns={"longitude": "long_matched", "latitude": "lat_matched"}, inplace=True)
-    # df_merged_tmp = df_merged_tmp[
-    #     [
-    #         "birth_year",
-    #         "birth_month",
-    #         "lat",
-    #         "long",
-    #         "lookup_year",
-    #         "lookup_month",
-    #         "suffix",
-    #         "long_matched",
-    #         "lat_matched",
-    #         "q75",
-    #         "q8",
-    #         "q85",
-    #         "q9",
-    #         "q95",
-    #     ]
-    # ]
+    for pre_suf in tqdm(df_min_age_lookup["suffix"].unique()):
+        df_chunk = df_min_age_lookup[df_min_age_lookup["suffix"] == pre_suf].copy()
 
-    #     df_merged_tmp["climate_var_suffix"] = (
-    #         df_merged_tmp["climate_var"] + "_" + df_merged_tmp["suffix"]
-    #     )
-    #     df_merged_tmp.drop(
-    #         columns=["lookup_year", "lookup_month", "climate_var", "suffix"],
-    #         inplace=True,
-    #     )
-    #     df_results.append(df_merged_tmp)
+        df_chunk.to_parquet(
+            Path(output_root)
+            / "merge_chunks"
+            / f"df_{pre_suf.replace('-', '_')}.parquet"
+        )
 
-    # df_results_concated = pd.concat(df_results, ignore_index=True)
-    # df_results_concated.to_parquet(
-    #     Path(output_root) / "climate_vars_merged_long.parquet"
-    # )
+    # run parallel jobs to merge climate vars, pivot wide, and save
+    import shutil
+    import subprocess
 
-    # df_merged_tmp_wide = df_results_concated.pivot_table(
-    #     index=[
-    #         "birth_year",
-    #         "birth_month",
-    #         "lat",
-    #         "long",
-    #         "long_matched",
-    #         "lat_matched",
-    #     ],
-    #     columns="climate_var_suffix",
-    #     values="value",
-    # ).reset_index()
-    # df_merged_tmp_wide.to_parquet(
-    #     Path(output_root) / "climate_vars_merged_wide.parquet"
-    # )
+    current_dir = Path(__file__).parent
+    script_to_run = current_dir / "merge_thresholds_child.py"
 
-    # df_min_age_updated = merge_left_without_inflating(
-    #     df_min_age, df_merged_tmp_wide, on=["birth_year", "birth_month", "lat", "long"]
-    # )
+    climate_vars_path = Path(output_root) / "climate_thresholds_for_locs.parquet"
+    merge_path = Path(output_root) / "merge_chunks_complete"
 
-    # df_min_age_updated.to_parquet(
-    #     Path(output_root) / "neonatal_merged_all_prev_months.parquet"
-    # )
-    # # reload before calculating averages
-    # df_min_age_updated = pd.read_parquet(
-    #     Path(output_root) / "neonatal_merged_all_prev_months.parquet"
-    # )
-    # for v in var_names:
-    #     for i in [3, 6, 9]:
-    #         prev_vars = get_prev_climate_var_months(v, i)
-    #         df_min_age_updated[f"{v}_prev_{i}_mo_avg"] = df_min_age_updated[
-    #             prev_vars
-    #         ].mean(axis=1)
+    for pre_suf in tqdm(df_min_age_lookup["suffix"].unique()):
 
-    # df_min_age_updated.to_parquet(Path(output_root) / "neonatal_data.parquet")
+        file_to_run = (
+            Path(output_root)
+            / "merge_chunks"
+            / f"df_{pre_suf.replace('-', '_')}.parquet"
+        )
+
+        # command = f"python {script_to_run} --data_file {file_to_run} --climate_file {climate_vars_path} --outfile_path {merge_path}"
+        # result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        # # Print the output of the script
+        # print("STDOUT:", result.stdout)
+        # print("STDERR:", result.stderr)
+        data_chunk = pd.read_parquet(file_to_run)
+        df_chunk_merged = data_chunk.merge(
+            climate_vars_df,
+            on=["lookup_year", "lookup_month", "lat", "long"],
+            how="left",
+        )
+
+        # pivot wide
+        df_chunk_merged["quantile_str"] = (
+            df_chunk_merged["quantile_str"] + "_" + df_chunk_merged["suffix"]
+        )
+        df_chunk_merged.drop(
+            columns=["lookup_year", "lookup_month", "suffix", "longitude", "latitude"],
+            inplace=True,
+        )
+
+        merge_cols = ["index", "birth_year", "birth_month", "lat", "long"]
+        df_chunk_wide = (
+            df_chunk_merged[merge_cols + ["quantile_str", "value"]]
+            .pivot_table(
+                index=merge_cols,
+                columns="quantile_str",
+                values="value",
+            )
+            .reset_index()
+        )
+
+        quantile_vars = (
+            df_chunk_merged[~df_chunk_merged["quantile_str"].isna()]["quantile_str"]
+            .unique()
+            .tolist()
+        )
+        # merge onto original using index variable
+        df_min_age = df_min_age.merge(
+            df_chunk_wide[["index"] + quantile_vars], on="index", how="left"
+        )
+    df_min_age.to_parquet(Path(output_root) / "neonatal_merged_all_thresholds.parquet")
+
+    for v in [9, 95]:
+        for i in [3, 6, 9]:
+            prev_vars = get_prev_climate_threshold_months(v, i)
+
+            df_min_age[f"q{v}_prev_{i}_mo_avg"] = df_min_age[prev_vars].mean(axis=1)
+
+    df_min_age.to_parquet(Path(output_root) / "neonatal_threshold_averages.parquet")
+
+    # add in temperature zones (smaller task)
+
+    lats = xr.DataArray(df_min_age["lat"], dims="point")
+    lons = xr.DataArray(df_min_age["long"], dims="point")
+    return_arrays = []
+    zone_dir = "/mnt/share/erf/climate_downscale/results/annual/raw/historical/10_year_mean_temperature"
+
+    for f in tqdm(os.listdir(zone_dir)):
+        climate_da = xr.open_dataarray(
+            f"{zone_dir}/{f}",
+        )
+        climate_da = climate_da.load()
+        # Select nearest latitude and longitude
+        climate_da = climate_da.sel(latitude=lats, longitude=lons, method="nearest")
+        # Add original latitude and longitude as coordinates
+        climate_da = climate_da.assign_coords(lat_orig=("point", lats.values))
+        climate_da = climate_da.assign_coords(long_orig=("point", lons.values))
+
+        # Drop the "point" dimension if not needed
+        climate_da = climate_da.drop_vars("point")
+        return_arrays.append(climate_da)
+
+    # Concatenate all climate variables along the "climate_var" dimension
+    zone_da = xr.concat(return_arrays, dim="last_year")
+    zone_df = zone_da.to_dataframe().reset_index()
+    zone_df.rename(
+        columns={
+            "value": "zone",
+            "last_year": "birth_year",
+            "lat_orig": "lat",
+            "long_orig": "long",
+        },
+        inplace=True,
+    )
+    zone_df.drop(columns=["latitude", "longitude", "point"], inplace=True)
+    zone_df["zone"] = zone_df["zone"].astype(int)
+    zone_df = zone_df[(zone_df["zone"] > 5) & (zone_df["zone"] < 30)]
+    zone_df = zone_df.drop_duplicates()
+    df_min_age_final = df_min_age.merge(
+        zone_df, on=["birth_year", "lat", "long"], how="left"
+    )
+    # drop nas for any new variables
+    new_vars = [
+        "q9_prev_9_mo",
+        "q95_prev_9_mo",
+        "q9_prev_3_mo_avg",
+        "q9_prev_6_mo_avg",
+        "q9_prev_9_mo_avg",
+        "q95_prev_3_mo_avg",
+        "q95_prev_6_mo_avg",
+        "q95_prev_9_mo_avg",
+        "zone",
+    ]
+    df_min_age_final = df_min_age_final.dropna(subset=new_vars)
+
+    df_min_age_final.to_parquet(Path(output_root) / "neonatal_data.parquet")
 
 
 @click.command()  # type: ignore[arg-type]
