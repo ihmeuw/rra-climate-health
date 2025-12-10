@@ -157,6 +157,8 @@ def plot_heat_map_grid(
 ):
     """
     Modified plot_heat_map to return the Axes object for use in subplots.
+    data = data
+    col = bin_cols[0]
     """
     heatmap_df = data.copy()
     for col in bin_cols:
@@ -206,20 +208,26 @@ def plot_heat_map_grid(
         )
 
         # Set tick values and labels
-        x_tick_vals = heatmap_df.groupby([new_bin_col])[col].min().values.tolist() + [
-            heatmap_df.groupby([new_bin_col])[col].max().max()
-        ]
+        # x_tick_vals = heatmap_df.groupby([new_bin_col])[col].min().values.tolist() + [
+        #     heatmap_df.groupby([new_bin_col])[col].max().max()
+        # ]
+        # x_ticks = range(len(x_tick_vals))
+        # x_labs = [f"{x_tick_vals[i]:.1f}" for i in range(len(x_tick_vals))]
+        # ax.set_xticks(x_ticks)
+        # ax.set_xticklabels(x_labs, rotation=45, ha="right", fontsize=10)
+        x_tick_vals = custom_bins_fixed  # Use the precomputed bin edges
+        x_ticks = range(len(x_tick_vals))
+        x_labs = [f"{x_tick_vals[i]:.1f}" for i in range(len(x_tick_vals))]
+
+        # Set the x-axis ticks and labels
+        ax.set_xticks(x_ticks)
+        ax.set_xticklabels(x_labs, rotation=45, ha="right", fontsize=10)
+
         y_tick_vals = heatmap_df.groupby(
             ["consumption_pd_bin"]
         ).consumption_pd.min().values.tolist() + [heatmap_df.consumption_pd.max()]
-
-        x_ticks = range(len(x_tick_vals))
         y_ticks = range(len(y_tick_vals))
-        x_labs = [f"{x_tick_vals[i]:.1f}" for i in range(len(x_tick_vals))]
         y_labs = [f"{y_tick_vals[i]:.1f}" for i in range(len(y_tick_vals))]
-
-        ax.set_xticks(x_ticks)
-        ax.set_xticklabels(x_labs, rotation=45, ha="right", fontsize=10)
         ax.set_yticks(y_ticks)
         ax.set_yticklabels(y_labs, rotation=0, fontsize=10)
 
@@ -389,8 +397,18 @@ columns_to_bin = [
 
 # Explore bins
 # Extract the column
-col = "days_over_30C_prev_6_mo_avg"
-data = model6[col]  # Replace `model6` with the appropriate DataFrame
+col = "days_over_30C_prev_0_mo"
+# data = model1[col]  # Replace `model1` with the appropriate DataFrame
+data = pd.concat(
+    [
+        model1["days_over_30C_prev_0_mo"],
+        model3["days_over_30C_prev_3_mo_avg"],
+        model6["days_over_30C_prev_6_mo_avg"],
+        model9["days_over_30C_prev_9_mo_avg"],
+    ],
+    ignore_index=True,
+)
+
 
 # Calculate the frequency of each unique value
 value_counts = data.value_counts(normalize=True) * 100  # Normalize to get percentages
@@ -412,7 +430,7 @@ first_non_zero = non_zero_values.min()
 quartiles = np.percentile(non_zero_values, [25, 50, 75, 100])
 
 # Define custom bin edges
-custom_bins = [0, first_non_zero] + list(quartiles)
+custom_bins_fixed = [0, first_non_zero] + list(quartiles)
 
 # get mix/maxes for plots
 multiply_by_val = 1000  # for easier to read heatmaps
@@ -422,7 +440,7 @@ for model in [model1, model3, model6, model9]:
     heatmap_df = model.copy()
     for col in columns_to_bin:
         heatmap_df[f"{col}_bin"] = pd.cut(
-            heatmap_df[col], bins=custom_bins, include_lowest=True, right=False
+            heatmap_df[col], bins=custom_bins_fixed, include_lowest=True, right=False
         )
     heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
         heatmap_df.consumption_pd, 10, retbins=True
@@ -518,7 +536,7 @@ bin_col_dict = {
 }
 
 # Create a PDF to save the plots
-pdf_path = os.path.join(PLOT_PATH, "neonatal_100pc_time_comparisons.pdf")
+pdf_path = os.path.join(PLOT_PATH, "neonatal_100pc_time_comparisons_same_axis.pdf")
 
 with PdfPages(pdf_path) as pdf:
     # Create a figure with 4 rows and 3 columns
@@ -531,7 +549,14 @@ with PdfPages(pdf_path) as pdf:
             # Prepare the data for the current model and version
             data = model.rename(columns={version: "model_predictions"})
 
-            custom_bins_for_model = create_custom_bins(model, bin_col_dict[model_name])
+            """
+            model = models[1]
+            model_name = '1-month'
+            data = model.rename(columns={version: "model_predictions"})
+            bin_cols=[bin_col_dict[model_name]]
+            custom_bins=custom_bins_fixed
+            """
+            # custom_bins_for_model = create_custom_bins(model, bin_col_dict[model_name])
 
             # Plot on the specific Axes
             plot_heat_map_grid(
@@ -543,7 +568,7 @@ with PdfPages(pdf_path) as pdf:
                 vmin=vmin,
                 vmax=vmax,
                 show_colorbar=(col == 2),  # Show colorbar only for the last column
-                custom_bins=custom_bins_for_model,
+                custom_bins=custom_bins_fixed,  # custom_bins_for_model,
             )
 
     # Save the figure to the PDF

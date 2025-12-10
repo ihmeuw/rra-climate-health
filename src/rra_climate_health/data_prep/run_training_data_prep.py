@@ -2626,10 +2626,12 @@ def quick_fix_update_neonatal(
     climate_vars_df.to_parquet(
         Path(output_root) / "climate_thresholds_for_locs.parquet"
     )
+    climate_vars_df = pd.read_parquet(
+        Path(output_root) / "climate_thresholds_for_locs.parquet"
+    )
 
     # climate_vars_df = climate_vars_df.sort_values(["climate_var", "year", "month"])
-    climate_vars_df.drop(columns=["point"], inplace=True)
-    climate_vars_df.drop(columns=["last_year"], inplace=True)
+    climate_vars_df.drop(columns=["point", "last_year"], inplace=True)
 
     climate_vars_df.rename(
         columns={
@@ -2644,20 +2646,32 @@ def quick_fix_update_neonatal(
         climate_vars_df["quantile"].astype(str).str.replace("0.", "q")
     )
     climate_vars_df.drop(columns=["quantile"], inplace=True)
+    # don't do below for now
     climate_vars_wide = climate_vars_df.pivot_table(
         index=[
             "longitude",
             "latitude",
+            "lat_orig",
+            "long_orig",
             "lookup_year",
             "lookup_month",
         ],
         columns="quantile_str",
         values="value",
     ).reset_index()
+
     climate_vars_wide.rename(
         columns={
-            "latitude": "lat",
-            "longitude": "long",
+            "lat_orig": "lat",
+            "long_orig": "long",
+        },
+        inplace=True,
+    )
+
+    climate_vars_df.rename(
+        columns={
+            "lat_orig": "lat",
+            "long_orig": "long",
         },
         inplace=True,
     )
@@ -2686,71 +2700,84 @@ def quick_fix_update_neonatal(
         on=["lookup_year", "lookup_month", "lat", "long"],
         how="left",
     )
-        df_merged_tmp = df_merged_tmp[
-            [
-                "birth_year",
-                "birth_month",
-                "lat",
-                "long",
-                "lookup_year",
-                "lookup_month",
-                "suffix",
-                "climate_var",
-                "long_matched",
-                "lat_matched",
-                "value",
-            ]
-        ]
-
-        df_merged_tmp["climate_var_suffix"] = (
-            df_merged_tmp["climate_var"] + "_" + df_merged_tmp["suffix"]
-        )
-        df_merged_tmp.drop(
-            columns=["lookup_year", "lookup_month", "climate_var", "suffix"],
-            inplace=True,
-        )
-        df_results.append(df_merged_tmp)
-
-    df_results_concated = pd.concat(df_results, ignore_index=True)
-    df_results_concated.to_parquet(
-        Path(output_root) / "climate_vars_merged_long.parquet"
+    df_merged_tmp_long = df_min_age_lookup.merge(
+        climate_vars_df,
+        on=["lookup_year", "lookup_month", "lat", "long"],
+        how="left",
     )
 
-    df_merged_tmp_wide = df_results_concated.pivot_table(
-        index=[
-            "birth_year",
-            "birth_month",
-            "lat",
-            "long",
-            "long_matched",
-            "lat_matched",
-        ],
-        columns="climate_var_suffix",
-        values="value",
-    ).reset_index()
-    df_merged_tmp_wide.to_parquet(
-        Path(output_root) / "climate_vars_merged_wide.parquet"
-    )
+    df_merged_tmp_long.to_parquet(Path(output_root) / "df_merged_tmp_long.parquet")
+    print("complete")
 
-    df_min_age_updated = merge_left_without_inflating(
-        df_min_age, df_merged_tmp_wide, on=["birth_year", "birth_month", "lat", "long"]
-    )
+    # df_merged_tmp.rename(columns={"longitude": "long_matched", "latitude": "lat_matched"}, inplace=True)
+    # df_merged_tmp = df_merged_tmp[
+    #     [
+    #         "birth_year",
+    #         "birth_month",
+    #         "lat",
+    #         "long",
+    #         "lookup_year",
+    #         "lookup_month",
+    #         "suffix",
+    #         "long_matched",
+    #         "lat_matched",
+    #         "q75",
+    #         "q8",
+    #         "q85",
+    #         "q9",
+    #         "q95",
+    #     ]
+    # ]
 
-    df_min_age_updated.to_parquet(
-        Path(output_root) / "neonatal_merged_all_prev_months.parquet"
-    )
-    # reload before calculating averages
-    df_min_age_updated = pd.read_parquet(
-        Path(output_root) / "neonatal_merged_all_prev_months.parquet"
-    )
-    for v in var_names:
-        for i in [3, 6, 9]:
-            prev_vars = get_prev_climate_var_months(v, i)
-            df_min_age_updated[f"{v}_prev_{i}_mo_avg"] = df_min_age_updated[
-                prev_vars
-            ].mean(axis=1)
+    #     df_merged_tmp["climate_var_suffix"] = (
+    #         df_merged_tmp["climate_var"] + "_" + df_merged_tmp["suffix"]
+    #     )
+    #     df_merged_tmp.drop(
+    #         columns=["lookup_year", "lookup_month", "climate_var", "suffix"],
+    #         inplace=True,
+    #     )
+    #     df_results.append(df_merged_tmp)
 
-    df_min_age_updated.to_parquet(Path(output_root) / "neonatal_data.parquet")
+    # df_results_concated = pd.concat(df_results, ignore_index=True)
+    # df_results_concated.to_parquet(
+    #     Path(output_root) / "climate_vars_merged_long.parquet"
+    # )
+
+    # df_merged_tmp_wide = df_results_concated.pivot_table(
+    #     index=[
+    #         "birth_year",
+    #         "birth_month",
+    #         "lat",
+    #         "long",
+    #         "long_matched",
+    #         "lat_matched",
+    #     ],
+    #     columns="climate_var_suffix",
+    #     values="value",
+    # ).reset_index()
+    # df_merged_tmp_wide.to_parquet(
+    #     Path(output_root) / "climate_vars_merged_wide.parquet"
+    # )
+
+    # df_min_age_updated = merge_left_without_inflating(
+    #     df_min_age, df_merged_tmp_wide, on=["birth_year", "birth_month", "lat", "long"]
+    # )
+
+    # df_min_age_updated.to_parquet(
+    #     Path(output_root) / "neonatal_merged_all_prev_months.parquet"
+    # )
+    # # reload before calculating averages
+    # df_min_age_updated = pd.read_parquet(
+    #     Path(output_root) / "neonatal_merged_all_prev_months.parquet"
+    # )
+    # for v in var_names:
+    #     for i in [3, 6, 9]:
+    #         prev_vars = get_prev_climate_var_months(v, i)
+    #         df_min_age_updated[f"{v}_prev_{i}_mo_avg"] = df_min_age_updated[
+    #             prev_vars
+    #         ].mean(axis=1)
+
+    # df_min_age_updated.to_parquet(Path(output_root) / "neonatal_data.parquet")
 
 
 @click.command()  # type: ignore[arg-type]
