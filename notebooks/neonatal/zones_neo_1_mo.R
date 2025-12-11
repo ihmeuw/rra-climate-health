@@ -1,18 +1,8 @@
 ################################################################################
 # DESCRIPTION: Script to run baseline model on neonatal mortality data, first 
 # using a logistic regression
-# model <- glmer(
-#   child_mortality ~ consumption_pd +
-#     days_over_30C +
-#     total_precipitation + 
-#     sex_id +
-#     birth_year +
-#     (1 | ihme_loc_id),
-#   data = df_model,
-#   family = binomial(link = "logit")
-# )
 # PROJECT: Climate nutrition
-# DATE: 2025-10-23
+# DATE: 2025-12-10
 ################################################################################
 
 #==============================================================================
@@ -49,10 +39,11 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_zones_1_mo_summary")
+zone_no <- commandArgs()[4]
+summary_file <- paste0("nnm_1_mo_zone_",zone_no,"_summary")
 
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_09.01/zones/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_09.01/zones/mo_1/"
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/training_data/2025_12_09.01/neonatal/neonatal_data.parquet"
 
 
@@ -74,7 +65,7 @@ neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 neo_df[,sex_id := as.integer(sex_id)]
 neo_df[,sex_id := sex_id-1]
 neo_df[,birth_year:=as.factor(birth_year)]
-
+neo_df <- neo_df[zone==zone_no]
 ## Read and format data
 
 climate_vars <- c(
@@ -94,7 +85,8 @@ climate_vars <- c(
   "total_precipitation_prev_0_mo",
   "total_precipitation_prev_3_mo_avg",
   "total_precipitation_prev_6_mo_avg",
-  "total_precipitation_prev_9_mo_avg"
+  "total_precipitation_prev_9_mo_avg",
+  "zone"
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- neo_df[, ..cols]
@@ -143,7 +135,7 @@ saveRDS(model, file = paste0(model_objects_dir, summary_file,".rds"))
 
 summary(model)
 
-# Extract random effects 
+# Extract random effects
 re_df <- as.data.frame(ranef(model)$ihme_loc_id)
 re_df$ihme_loc_id <- rownames(ranef(model)$ihme_loc_id)
 colnames(re_df)[1] <- "random_effects"

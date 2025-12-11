@@ -1,18 +1,8 @@
 ################################################################################
 # DESCRIPTION: Script to run baseline model on neonatal mortality data, first 
 # using a logistic regression
-# model <- glmer(
-#   child_mortality ~ consumption_pd +
-#     days_over_30C +
-#     total_precipitation + 
-#     sex_id +
-#     birth_year +
-#     (1 | ihme_loc_id),
-#   data = df_model,
-#   family = binomial(link = "logit")
-# )
 # PROJECT: Climate nutrition
-# DATE: 2025-10-23
+# DATE: 2025-12-10
 ################################################################################
 
 #==============================================================================
@@ -49,10 +39,12 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_zones_1_mo_summary")
+zone_no <- commandArgs()[4]
+summary_file <- paste0("nnm_3_mo_zone_",zone_no,"_summary")
 
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_09.01/zones/"
+
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_09.01/zones/mo_3/"
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/training_data/2025_12_09.01/neonatal/neonatal_data.parquet"
 
 
@@ -74,6 +66,7 @@ neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 neo_df[,sex_id := as.integer(sex_id)]
 neo_df[,sex_id := sex_id-1]
 neo_df[,birth_year:=as.factor(birth_year)]
+neo_df <- neo_df[zone==zone_no]
 
 ## Read and format data
 
@@ -124,8 +117,8 @@ df_model <- neo_df[, ..cols]
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    days_over_30C_prev_0_mo +
-    total_precipitation_prev_0_mo +
+    days_over_30C_prev_3_mo_avg +
+    total_precipitation_prev_3_mo_avg +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
@@ -176,7 +169,7 @@ df_avg$birth_year <- factor(df_avg$birth_year, levels = birth_year_levels)
 df_avg$ihme_loc_id <- factor(df_avg$ihme_loc_id, levels = ihme_loc_id_levels)
 
 # remove any NAs imposed from above step (could be because some years didn't make it in the subset)
-# df_avg <- df_avg[!is.na(birth_year)] # should not be a problem on full data
+df_avg <- df_avg[!is.na(birth_year)]
 
 # # Predict WITH random effects (mixed effects)
 df_avg$pred_me <- predict(model, newdata = df_avg, type = "response", re.form = NULL)
@@ -187,10 +180,11 @@ df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 
 
 df_avg[,sex_id:= mean(df_avg$sex_id)]
 
-df_avg[,total_precipitation_prev_0_mo:= mean(df_avg$total_precipitation_prev_0_mo)]
+df_avg[,total_precipitation_prev_3_mo:= mean(df_avg$total_precipitation_prev_3_mo)]
 
 # # Predict WITHOUT random effects (fixed effects only)
 df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)
 
 # # Save predictions to parquet
 write_parquet(df_avg, paste0(results_dir, "predictions_", summary_file, ".parquet"))
+

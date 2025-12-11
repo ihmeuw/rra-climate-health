@@ -1,18 +1,8 @@
 ################################################################################
-# DESCRIPTION: Script to run baseline model on neonatal mortality data, first 
+# DESCRIPTION: Script to run baseline model on neonatal mortality data, 
 # using a logistic regression
-# model <- glmer(
-#   child_mortality ~ consumption_pd +
-#     days_over_30C +
-#     total_precipitation + 
-#     sex_id +
-#     birth_year +
-#     (1 | ihme_loc_id),
-#   data = df_model,
-#   family = binomial(link = "logit")
-# )
 # PROJECT: Climate nutrition
-# DATE: 2025-10-23
+# DATE: 2025-12-09
 ################################################################################
 
 #==============================================================================
@@ -49,10 +39,10 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_zones_1_mo_summary")
+sample_percent <- 0.25
+summary_file <- paste0("nnm_1_mo_q95_25_pc_summary")
 
-
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_09.01/zones/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_09.01/"
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/training_data/2025_12_09.01/neonatal/neonatal_data.parquet"
 
 
@@ -87,10 +77,19 @@ climate_vars <- c(
   # "days_over_30C",
   # "days_over_26C",
   # "any_days_over_30C",
-  "days_over_30C_prev_0_mo",
-  "days_over_30C_prev_3_mo_avg",
-  "days_over_30C_prev_6_mo_avg",
-  "days_over_30C_prev_9_mo_avg",
+  # "days_over_30C_prev_0_mo",
+  # "days_over_30C_prev_3_mo_avg",
+  # "days_over_30C_prev_6_mo_avg",
+  # "days_over_30C_prev_9_mo_avg",
+  'q9_prev_0_mo',
+  'q95_prev_0_mo',
+  'q9_prev_3_mo_avg',
+  'q9_prev_6_mo_avg',
+  'q9_prev_9_mo_avg',
+  'q95_prev_3_mo_avg',
+  'q95_prev_6_mo_avg',
+  'q95_prev_9_mo_avg',
+  'zone',
   "total_precipitation_prev_0_mo",
   "total_precipitation_prev_3_mo_avg",
   "total_precipitation_prev_6_mo_avg",
@@ -100,36 +99,28 @@ cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "co
 df_model <- neo_df[, ..cols]
 
 # get sample
-# indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
-# indv_counts <- indv_dt[, .N, by = ihme_loc_id]
-# indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
-# indv_dt[, n_sample := floor(sample_percent * N)]
+indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
+indv_counts <- indv_dt[, .N, by = ihme_loc_id]
+indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
+indv_dt[, n_sample := floor(sample_percent * N)]
 
-# set.seed(42)
-# sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
-# df_sample <- df_model[indv_id %in% sampled_indv]
+set.seed(42)
+sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
+df_sample <- df_model[indv_id %in% sampled_indv]
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
-## Options
-# "days_over_30C_prev_0_mo",
-# "days_over_30C_prev_3_mo_avg",
-# "days_over_30C_prev_6_mo_avg",
-# "days_over_30C_prev_9_mo_avg",
-# "total_precipitation_prev_0_mo",
-# "total_precipitation_prev_3_mo_avg",
-# "total_precipitation_prev_6_mo_avg",
-# "total_precipitation_prev_9_mo_avg"
+
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    days_over_30C_prev_0_mo +
+    q95_prev_0_mo +
     total_precipitation_prev_0_mo +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
-  data = df_model,
+  data = df_sample,
   family = binomial(link = "logit"),
   control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1e5))
 )
