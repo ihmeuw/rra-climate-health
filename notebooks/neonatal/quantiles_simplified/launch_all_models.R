@@ -41,9 +41,9 @@ for (t in time_periods){
                       "-o ",output_log," -e",error_log, 
                       "/ihme/singularity-images/rstudio/shells/execR.sh -i /ihme/singularity-images/rstudio/ihme_rstudio_4423.img",
                       "-s ", child_script,sep=" ")
-
+    print(qsub_str)
     system(qsub_str)
-    
+
     Sys.sleep(1.0)
   }
 }

@@ -62,7 +62,6 @@ neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 # convert sex_id to int between 0 and 1, where 0 is male and 1 is female
 neo_df[,sex_id := as.integer(sex_id)]
 neo_df[,sex_id := sex_id-1]
-neo_df <- neo_df[zone==zone_no]
 
 # simplification steps
 neo_df[,birth_year:=as.integer(birth_year)] # simplified

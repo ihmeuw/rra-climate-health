@@ -87,7 +87,8 @@ climate_vars <- c(
   "total_precipitation_prev_0_mo",
   "total_precipitation_prev_3_mo_avg",
   "total_precipitation_prev_6_mo_avg",
-  "total_precipitation_prev_9_mo_avg"
+  "total_precipitation_prev_9_mo_avg",
+  "zone"
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- neo_df[, ..cols]
