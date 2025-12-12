@@ -577,6 +577,131 @@ with PdfPages(pdf_path) as pdf:
 
 print(f"PDF saved to {pdf_path}")
 
+
+# make table of summaries
+results_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "p_value"])
+
+vars_of_interest = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    "days_over_30C_prev_0_mo",
+    "days_over_30C_prev_3_mo_avg",
+    "days_over_30C_prev_6_mo_avg",
+    "days_over_30C_prev_9_mo_avg",
+    "total_precipitation_prev_0_mo",
+    "total_precipitation_prev_3_mo_avg",
+    "total_precipitation_prev_6_mo_avg",
+    "total_precipitation_prev_9_mo_avg",
+]
+
+"""
+f = 'nnm_9_mo_q9_summary.txt'
+"""
+import re
+
+SUMMARY_DIR = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_11_20.01/model_summaries/"
+summaries = [f for f in os.listdir(SUMMARY_DIR) if f.endswith(".txt")]
+# only look at full runs
+summaries = [f for f in summaries if "_full" in f]
+summaries = [f for f in summaries if "_model" in f]
+
+for f in summaries:
+
+    time_period = re.findall(r"(?<=nnm_full_).*(?=_mo)", f)[0]
+    # print(time_period)
+    time_period_v = f"{time_period}-month"
+
+    coef_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "p_value"])
+    with open(SUMMARY_DIR + f, "r") as infile:
+        s = infile.read().split("\n")
+    # [l for l in s]
+    for l in s:
+        if l.startswith(tuple(vars_of_interest)) and bool(re.findall(r"[\d]{3}", l)):
+            # test if all info on single line or if it overflowed:
+            if len(l.split()) == 5:
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                p_value = l.split()[-1]
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                    "p_value": p_value,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 3:  # p-val missing from end
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 1:  # variable and p-val
+                coef = l.split()[0]
+                p_value = re.findall(r"[\d]{1}\.[\d]*", l)[0]
+                coef_table.loc[coef_table["Variable"] == coef, "p_value"] = p_value
+
+    results_table = pd.concat([results_table, coef_table], ignore_index=True)
+
+results_table["Variable"] = results_table["Variable"].str.replace("_0_mo", "_X_mo_avg")
+results_table["Variable"] = results_table["Variable"].str.replace("_3_mo", "_X_mo")
+results_table["Variable"] = results_table["Variable"].str.replace("_6_mo", "_X_mo")
+results_table["Variable"] = results_table["Variable"].str.replace("_9_mo", "_X_mo")
+
+results_table["Estimate"] = results_table["Estimate"].astype(float)
+results_table["p_value"] = results_table["p_value"].astype(float)
+results_table["Estimate"] = results_table["Estimate"].round(4)
+results_table["Estimate"] = results_table["Estimate"].astype(str)
+results_table.loc[results_table["p_value"] < 0.05, "Estimate"] = (
+    results_table.loc[results_table["p_value"] < 0.05, "Estimate"] + "*"
+)
+results_table.drop(columns="p_value", inplace=True)
+results_table["Variable"].unique()
+
+var_order = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    "days_over_30C_prev_X_mo_avg",
+    "total_precipitation_prev_X_mo_avg",
+]
+
+results_table["Variable"] = pd.Categorical(
+    results_table["Variable"], categories=var_order, ordered=True
+)
+
+results_table.sort_values(by=["Variable", "Time"], inplace=True)
+results_table_wide = results_table.pivot_table(
+    index=["Variable"], columns=["Time"], values="Estimate", aggfunc="first"
+)
+results_table_wide.reset_index(inplace=True)
+
+results_table_wide.to_csv(
+    PLOT_PATH + "neonatal_days_over_30C_full_spec_coefs.csv", index=False
+)
+
+
 ################################################################################
 
 
