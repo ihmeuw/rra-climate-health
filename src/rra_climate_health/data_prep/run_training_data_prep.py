@@ -2633,13 +2633,17 @@ def quick_fix_update_neonatal(
     # df_min_age_updated.to_parquet(Path(output_root) / "neonatal_data.parquet")
 
     # continue by adding in thresholds
+    # df_min_age = pd.read_parquet(
+    #     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_11_26.01/neonatal_data.parquet"
+    # )
     df_min_age = pd.read_parquet(
-        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_11_26.01/neonatal_data.parquet"
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/training_data/2025_12_09.01/neonatal/neonatal_data.parquet"
     )
+
     # add index for easier merging
     df_min_age = df_min_age.reset_index()
 
-    output_root += "/training_data/2025_12_09.01/neonatal"
+    output_root += "/neonatal_mortality/training_data/2025_12_12.01/neonatal"
     os.makedirs(Path(output_root), exist_ok=True, mode=0o777)
 
     # get previous monthly climate variables, initially as xarray
@@ -2675,6 +2679,9 @@ def quick_fix_update_neonatal(
     climate_vars_df.to_parquet(
         Path(output_root) / "climate_thresholds_for_locs.parquet"
     )
+    # climate_vars_df = pd.read_parquet(
+    #     Path(output_root) / "climate_thresholds_for_locs.parquet"
+    # )
 
     # Apply get_lookup_months to each row and concatenate the results into a new DataFrame
     df_min_age_unique_yr_mo = df_min_age[
@@ -2701,8 +2708,11 @@ def quick_fix_update_neonatal(
     # Merge climate vars with neonatal mortality data
     # reduce size
     climate_vars_df = climate_vars_df[
-        climate_vars_df["quantile_str"].isin(["q9", "q95"])
+        climate_vars_df["quantile_str"].isin(["q9", "q95", "q99"])
     ]
+
+    temp_save_loc = Path(output_root) / "merge_chunks"
+    os.makedirs(temp_save_loc, exist_ok=True, mode=0o777)
 
     # loop over each previous month to reduce space complexity
     for pre_suf in tqdm(df_min_age_lookup["suffix"].unique()):
@@ -2710,19 +2720,13 @@ def quick_fix_update_neonatal(
 
         # save chunks
         df_chunk.to_parquet(
-            Path(output_root)
-            / "merge_chunks"
-            / f"df_{pre_suf.replace('-', '_')}.parquet"
+            Path(temp_save_loc) / f"df_{pre_suf.replace('-', '_')}.parquet"
         )
 
     for pre_suf in tqdm(df_min_age_lookup["suffix"].unique()):
 
         # load chunks
-        file_to_run = (
-            Path(output_root)
-            / "merge_chunks"
-            / f"df_{pre_suf.replace('-', '_')}.parquet"
-        )
+        file_to_run = Path(temp_save_loc) / f"df_{pre_suf.replace('-', '_')}.parquet"
 
         data_chunk = pd.read_parquet(file_to_run)
         df_chunk_merged = data_chunk.merge(
@@ -2765,7 +2769,7 @@ def quick_fix_update_neonatal(
     df_min_age.to_parquet(Path(output_root) / "neonatal_merged_all_thresholds.parquet")
 
     # calculate averages over time periods analyzed
-    for v in [9, 95]:
+    for v in [9, 95, 99]:
         for i in [3, 6, 9]:
             prev_vars = get_prev_climate_threshold_months(v, i)
             df_min_age[f"q{v}_prev_{i}_mo_avg"] = df_min_age[prev_vars].mean(axis=1)
@@ -2824,6 +2828,10 @@ def quick_fix_update_neonatal(
         "q95_prev_3_mo_avg",
         "q95_prev_6_mo_avg",
         "q95_prev_9_mo_avg",
+        "q99_prev_9_mo_avg",
+        "q99_prev_3_mo_avg",
+        "q99_prev_6_mo_avg",
+        "q99_prev_9_mo_avg",
         "zone",
     ]
     df_min_age_final = df_min_age_final.dropna(subset=new_vars)
