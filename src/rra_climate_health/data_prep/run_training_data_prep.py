@@ -1991,7 +1991,7 @@ def run_training_data_prep_child_mortality(
     #     survey_data_path / "dem_br_matched_latlong.csv", encoding="latin1"
     # )
     data_raw = pd.read_parquet(
-        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_10_06_2025.parquet"
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_2025_10_14.parquet"
     )
 
     logging.info(f"Total rows in concatenated raw data: {len(data_raw):,}")
@@ -2034,6 +2034,39 @@ def run_training_data_prep_child_mortality(
 
     logging.info(f"Total unique NIDs after dropped NA values: {df['nid'].nunique():,}")
     df = df.rename(columns=COLUMN_NAME_TRANSLATOR)
+
+    # Investigate versions of India extractions
+    # data_raw_10_6 = pd.read_parquet(
+    #     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_10_06_2025.parquet"
+    # )
+    # india_10_6 = data_raw_10_6.query("ihme_loc_id=='IND'")
+    # print(len(india_10_6))
+    # for v in key_vars:
+    #     print(v)
+    #     print(len(india_10_6[~india_10_6[v].isna()]))
+    # data_raw_10_14_1 = pd.read_parquet(
+    #     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_2025_10_14.parquet"
+    # )
+    # india_10_14_1 = data_raw_10_14_1.query("ihme_loc_id=='IND'")
+    # print(len(india_10_14_1))
+    # for v in key_vars:
+    #     print(v)
+    #     print(len(india_10_14_1[~india_10_14_1[v].isna()]))
+    # print(len(india_10_14_1.dropna(subset=key_vars)))
+    # india_10_14_1_lat_long = india_10_14_1[~india_10_14_1["lat"].isna()]
+
+    # data_raw_10_14_2 = pd.read_parquet(
+    #     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_combined_2025_10_14.parquet"
+    # )
+    # india_10_14_2 = data_raw_10_14_2.query("ihme_loc_id=='IND'")
+    # print(len(india_10_14_2))
+    # india_10_14_2.rename(columns={"latitude": "lat", "longitude": "long"}, inplace=True)
+    # for v in key_vars:
+    #     print(v)
+    #     print(len(india_10_14_2[~india_10_14_2[v].isna()]))
+    # print(len(india_10_14_2.dropna(subset=key_vars)))
+    # india_10_14_2_int_yr = india_10_14_2[~india_10_14_2["int_year"].isna()]
+    # india_10_14_2_lat_long = india_10_14_2[~india_10_14_2["lat"].isna()]
 
     # update variable data types besides hh_id
     int_cols = [
@@ -2329,6 +2362,361 @@ def run_training_data_prep_child_mortality(
     climate_vars = get_climate_vars_for_dataframe(df_exploded)
     df_climate = merge_left_without_inflating(
         df_exploded, climate_vars, on=["int_year", "lat", "long"]
+    )
+
+    logging.info("Adding elevation data...")
+    df_climate = get_elevation_for_dataframe(df_climate)
+    df_climate = assign_lbd_admin2_location_id(df_climate)
+
+    # save temp files
+    df_climate.to_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_with_climate.parquet",
+        index=False,
+    )
+
+    # df_climate = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_with_climate.parquet")
+
+    # get unique invidiuals and clean variables
+    df_climate["line_id"] = df_climate["line_id"].astype(int)
+
+    df_climate["indv_id"] = (
+        df_climate[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
+    )
+    logging.info(f"{df_climate['indv_id'].nunique():,} unique individuals in data")
+
+    # flip child_alive so 1 = died, 0 = alive for easier interpretation
+    df_climate["child_mortality"] = 1 - df_climate["child_alive"]
+
+    df_climate["consumption"] = df_climate["ldipc_weighted_no_match"]
+
+    # collapse by average climate var exposure for each child
+    climate_vars = [
+        "mean_temperature",
+        "days_over_30C",
+        "precipitation_days",
+        "total_precipitation",
+        "mean_low_temperature",
+        "mean_high_temperature",
+        "relative_humidity",
+        "days_over_26C",
+        "days_over_27C",
+        "days_over_28C",
+        "days_over_29C",
+        "days_over_31C",
+        "days_over_32C",
+        "days_over_33C",
+        "elevation",
+    ]
+
+    # Neonatal
+    # get the index of the row with the min age_month_at_year_end for each indv_id
+    df_min_age = df_climate.copy()
+    df_min_age = (
+        df_climate.sort_values("age_month")
+        .groupby("indv_id", as_index=False)
+        .head(1)
+        .reset_index(drop=True)
+    )
+
+    # for any child with age_month > 1, set their age_month to 1,
+    # child_mortality to 0, and child_alive to 1. This should get true neonatal
+    # mortality for all individuals.
+    df_min_age.loc[df_min_age.age_month > 1, "child_alive"] = 1
+    df_min_age.loc[df_min_age.age_month > 1, "child_mortality"] = 0
+    df_min_age.loc[df_min_age.age_month > 1, "age_month"] = 1
+
+    # make version of consumption that is per day
+    df_min_age["consumption_pd"] = df_min_age["consumption"] / 365
+
+    # make any day over 30C variable binary
+    df_min_age["any_days_over_30C"] = np.where(df_min_age["days_over_30C"] > 0, 1, 0)
+
+    # save out neonatal data set
+    df_min_age.to_parquet(Path(output_path_version) / "neonatal_data.parquet")
+
+    # df_min_age = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet")
+
+    # Get the index of the row with the max age_month_at_year_end for each indv_id
+    df_max_age = df_climate.copy()
+    df_max_age = (
+        df_climate.sort_values("age_month")
+        .groupby("indv_id", as_index=False)
+        .tail(1)
+        .reset_index(drop=True)
+    )
+
+    # For each climate variable, replace its value in df_max_age with the average
+    # for that indv_id. This should be weighted by 'years_child_alive_in_year'
+    # def weighted_mean(group, value_cols, weight_col):
+    #     return pd.DataFrame({
+    #         col: np.average(group[col], weights=group[weight_col]) for col in value_cols
+    #     }, index=[group.name])
+    # weighted_climate_means = (
+    #     df_climate
+    #     .groupby("indv_id")
+    #     .apply(weighted_mean, value_cols=climate_vars, weight_col="years_child_alive_in_year")
+    #     .reset_index()
+    # )
+    def weighted_avg(group):
+        d = {}
+        w = group["years_child_alive_in_year"]
+        for col in climate_vars:
+            d[col] = np.average(group[col], weights=w)
+        return pd.Series(d)
+
+    weighted_climate_means = (
+        df_climate.groupby("indv_id", group_keys=False)
+        .apply(weighted_avg)
+        .reset_index()
+    )
+
+    # climate_means = df_climate.groupby("indv_id")[climate_vars].mean()
+    df_max_age = df_max_age.drop(columns=climate_vars).merge(
+        weighted_climate_means, on="indv_id", how="left"
+    )
+
+    # df_max_age.to_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_13.01/data_avg_climate.parquet")
+    # df_max_age = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_22.01/data.parquet")
+
+    # make version of consumption that is per day
+    df_max_age["consumption_pd"] = df_max_age["consumption"] / 365
+
+    # make any day over 30C variable binary
+    df_max_age["any_days_over_30C"] = np.where(df_max_age["days_over_30C"] > 0, 1, 0)
+
+    # Write to output
+    for measure in MEASURES_IN_SOURCE[data_source_type]:
+        measure_df = df_max_age[df_max_age[measure].notna()].copy()
+        measure_df["measure"] = measure
+        measure_df["value"] = measure_df[measure]
+        logging.info(
+            f"Saving data for {measure} to {output_path_version} {len(measure_df)} rows"
+        )
+        for ldi_col in ["ldipc_weighted_no_match"]:  # ldi_cols:
+            measure_df["ldi_pc_pd"] = measure_df[ldi_col] / 365
+            logging.info(
+                f"Saving data for {measure} to version {version} with {ldi_col} as LDI"
+            )
+            cm_data.save_training_data(measure_df, version)
+            message = "Used " + ldi_col + " as LDI"
+            # Save a small file with a record of which ldi column was used for this version
+            with open(cm_data.training_data / version / "ldi_col.txt", "w") as f:
+                f.write(message)
+
+
+def run_training_data_prep_neonatal(
+    output_root: str,
+    data_source_type: str,
+    module: str,
+):
+
+    # Set up logging and versioned output path
+    measure_root = Path(output_root) / data_source_type
+    os.makedirs(Path(measure_root) / "training_data", exist_ok=True, mode=0o777)
+    cm_data = ClimateMalnutritionData(measure_root)
+    version = cm_data.new_training_version()
+    output_path_version = Path(measure_root) / "training_data" / version
+    os.makedirs(
+        output_path_version,
+        exist_ok=True,
+        mode=0o777,
+    )
+
+    dataprep_log_path = Path(output_path_version) / "data_prep_log.txt"
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=[
+            logging.FileHandler(dataprep_log_path, mode="w"),
+            logging.StreamHandler(),
+        ],
+    )
+
+    logging.info(f"Running training data prep for {data_source_type}...")
+
+    logging.info(f"Creating new version stored under version: {version}")
+
+    logging.info("Processing extraction survey data...")
+    loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
+
+    data_raw = pd.read_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_2025_10_14.parquet"
+    )
+
+    logging.info(f"Total rows in concatenated raw data: {len(data_raw):,}")
+    logging.info(
+        f"Total unique NIDs in concatenated raw data: {data_raw['nid'].nunique():,}"
+    )
+
+    df = data_raw.copy()
+    df = check_columns(df, module)
+
+    # drop rows with missing key variables
+    rows_before_na_drop = len(df)
+    key_vars = [
+        "nid",
+        "psu",
+        "birth_year",
+        "birth_month",
+        "age_month",
+        "hh_id",
+        "geospatial_id",
+        "line_id",
+        "lat",
+        "long",
+        "child_alive",
+    ]
+    df.dropna(subset=key_vars, inplace=True)
+    na_rows_dropped = rows_before_na_drop - len(df)
+    logging.info(
+        f"Dropped {na_rows_dropped:,} rows with missing key variables: {key_vars}"
+    )
+    for var in key_vars:
+        logging.info(f"- {var}: {data_raw[var].isna().sum():,} missing values")
+    logging.info(f"NIDs with incomplete (some NAs) key variables: {key_vars}")
+    for var in key_vars:
+        logging.info(
+            f"-{data_raw[data_raw[var].isna()]["nid"].nunique():,} contains missing {var} values"
+        )
+
+    logging.info(f"Total unique NIDs after dropped NA values: {df['nid'].nunique():,}")
+    df = df.rename(columns=COLUMN_NAME_TRANSLATOR)
+
+    # update variable data types besides hh_id
+    int_cols = [
+        "nid",
+        "psu",
+        "birth_year",
+        "birth_month",
+        "age_month",
+        "child_alive",
+        "geospatial_id",
+    ]
+    for col in int_cols:
+        print(col)
+        df[col] = df[col].astype("int")
+
+    # Apply cleaning function to each group and update hh_id
+    df["old_hh_id"] = df["hh_id"]
+    df["hh_id"] = df.groupby(["nid", "ihme_loc_id", "psu"], group_keys=False).apply(
+        clean_hh_id_subset
+    )
+
+    assert len(df[df["hh_id"].isna()]) == len(
+        df[df["old_hh_id"].isna()]
+    ), "NAs introduced by cleaning"
+
+    df["hh_id"] = df["hh_id"].astype("int")
+    df.drop(columns=["old_hh_id"], inplace=True)
+
+    # Prepping wealth dataset
+    dhs_wealth_data_raw = get_DHS_wealth_dataset()
+    dhs_wealth_data = dhs_wealth_data_raw.copy()
+
+    # Find out percent of anemia nids and hh_ids that can be matched in wealth data
+    merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
+
+    cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT) / "child_mortality")
+    dhs_wealth_data_test = get_ldipc_from_asset_score(
+        dhs_wealth_data,
+        cm_data,
+        asset_score_col="wealth_index_dhs",
+        weights_col="hhweight",
+        # plot_pdf_path=Path(DEFAULT_ROOT) / "input"/ "ldi_plots"/ "dhs_plots.pdf",
+        ldi_version=LDI_VERSION,
+    )
+
+    wealth_nids = set(dhs_wealth_data_test.nid.unique())
+    df_nids = set(df.nid.unique())
+    common_nids = wealth_nids.intersection(df_nids)
+
+    nid_with_wealth_pc = 100 * len(common_nids) / len(df_nids)
+    logging.info(
+        f"{nid_with_wealth_pc:.1f}% of df NIDs - {len(common_nids)} out of "
+        f"{len(df_nids)} in wealth data NIDs"
+    )
+
+    dhs_wealth_data_test = dhs_wealth_data_test.query("nid in @df_nids")
+
+    # Merge data
+    df["ihme_loc_id"] = df["ihme_loc_id"].str.replace("KEN_.*", "KEN", regex=True)
+    df[["year_start", "year_end"]] = df[["year_start", "year_end"]].astype(int)
+
+    df_wealth = merge_left_without_inflating(
+        df,
+        dhs_wealth_data_test.drop(
+            columns=["geospatial_id", "strata", "lat", "long", "hhweight"]
+        ),
+        on=merge_cols,
+    )
+
+    merged_percent = len(df_wealth[~df_wealth["ldipc_weighted_no_match"].isna()]) / len(
+        df_wealth
+    )
+    print(f"Merged rows percent: {100*merged_percent:.1f}%")
+
+    # Calculate proportion of NA and filter out nids with too much wealth missingness (bad merges)
+    merged_na_props = (
+        df_wealth.groupby(["nid"]).ldipc_weighted_no_match.count()
+        / df_wealth.groupby(["nid"]).ldipc_weighted_no_match.size()
+    )
+    merged_nids = merged_na_props[merged_na_props > 0.95].index.to_list()
+    df_merged = df_wealth.query("nid in @merged_nids").copy()
+    dropped_too_missingness = len(df_wealth) - len(df_merged)
+    logging.info(
+        f"Dropped {dropped_too_missingness:,} rows from {len(df_wealth):,} due to excessive wealth missingness in NIDs"
+    )
+    logging.info(f"Total unique NIDs remaining: {df_merged['nid'].nunique():,}")
+
+    # replace age_month with aod_months for rows with child_alive==0
+    df_merged["age_month_original"] = df_merged["age_month"]  # keep copy of original
+    df_merged.loc[df_merged.child_alive == 0, "age_month"] = df_merged.loc[
+        df_merged.child_alive == 0, "aod_months"
+    ]
+
+    # drop data with no age_month
+    before_rows = len(df_merged)
+    df_merged = df_merged[df_merged["age_month"].notna()]
+    logging.info(
+        f"Dropped {before_rows - len(df_merged):,} rows with missing age_month or aod_months"
+    )
+
+    df_merged["age_month"] = df_merged["age_month"].astype(int)
+
+    # Take out data with invalid lat and long
+    before_rows = len(df_merged)
+    df_merged = df_merged.dropna(subset=["lat", "long"])
+    df_merged = df_merged.query("lat != 0 and long != 0")
+    dropped_due_to_coords = before_rows - len(df_merged)
+    logging.info(
+        f"Dropped {dropped_due_to_coords:,} rows due to invalid lat and long values"
+    )
+
+    # NID 275090 is a very long survey in Peru, 2003-2008 that is coded as having
+    # multiple year_starts. Removing it.
+    # NID 411301 - updated: not in BR data extractions
+    problematic_nids = [275090]
+    before_rows = len(df_merged)
+    df_merged = df_merged.query("nid not in @problematic_nids")
+    dropped_problematic_nids = before_rows - len(df_merged)
+    logging.info(
+        f"Dropped {dropped_problematic_nids:,} rows due to problematic NIDs: {problematic_nids}"
+    )
+
+    # save temp files
+    df_merged.to_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/neonatal_mortality_merged_wealth.parquet",
+        index=False,
+    )
+
+    # df_merged = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/neonatal_mortality_merged_wealth.parquet")
+
+    # Merge with climate data
+    logging.info("Processing climate data...")
+    climate_vars = get_climate_vars_for_dataframe(df_merged)
+    df_climate = merge_left_without_inflating(
+        df_merged, climate_vars, on=["int_year", "lat", "long"]
     )
 
     logging.info("Adding elevation data...")
@@ -2873,10 +3261,15 @@ def run_training_data_prep_main(  # noqa: PLR0915
             output_root, data_source_type, module=module
         )
     elif data_source_type == "neonatal_mortality":
-        quick_fix_update_neonatal(
+        run_training_data_prep_neonatal(
             output_root,
             data_source_type,
         )
+    # elif data_source_type == "neonatal_mortality":
+    #     quick_fix_update_neonatal(
+    #         output_root,
+    #         data_source_type,
+    #     )
     else:
         msg = f"Data source {data_source_type} not implemented yet."
         raise NotImplementedError(msg)

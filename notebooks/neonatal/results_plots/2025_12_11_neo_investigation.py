@@ -7,6 +7,7 @@ Plot different time horizons side-by-side for neonatal mortality model.
 4. Simplified zones specifications
 5. Simplified zones with quantile thresholds for 90th percentile
 6. Simplified zones with quantile thresholds for 95th percentile
+7. Quantile thresholds for 99th percentile
 """
 
 import seaborn as sns
@@ -593,8 +594,22 @@ first_non_zero = non_zero_values.min()
 quartiles = np.percentile(non_zero_values, [25, 50, 75, 100])
 
 # Define custom bin edges
-custom_bins_fixed = [0, first_non_zero] + list(quartiles)
+# custom_bins_fixed = [0, first_non_zero] + list(quartiles)
+custom_bins_fixed = [0, 0.1, 2, 4, 9, 31]
 
+custom_y_bins = [
+    0,
+    0.784781,
+    1.180789,
+    1.541445,
+    1.950251,
+    2.465952,
+    3.103463,
+    4.003564,
+    5.541124,
+    9.413681,
+    112.879922,
+]
 # get mix/maxes for plots
 multiply_by_val = 1000  # for easier to read heatmaps
 all_values = []
@@ -605,10 +620,12 @@ for model in [model1, model3, model6, model9]:
         heatmap_df[f"{col}_bin"] = pd.cut(
             heatmap_df[col], bins=custom_bins_fixed, include_lowest=True, right=False
         )
-    heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
-        heatmap_df.consumption_pd, 10, retbins=True
+    # heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
+    #     heatmap_df.consumption_pd, 10, retbins=True
+    # )
+    heatmap_df["consumption_pd"] = pd.cut(
+        heatmap_df.consumption_pd, bins=custom_y_bins, include_lowest=True, right=False
     )
-
     versions = [
         "child_mortality",
         "pred_fe",
@@ -651,7 +668,7 @@ bin_col_dict = {
 }
 
 # Create a PDF to save the plots
-pdf_path = os.path.join(PLOT_PATH, "neonatal_q9_full_spec.pdf")
+pdf_path = os.path.join(PLOT_PATH, "neonatal_q9.pdf")
 
 with PdfPages(pdf_path) as pdf:
     # Create a figure with 4 rows and 3 columns
@@ -684,6 +701,7 @@ with PdfPages(pdf_path) as pdf:
                 vmax=vmax,
                 show_colorbar=(col == 2),  # Show colorbar only for the last column
                 custom_bins=custom_bins_fixed,  # custom_bins_for_model,
+                custom_y_bins=custom_y_bins,
             )
 
     # Save the figure to the PDF
@@ -866,8 +884,22 @@ first_non_zero = non_zero_values.min()
 quartiles = np.percentile(non_zero_values, [25, 50, 75, 100])
 
 # Define custom bin edges
-custom_bins_fixed = [0, first_non_zero] + list(quartiles)
+# custom_bins_fixed = [0, first_non_zero] + list(quartiles)
+custom_bins_fixed = [0, 0.1, 2, 4, 9, 31]
 
+custom_y_bins = [
+    0,
+    0.784781,
+    1.180789,
+    1.541445,
+    1.950251,
+    2.465952,
+    3.103463,
+    4.003564,
+    5.541124,
+    9.413681,
+    112.879922,
+]
 # get mix/maxes for plots
 multiply_by_val = 1000  # for easier to read heatmaps
 all_values = []
@@ -878,8 +910,11 @@ for model in [model1, model3, model6, model9]:
         heatmap_df[f"{col}_bin"] = pd.cut(
             heatmap_df[col], bins=custom_bins_fixed, include_lowest=True, right=False
         )
-    heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
-        heatmap_df.consumption_pd, 10, retbins=True
+    # heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
+    #     heatmap_df.consumption_pd, 10, retbins=True
+    # )
+    heatmap_df["consumption_pd"] = pd.cut(
+        heatmap_df.consumption_pd, bins=custom_y_bins, include_lowest=True, right=False
     )
 
     versions = [
@@ -924,7 +959,7 @@ bin_col_dict = {
 }
 
 # Create a PDF to save the plots
-pdf_path = os.path.join(PLOT_PATH, "neonatal_q95_full_spec.pdf")
+pdf_path = os.path.join(PLOT_PATH, "neonatal_q95.pdf")
 with PdfPages(pdf_path) as pdf:
     # Create a figure with 4 rows and 3 columns
     fig, axes = plt.subplots(
@@ -956,6 +991,7 @@ with PdfPages(pdf_path) as pdf:
                 vmax=vmax,
                 show_colorbar=(col == 2),  # Show colorbar only for the last column
                 custom_bins=custom_bins_fixed,  # custom_bins_for_model,
+                custom_y_bins=custom_y_bins,
             )
 
     # Save the figure to the PDF
@@ -2355,3 +2391,257 @@ results_table_wide.to_csv(
 )
 
 ################################################################################
+
+## 7. Quantile thresholds for 99th percentile ##################################
+
+RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_12.01/"
+model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_q99_summary.parquet")
+model3 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_3_mo_q99_summary.parquet")
+model6 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_6_mo_q99_summary.parquet")
+model9 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_9_mo_q99_summary.parquet")
+
+# get min and max values for color scale consistency across plots
+# as well as custom bins
+# Heat maps of variables
+columns_to_bin = [
+    "q99_prev_0_mo",
+    "q99_prev_3_mo_avg",
+    "q99_prev_6_mo_avg",
+    "q99_prev_9_mo_avg",
+    # "q95_prev_0_mo",
+    # 'q95_prev_3_mo_avg',
+    # 'q95_prev_6_mo_avg',
+    # 'q95_prev_9_mo_avg',
+]
+
+# Define custom bin edges
+# custom_bins_fixed = [0, first_non_zero] + list(quartiles)
+custom_bins_fixed = [0, 0.1, 2, 4, 9, 31]
+
+custom_y_bins = [
+    0,
+    0.784781,
+    1.180789,
+    1.541445,
+    1.950251,
+    2.465952,
+    3.103463,
+    4.003564,
+    5.541124,
+    9.413681,
+    112.879922,
+]
+# get mix/maxes for plots
+multiply_by_val = 1000  # for easier to read heatmaps
+all_values = []
+
+for model in [model1, model3, model6, model9]:
+    heatmap_df = model.copy()
+    for col in columns_to_bin:
+        heatmap_df[f"{col}_bin"] = pd.cut(
+            heatmap_df[col], bins=custom_bins_fixed, include_lowest=True, right=False
+        )
+    # heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
+    #     heatmap_df.consumption_pd, 10, retbins=True
+    # )
+    heatmap_df["consumption_pd"] = pd.cut(
+        heatmap_df.consumption_pd, bins=custom_y_bins, include_lowest=True, right=False
+    )
+    versions = [
+        "child_mortality",
+        "pred_fe",
+        "pred_me",
+    ]
+    for col in columns_to_bin:
+        for version in versions:
+            vals = (
+                heatmap_df.groupby(["consumption_pd", f"{col}_bin"])[version]
+                .mean()
+                .values
+            )
+            all_values.append(vals)
+
+all_values = np.concatenate(all_values)
+all_values = [v for v in all_values if not np.isnan(v)]
+
+vmin = min(all_values)
+vmax = max(all_values)
+
+vmin *= multiply_by_val
+vmax *= multiply_by_val
+
+# Plot all on same PDF
+# Define models and versions
+models = [model1, model3, model6, model9]
+model_names = ["1-month", "3-month", "6-month", "9-month"]
+versions = [
+    ("child_mortality", "Child Mortality"),
+    ("pred_me", "Predicted ME"),
+    ("pred_fe", "Predicted FE"),
+]
+
+
+bin_col_dict = {
+    "1-month": "q99_prev_0_mo",
+    "3-month": "q99_prev_3_mo_avg",
+    "6-month": "q99_prev_6_mo_avg",
+    "9-month": "q99_prev_9_mo_avg",
+}
+
+# Create a PDF to save the plots
+pdf_path = os.path.join(PLOT_PATH, "neonatal_q99.pdf")
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 4 rows and 3 columns
+    fig, axes = plt.subplots(
+        nrows=4, ncols=3, figsize=(15, 20), constrained_layout=True
+    )
+
+    for row, (model, model_name) in enumerate(zip(models, model_names)):
+        for col, (version, version_label) in enumerate(versions):
+            # Prepare the data for the current model and version
+            data = model.rename(columns={version: "model_predictions"})
+
+            """
+            model = models[1]
+            model_name = '1-month'
+            data = model.rename(columns={version: "model_predictions"})
+            bin_cols=[bin_col_dict[model_name]]
+            custom_bins=custom_bins_fixed
+            """
+            # custom_bins_for_model = create_custom_bins(model, bin_col_dict[model_name])
+
+            # Plot on the specific Axes
+            plot_heat_map_grid(
+                data=data,
+                bin_cols=[bin_col_dict[model_name]],
+                ax=axes[row, col],
+                title=f"{model_name} - {version_label}",
+                multiply_by=multiply_by_val,
+                vmin=vmin,
+                vmax=vmax,
+                show_colorbar=(col == 2),  # Show colorbar only for the last column
+                custom_bins=custom_bins_fixed,  # custom_bins_for_model,
+                custom_y_bins=custom_y_bins,
+            )
+
+    # Save the figure to the PDF
+    pdf.savefig(fig)
+    plt.close(fig)
+
+print(f"PDF saved to {pdf_path}")
+
+# make table of summaries
+results_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "p_value"])
+SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
+
+vars_of_interest = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    "q99_prev_0_mo",
+    "q99_prev_3_mo_avg",
+    "q99_prev_6_mo_avg",
+    "q99_prev_9_mo_avg",
+    "total_precipitation_prev_0_mo",
+    "total_precipitation_prev_3_mo_avg",
+    "total_precipitation_prev_6_mo_avg",
+    "total_precipitation_prev_9_mo_avg",
+]
+
+
+summaries = [f for f in os.listdir(SUMMARY_DIR) if f.endswith(".txt")]
+# only look at q99
+summaries = [f for f in summaries if "_q99_summary" in f]
+
+for f in summaries:
+
+    time_period = re.findall(r"(?<=nnm_).*(?=_mo)", f)[0]
+    # print(time_period)
+    time_period_v = f"{time_period}-month"
+
+    coef_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "p_value"])
+    with open(SUMMARY_DIR + f, "r") as infile:
+        s = infile.read().split("\n")
+    # [l for l in s]
+    for l in s:
+        if l.startswith(tuple(vars_of_interest)) and bool(re.findall(r"[\d]{3}", l)):
+            # test if all info on single line or if it overflowed:
+            if len(l.split()) == 5:
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                p_value = l.split()[-1]
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                    "p_value": p_value,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 3:  # p-val missing from end
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 1:  # variable and p-val
+                coef = l.split()[0]
+                p_value = re.findall(r"[\d]{1}\.[\d]*", l)[0]
+                coef_table.loc[coef_table["Variable"] == coef, "p_value"] = p_value
+
+    results_table = pd.concat([results_table, coef_table], ignore_index=True)
+
+results_table["Variable"] = results_table["Variable"].str.replace("_0_mo", "_X_mo_avg")
+results_table["Variable"] = results_table["Variable"].str.replace("_3_mo", "_X_mo")
+results_table["Variable"] = results_table["Variable"].str.replace("_6_mo", "_X_mo")
+results_table["Variable"] = results_table["Variable"].str.replace("_9_mo", "_X_mo")
+
+results_table["Estimate"] = results_table["Estimate"].astype(float)
+results_table["p_value"] = results_table["p_value"].astype(float)
+results_table["Estimate"] = results_table["Estimate"].round(4)
+results_table["Estimate"] = results_table["Estimate"].astype(str)
+results_table.loc[results_table["p_value"] < 0.05, "Estimate"] = (
+    results_table.loc[results_table["p_value"] < 0.05, "Estimate"] + "*"
+)
+results_table.drop(columns="p_value", inplace=True)
+results_table["Variable"].unique()
+
+var_order = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    "q99_prev_X_mo_avg",
+    "total_precipitation_prev_X_mo_avg",
+]
+
+results_table["Variable"] = pd.Categorical(
+    results_table["Variable"], categories=var_order, ordered=True
+)
+
+results_table.sort_values(by=["Variable", "Time"], inplace=True)
+results_table_wide = results_table.pivot_table(
+    index=["Variable"], columns=["Time"], values="Estimate", aggfunc="first"
+)
+results_table_wide.reset_index(inplace=True)
+
+results_table_wide.to_csv(PLOT_PATH + "neonatal_q99_full_spec_coefs.csv", index=False)
