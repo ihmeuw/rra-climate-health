@@ -1,8 +1,18 @@
 ################################################################################
-# DESCRIPTION: Script to run baseline model on neonatal mortality data, 
+# DESCRIPTION: Script to run baseline model on neonatal mortality data, first 
 # using a logistic regression
+# model <- glmer(
+#   child_mortality ~ consumption_pd +
+#     days_over_30C +
+#     total_precipitation + 
+#     sex_id +
+#     birth_year +
+#     (1 | ihme_loc_id),
+#   data = df_model,
+#   family = binomial(link = "logit")
+# )
 # PROJECT: Climate nutrition
-# DATE: 2025-12-09
+# DATE: 2025-10-23
 ################################################################################
 
 #==============================================================================
@@ -39,7 +49,8 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_1_mo_q95_summary")
+summary_file <- paste0("nnm_3_mo_do30_summary")
+
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_data.parquet"
@@ -76,19 +87,10 @@ climate_vars <- c(
   # "days_over_30C",
   # "days_over_26C",
   # "any_days_over_30C",
-  # "days_over_30C_prev_0_mo",
-  # "days_over_30C_prev_3_mo_avg",
-  # "days_over_30C_prev_6_mo_avg",
-  # "days_over_30C_prev_9_mo_avg",
-  'q9_prev_0_mo',
-  'q95_prev_0_mo',
-  'q9_prev_3_mo_avg',
-  'q9_prev_6_mo_avg',
-  'q9_prev_9_mo_avg',
-  'q95_prev_3_mo_avg',
-  'q95_prev_6_mo_avg',
-  'q95_prev_9_mo_avg',
-  'zone',
+  "days_over_30C_prev_0_mo",
+  "days_over_30C_prev_3_mo_avg",
+  "days_over_30C_prev_6_mo_avg",
+  "days_over_30C_prev_9_mo_avg",
   "total_precipitation_prev_0_mo",
   "total_precipitation_prev_3_mo_avg",
   "total_precipitation_prev_6_mo_avg",
@@ -110,12 +112,20 @@ df_model <- neo_df[, ..cols]
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
-
+## Options
+# "days_over_30C_prev_0_mo",
+# "days_over_30C_prev_3_mo_avg",
+# "days_over_30C_prev_6_mo_avg",
+# "days_over_30C_prev_9_mo_avg",
+# "total_precipitation_prev_0_mo",
+# "total_precipitation_prev_3_mo_avg",
+# "total_precipitation_prev_6_mo_avg",
+# "total_precipitation_prev_9_mo_avg"
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    q95_prev_0_mo +
-    total_precipitation_prev_0_mo +
+    days_over_30C_prev_3_mo_avg +
+    total_precipitation_prev_3_mo_avg +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
@@ -166,7 +176,7 @@ df_avg$birth_year <- factor(df_avg$birth_year, levels = birth_year_levels)
 df_avg$ihme_loc_id <- factor(df_avg$ihme_loc_id, levels = ihme_loc_id_levels)
 
 # remove any NAs imposed from above step (could be because some years didn't make it in the subset)
-# df_avg <- df_avg[!is.na(birth_year)] # should not be a problem on full data
+df_avg <- df_avg[!is.na(birth_year)]
 
 # # Predict WITH random effects (mixed effects)
 df_avg$pred_me <- predict(model, newdata = df_avg, type = "response", re.form = NULL)
@@ -177,10 +187,11 @@ df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 
 
 df_avg[,sex_id:= mean(df_avg$sex_id)]
 
-df_avg[,total_precipitation_prev_0_mo:= mean(df_avg$total_precipitation_prev_0_mo)]
+df_avg[,total_precipitation_prev_3_mo:= mean(df_avg$total_precipitation_prev_3_mo)]
 
 # # Predict WITHOUT random effects (fixed effects only)
 df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)
 
 # # Save predictions to parquet
 write_parquet(df_avg, paste0(results_dir, "predictions_", summary_file, ".parquet"))
+

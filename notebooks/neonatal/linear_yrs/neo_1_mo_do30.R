@@ -1,8 +1,18 @@
 ################################################################################
-# DESCRIPTION: Script to run baseline model on neonatal mortality data, 
+# DESCRIPTION: Script to run baseline model on neonatal mortality data, first 
 # using a logistic regression
+# model <- glmer(
+#   child_mortality ~ consumption_pd +
+#     days_over_30C +
+#     total_precipitation + 
+#     sex_id +
+#     birth_year +
+#     (1 | ihme_loc_id),
+#   data = df_model,
+#   family = binomial(link = "logit")
+# )
 # PROJECT: Climate nutrition
-# DATE: 2025-12-09
+# DATE: 2025-10-23
 ################################################################################
 
 #==============================================================================
@@ -39,7 +49,8 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_1_mo_q95_summary")
+summary_file <- paste0("nnm_1_mo_do30_ly_summary")
+
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_data.parquet"
@@ -62,7 +73,7 @@ neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 # convert sex_id to int between 0 and 1, where 0 is male and 1 is female
 neo_df[,sex_id := as.integer(sex_id)]
 neo_df[,sex_id := sex_id-1]
-neo_df[,birth_year:=as.factor(birth_year)]
+neo_df[,birth_year:=as.integer(birth_year)] # simplified
 
 ## Read and format data
 
@@ -76,19 +87,10 @@ climate_vars <- c(
   # "days_over_30C",
   # "days_over_26C",
   # "any_days_over_30C",
-  # "days_over_30C_prev_0_mo",
-  # "days_over_30C_prev_3_mo_avg",
-  # "days_over_30C_prev_6_mo_avg",
-  # "days_over_30C_prev_9_mo_avg",
-  'q9_prev_0_mo',
-  'q95_prev_0_mo',
-  'q9_prev_3_mo_avg',
-  'q9_prev_6_mo_avg',
-  'q9_prev_9_mo_avg',
-  'q95_prev_3_mo_avg',
-  'q95_prev_6_mo_avg',
-  'q95_prev_9_mo_avg',
-  'zone',
+  "days_over_30C_prev_0_mo",
+  "days_over_30C_prev_3_mo_avg",
+  "days_over_30C_prev_6_mo_avg",
+  "days_over_30C_prev_9_mo_avg",
   "total_precipitation_prev_0_mo",
   "total_precipitation_prev_3_mo_avg",
   "total_precipitation_prev_6_mo_avg",
@@ -110,11 +112,19 @@ df_model <- neo_df[, ..cols]
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
-
+## Options
+# "days_over_30C_prev_0_mo",
+# "days_over_30C_prev_3_mo_avg",
+# "days_over_30C_prev_6_mo_avg",
+# "days_over_30C_prev_9_mo_avg",
+# "total_precipitation_prev_0_mo",
+# "total_precipitation_prev_3_mo_avg",
+# "total_precipitation_prev_6_mo_avg",
+# "total_precipitation_prev_9_mo_avg"
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    q95_prev_0_mo +
+    days_over_30C_prev_0_mo +
     total_precipitation_prev_0_mo +
     sex_id +
     birth_year +
@@ -159,10 +169,8 @@ write.csv(re_df, paste0(model_summary_dir, "re_estimates_", summary_file, ".csv"
 df_avg <- copy(df_model)
 
 # Extract levels for a specific factor
-birth_year_levels <- levels(model@frame$birth_year)
 ihme_loc_id_levels <- levels(model@frame$ihme_loc_id)
 
-df_avg$birth_year <- factor(df_avg$birth_year, levels = birth_year_levels)
 df_avg$ihme_loc_id <- factor(df_avg$ihme_loc_id, levels = ihme_loc_id_levels)
 
 # remove any NAs imposed from above step (could be because some years didn't make it in the subset)
@@ -172,8 +180,7 @@ df_avg$ihme_loc_id <- factor(df_avg$ihme_loc_id, levels = ihme_loc_id_levels)
 df_avg$pred_me <- predict(model, newdata = df_avg, type = "response", re.form = NULL)
 
 # # override existing variables to be able to use predict function from package
-df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0),
-                              levels = birth_year_levels)]
+df_avg[, birth_year := round(mean(birth_year), 0)]
 
 df_avg[,sex_id:= mean(df_avg$sex_id)]
 

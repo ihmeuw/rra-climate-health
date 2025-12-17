@@ -49,12 +49,11 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_full_9_mo_model_summary")
+summary_file <- paste0("nnm_6_mo_do30_ly_summary")
 
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_11_20.01/"
-
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_11_20.01/neonatal/neonatal_data.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_data.parquet"
 
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -74,7 +73,7 @@ neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 # convert sex_id to int between 0 and 1, where 0 is male and 1 is female
 neo_df[,sex_id := as.integer(sex_id)]
 neo_df[,sex_id := sex_id-1]
-neo_df[,birth_year:=as.factor(birth_year)]
+neo_df[,birth_year:=as.integer(birth_year)] # simplified
 
 ## Read and format data
 
@@ -97,7 +96,7 @@ climate_vars <- c(
   "total_precipitation_prev_6_mo_avg",
   "total_precipitation_prev_9_mo_avg"
 )
-cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
+cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year", climate_vars)
 df_model <- neo_df[, ..cols]
 
 # get sample
@@ -125,8 +124,8 @@ df_model <- neo_df[, ..cols]
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    days_over_30C_prev_9_mo_avg +
-    total_precipitation_prev_9_mo_avg +
+    days_over_30C_prev_6_mo_avg +
+    total_precipitation_prev_6_mo_avg +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
@@ -170,10 +169,8 @@ write.csv(re_df, paste0(model_summary_dir, "re_estimates_", summary_file, ".csv"
 df_avg <- copy(df_model)
 
 # Extract levels for a specific factor
-birth_year_levels <- levels(model@frame$birth_year)
 ihme_loc_id_levels <- levels(model@frame$ihme_loc_id)
 
-df_avg$birth_year <- factor(df_avg$birth_year, levels = birth_year_levels)
 df_avg$ihme_loc_id <- factor(df_avg$ihme_loc_id, levels = ihme_loc_id_levels)
 
 # remove any NAs imposed from above step (could be because some years didn't make it in the subset)
@@ -183,12 +180,11 @@ df_avg <- df_avg[!is.na(birth_year)]
 df_avg$pred_me <- predict(model, newdata = df_avg, type = "response", re.form = NULL)
 
 # # override existing variables to be able to use predict function from package
-df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0),
-                              levels = birth_year_levels)]
+df_avg[, birth_year := round(mean(birth_year), 0)]
 
 df_avg[,sex_id:= mean(df_avg$sex_id)]
 
-df_avg[,total_precipitation_prev_9_mo:= mean(df_avg$total_precipitation_prev_9_mo)]
+df_avg[,total_precipitation_prev_6_mo:= mean(df_avg$total_precipitation_prev_6_mo)]
 
 # # Predict WITHOUT random effects (fixed effects only)
 df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)

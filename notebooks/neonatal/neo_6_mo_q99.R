@@ -41,8 +41,8 @@ options(scipen = 999) # turn off scientific notation
 ## set parameters
 summary_file <- paste0("nnm_6_mo_q99_summary")
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_12.01/"
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_12.01/neonatal/neonatal_data.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_data.parquet"
 
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -98,7 +98,7 @@ climate_vars <- c(
   "total_precipitation_prev_6_mo_avg",
   "total_precipitation_prev_9_mo_avg"
 )
-cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
+cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year", climate_vars)
 df_model <- neo_df[, ..cols]
 
 # get sample
