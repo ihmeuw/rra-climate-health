@@ -183,9 +183,30 @@ def create_custom_bins(data: pd.DataFrame, col: str):
     return custom_bins
 
 
-################################################################################
+# Quick data facts #############################################################
 
-# Plot data ####################################################################
+prev_data = pd.read_parquet(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_12.01/neonatal/neonatal_data.parquet"
+)
+curr_data = pd.read_parquet(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_data.parquet"
+)
+
+print("Previous data:")
+print(f"Data points = {len(prev_data):,}")
+print(f"Surveys = {prev_data["nid"].nunique():,}")
+print(f"Countries = {prev_data["ihme_loc_id"].nunique():,}")
+print(f"Deaths = {len(prev_data[prev_data["child_mortality"]==1]):,}")
+print(f"Top 3 countries: {prev_data["ihme_loc_id"].value_counts().head(3).to_dict()}")
+
+print("Current data:")
+print(f"Data points = {len(curr_data):,}")
+print(f"Surveys = {curr_data["nid"].nunique():,}")
+print(f"Countries = {curr_data["ihme_loc_id"].nunique():,}")
+print(f"Deaths = {len(curr_data[curr_data["child_mortality"]==1]):,}")
+print(f"Top 3 countries: {curr_data["ihme_loc_id"].value_counts().head(3).to_dict()}")
+
+################################################################################
 
 
 ## 1. Linear year 90th percentile  #############################################
