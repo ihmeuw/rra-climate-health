@@ -9,6 +9,8 @@ Plot different time horizons side-by-side for neonatal mortality model.
 6. Factor year 95th percentile
 7. Factor year 99th percentile
 8. Factor year days over 30
+9. Compare linear year 95th percentile against linear year days over 30, presentation
+    format
 """
 
 import seaborn as sns
@@ -19,6 +21,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import matplotlib.colors as mcolors
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.gridspec import GridSpec
 import re
 import os
 from tqdm import tqdm
@@ -371,6 +374,7 @@ vars_of_interest = [
     "total_precipitation_prev_3_mo_avg",
     "total_precipitation_prev_6_mo_avg",
     "total_precipitation_prev_9_mo_avg",
+    "birth_year",
 ]
 
 """
@@ -475,6 +479,7 @@ var_order = [
     "sex_id",
     "q9_prev_X_mo_avg",
     "total_precipitation_prev_X_mo_avg",
+    "birth_year",
 ]
 
 results_table["Variable"] = pd.Categorical(
@@ -675,6 +680,7 @@ vars_of_interest = [
     "total_precipitation_prev_3_mo_avg",
     "total_precipitation_prev_6_mo_avg",
     "total_precipitation_prev_9_mo_avg",
+    "birth_year",
 ]
 
 """
@@ -781,6 +787,7 @@ var_order = [
     "sex_id",
     climate_var_interest,
     "total_precipitation_prev_X_mo_avg",
+    "birth_year",
 ]
 
 results_table["Variable"] = pd.Categorical(
@@ -840,6 +847,7 @@ vars_of_interest = [
     "total_precipitation_prev_3_mo_avg",
     "total_precipitation_prev_6_mo_avg",
     "total_precipitation_prev_9_mo_avg",
+    "birth_year",
 ]
 summary_ext = "_q99_ly_summary"
 
@@ -1099,6 +1107,7 @@ var_order = [
     "sex_id",
     climate_var_interest,
     "total_precipitation_prev_X_mo_avg",
+    "birth_year",
 ]
 
 results_table["Variable"] = pd.Categorical(
@@ -1163,6 +1172,7 @@ vars_of_interest = [
     "total_precipitation_prev_3_mo_avg",
     "total_precipitation_prev_6_mo_avg",
     "total_precipitation_prev_9_mo_avg",
+    "birth_year",
 ]
 summary_ext = "_do30_ly_summary"
 
@@ -1422,6 +1432,7 @@ var_order = [
     "sex_id",
     climate_var_interest,
     "total_precipitation_prev_X_mo_avg",
+    "birth_year",
 ]
 
 results_table["Variable"] = pd.Categorical(
@@ -1448,4 +1459,177 @@ results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
 ################################################################################
 
 ## 8. Factor year days over 30  ################################################
+################################################################################
+
+## 9. Compare linear year 95th percentile against linear year days over 30, presentation format
+
+## Make final presentation-style figure
+modelm1q95 = pd.read_parquet(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/predictions_nnm_1_mo_q95_ly_summary.parquet"
+)
+
+modelm1do30 = pd.read_parquet(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/predictions_nnm_1_mo_do30_ly_summary.parquet"
+)
+
+columns_to_bin = [
+    "q95_prev_0_mo",
+]
+
+# Define custom bin edges
+# custom_bins_fixed = [0, first_non_zero] + list(quartiles)
+custom_bins_fixed = [0, 0.1, 2, 4, 9, 31]
+
+custom_y_bins = [
+    0,
+    0.784781,
+    1.180789,
+    1.541445,
+    1.950251,
+    2.465952,
+    3.103463,
+    4.003564,
+    5.541124,
+    9.413681,
+    112.879922,
+]
+
+# get mix/maxes for plots
+multiply_by_val = 1000  # for easier to read heatmaps
+all_values = []
+
+for model in [modelm1q95]:
+    heatmap_df = model.copy()
+    for col in columns_to_bin:
+        heatmap_df[f"{col}_bin"] = pd.cut(
+            heatmap_df[col], bins=custom_bins_fixed, include_lowest=True, right=False
+        )
+    # heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
+    #     heatmap_df.consumption_pd, 10, retbins=True
+    # )
+    heatmap_df["consumption_pd"] = pd.cut(
+        heatmap_df.consumption_pd, bins=custom_y_bins, include_lowest=True, right=False
+    )
+    versions = [
+        # "child_mortality",
+        "pred_fe",
+        # "pred_me",
+    ]
+    for col in columns_to_bin:
+        for version in versions:
+            vals = (
+                heatmap_df.groupby(["consumption_pd", f"{col}_bin"])[version]
+                .mean()
+                .values
+            )
+            all_values.append(vals)
+
+all_values = np.concatenate(all_values)
+all_values = [v for v in all_values if not np.isnan(v)]
+
+vmin = min(all_values)
+vmax = max(all_values)
+
+vmin *= multiply_by_val
+vmax *= multiply_by_val
+print(vmax)
+
+# Plot all on same PDF
+# Define models and versions
+models = [modelm1do30, modelm1q95]
+model_names = ["1-month do30C", "1-month q95"]
+versions = [
+    ("pred_fe", "Predicted Child Mortality"),
+]
+
+
+bin_col_dict = {
+    "1-month do30C": "days_over_30C_prev_0_mo",
+    "1-month q95": "q95_prev_0_mo",
+}
+
+x_labels = [
+    "Days over 30C during Birth Month",
+    "Days over 95th Percentile Temperature during Birth Month",
+]
+
+# Create a PDF to save the plots
+pdf_path = os.path.join(PLOT_PATH, "neonatal_q95_vs_do30C_ly.pdf")
+
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 1 rows and 2 columns
+    # fig, axes = plt.subplots(
+    #     nrows=1, ncols=2, figsize=(13, 5)
+    # )  # , constrained_layout=True)
+    fig = plt.figure(figsize=(13, 5))  # Total figure size
+    spec = GridSpec(nrows=1, ncols=2, width_ratios=[6, 7], figure=fig)  # Column sizes
+
+    # Create Axes for the two plots
+    ax1 = fig.add_subplot(spec[0])  # First plot (width 6)
+    ax2 = fig.add_subplot(spec[1])  # Second plot (width 7)
+
+    for col, (model, model_name, x_label) in enumerate(
+        zip(models, model_names, x_labels)
+    ):
+        # for col, (version, version_label) in enumerate(versions):
+        version = "pred_fe"
+        version_label = "Predicted Child Mortality"
+        # Prepare the data for the current model and version
+        data = model.rename(columns={version: "model_predictions"})
+
+        """
+        model = models[0]
+        model_name = "1-month"
+        data = model.rename(columns={version: "model_predictions"})
+        bin_cols=[bin_col_dict[model_name]]
+        """
+        # custom_bins_for_model = create_custom_bins(model, bin_col_dict[model_name])
+
+        # Plot on the specific Axes
+        plot_heat_map_grid(
+            data=data,
+            bin_cols=[bin_col_dict[model_name]],
+            # ax=axes[row, col],
+            ax=[ax1, ax2][col],
+            # ax=axes[col],
+            # title=f"{model_name} - {version_label}",
+            title=f"{version_label}",
+            multiply_by=multiply_by_val,
+            vmin=vmin,
+            vmax=vmax,
+            show_colorbar=(col == 1),  # Show colorbar only for the last column
+            custom_bins=custom_bins_fixed,  # custom_bins_for_model,
+            custom_y_bins=custom_y_bins,
+            y_axis_label="",
+            x_axis_label=x_label,
+        )
+
+    # Add shared x-axis and y-axis labels
+    # fig.text(
+    #     0.5,
+    #     0.01,  # Adjusted to move the x-axis label further down
+    #     "Days over 95th Percentile Temperature during Birth Month",
+    #     ha="center",
+    #     fontsize=14,
+    # )
+    fig.text(
+        0.01,  # Adjusted to move the y-axis label further left
+        0.5,
+        "Daily Consumption",
+        va="center",
+        rotation="vertical",
+        fontsize=14,
+    )
+
+    # Adjust layout to prevent overlap
+    fig.subplots_adjust(left=0.1, right=0.9, top=1.0, bottom=0.2, wspace=0.3)
+
+    # Save the figure to the PDF
+    pdf.savefig(
+        fig, bbox_inches="tight"
+    )  # Use bbox_inches to ensure nothing is cut off
+    plt.close(fig)
+
+print(f"PDF saved to {pdf_path}")
+
 ################################################################################
