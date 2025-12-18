@@ -183,7 +183,7 @@ def create_custom_bins(data: pd.DataFrame, col: str):
     return custom_bins
 
 
-# Quick data facts #############################################################
+# Quick data exploration #######################################################
 
 prev_data = pd.read_parquet(
     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_12.01/neonatal/neonatal_data.parquet"
@@ -206,6 +206,320 @@ print(f"Countries = {curr_data["ihme_loc_id"].nunique():,}")
 print(f"Deaths = {len(curr_data[curr_data["child_mortality"]==1]):,}")
 print(f"Top 3 countries: {curr_data["ihme_loc_id"].value_counts().head(3).to_dict()}")
 
+# Get correlation plots between days over 30 and the thresholds
+
+do30_thresh_dict = {
+    "days_over_30C_prev_0_mo": ["q9_prev_0_mo", "q95_prev_0_mo", "q99_prev_0_mo"],
+    "days_over_30C_prev_3_mo_avg": [
+        "q9_prev_3_mo_avg",
+        "q95_prev_3_mo_avg",
+        "q99_prev_3_mo_avg",
+    ],
+    "days_over_30C_prev_6_mo_avg": [
+        "q9_prev_6_mo_avg",
+        "q95_prev_6_mo_avg",
+        "q99_prev_6_mo_avg",
+    ],
+    "days_over_30C_prev_9_mo_avg": [
+        "q9_prev_9_mo_avg",
+        "q95_prev_9_mo_avg",
+        "q99_prev_9_mo_avg",
+    ],
+}
+
+pdf_path = os.path.join(PLOT_PATH, "do_thresholds_scatters.pdf")
+
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 4 rows and 3 columns
+    fig, axes = plt.subplots(
+        nrows=4, ncols=3, figsize=(15, 20), constrained_layout=True
+    )
+
+    for row, (do_col, thresh_cols) in enumerate(do30_thresh_dict.items()):
+        for col, thresh_col in enumerate(thresh_cols):
+            ax = axes[row, col]
+            ax.hexbin(
+                curr_data[thresh_col],
+                curr_data[do_col],
+                gridsize=30,
+                cmap="Blues",  # Choose a color map
+                mincnt=1,  # Only show bins with at least 1 point
+            )
+            ax.set_xlim(0, 30)
+            ax.set_ylim(0, 30)
+            correlation = curr_data[[do_col, thresh_col]].corr().iloc[0, 1]
+            ax.text(
+                0.5,
+                0.9,
+                f"Corr: {correlation:.2f}",
+                transform=ax.transAxes,
+                ha="center",
+            )
+            ax.set_ylabel(f"{do_col}", fontsize=11)
+            ax.set_xlabel(f"{thresh_col}", fontsize=11)
+            # ax.set_title(
+            #     f"{do_col} and {thresh_col}", fontsize=13, pad=15
+            # )
+    plt.tight_layout()
+    pdf.savefig(fig)
+
+# filter for non-zero
+non_zero = curr_data[curr_data["days_over_30C_prev_0_mo"] > 0]
+pdf_path = os.path.join(PLOT_PATH, "do_thresholds_non_zero_scatters.pdf")
+
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 4 rows and 3 columns
+    fig, axes = plt.subplots(
+        nrows=4, ncols=3, figsize=(15, 20), constrained_layout=True
+    )
+
+    for row, (do_col, thresh_cols) in enumerate(do30_thresh_dict.items()):
+        for col, thresh_col in enumerate(thresh_cols):
+            ax = axes[row, col]
+            ax.hexbin(
+                non_zero[thresh_col],
+                non_zero[do_col],
+                gridsize=30,
+                cmap="Blues",  # Choose a color map
+                mincnt=1,  # Only show bins with at least 1 point
+            )
+            ax.set_xlim(0, 30)
+            ax.set_ylim(0, 30)
+            correlation = non_zero[[do_col, thresh_col]].corr().iloc[0, 1]
+            ax.text(
+                0.5,
+                0.9,
+                f"Corr: {correlation:.2f}",
+                transform=ax.transAxes,
+                ha="center",
+            )
+            ax.set_ylabel(f"{do_col}", fontsize=11)
+            ax.set_xlabel(f"{thresh_col}", fontsize=11)
+            # ax.set_title(
+            #     f"{do_col} and {thresh_col}", fontsize=13, pad=15
+            # )
+    plt.tight_layout()
+    pdf.savefig(fig)
+print(f"PDF saved to {pdf_path}")
+
+# group by country to get correlations
+
+pdf_path = os.path.join(PLOT_PATH, "do_thresholds_by_country_scatters.pdf")
+
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 4 rows and 3 columns
+    fig, axes = plt.subplots(
+        nrows=4, ncols=3, figsize=(15, 20), constrained_layout=True
+    )
+
+    for row, (do_col, thresh_cols) in enumerate(do30_thresh_dict.items()):
+        for col, thresh_col in enumerate(thresh_cols):
+            by_country = (
+                curr_data.groupby("ihme_loc_id")[[do_col, thresh_col]]
+                .mean()
+                .reset_index()
+            )
+            ax = axes[row, col]
+            sns.scatterplot(
+                x=thresh_col,
+                y=do_col,
+                alpha=0.5,
+                data=by_country,
+                ax=ax,
+            )
+            # ax.hexbin(
+            #     by_country[thresh_col],
+            #     by_country[do_col],
+            #     gridsize=30,
+            #     cmap="Blues",  # Choose a color map
+            #     mincnt=1,  # Only show bins with at least 1 point
+            # )
+            # ax.set_xlim(0, 30)
+            # ax.set_ylim(0, 30)
+            correlation = by_country[[do_col, thresh_col]].corr().iloc[0, 1]
+            ax.text(
+                0.5,
+                0.9,
+                f"Corr: {correlation:.2f}",
+                transform=ax.transAxes,
+                ha="center",
+            )
+            ax.set_ylabel(f"{do_col}", fontsize=11)
+            ax.set_xlabel(f"{thresh_col}", fontsize=11)
+
+    plt.tight_layout()
+    pdf.savefig(fig)
+print(f"PDF saved to {pdf_path}")
+
+
+# group by unique lat/long
+# group by country to get correlations
+
+pdf_path = os.path.join(PLOT_PATH, "do_thresholds_by_lat_long_scatters.pdf")
+curr_data["lat_long"] = (
+    curr_data["lat"].astype(str) + "_" + curr_data["long"].astype(str)
+)
+
+all_vars = []
+
+for v in do30_thresh_dict.keys():
+    all_vars.append(v)
+    for val in do30_thresh_dict[v]:
+        all_vars.append(val)
+
+by_ll = curr_data.groupby("lat_long")[all_vars].mean().reset_index()
+
+
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 4 rows and 3 columns
+    fig, axes = plt.subplots(
+        nrows=4, ncols=3, figsize=(15, 20), constrained_layout=True
+    )
+
+    for row, (do_col, thresh_cols) in enumerate(do30_thresh_dict.items()):
+        for col, thresh_col in enumerate(thresh_cols):
+
+            ax = axes[row, col]
+            # sns.scatterplot(
+            #     x=thresh_col,
+            #     y=do_col,
+            #     alpha=0.5,
+            #     data=by_ll,
+            #     ax=ax,
+            # )
+            ax.hexbin(
+                by_ll[thresh_col],
+                by_ll[do_col],
+                gridsize=30,
+                cmap="Blues",  # Choose a color map
+                mincnt=1,  # Only show bins with at least 1 point
+            )
+            # ax.set_xlim(0, 30)
+            # ax.set_ylim(0, 30)
+            correlation = by_ll[[do_col, thresh_col]].corr().iloc[0, 1]
+            ax.text(
+                0.5,
+                0.9,
+                f"Corr: {correlation:.2f}",
+                transform=ax.transAxes,
+                ha="center",
+            )
+            ax.set_ylabel(f"{do_col}", fontsize=11)
+            ax.set_xlabel(f"{thresh_col}", fontsize=11)
+
+    plt.tight_layout()
+    pdf.savefig(fig)
+print(f"PDF saved to {pdf_path}")
+
+correlation = curr_data[["days_over_30C_prev_0_mo", "q95_prev_0_mo"]].corr().iloc[0, 1]
+
+corr_table = pd.DataFrame(
+    curr_data["ihme_loc_id"].value_counts().reset_index(),
+    columns=["ihme_loc_id", "count"],
+)
+add_vars = [
+    "mortality",
+    "1_mo_do30_q9_corr",
+    "1_mo_do30_q95_corr",
+    "1_mo_do30_q99_corr",
+    "3_mo_do30_q9_corr",
+    "3_mo_do30_q95_corr",
+    "3_mo_do30_q99_corr",
+    "6_mo_do30_q9_corr",
+    "6_mo_do30_q95_corr",
+    "6_mo_do30_q99_corr",
+    "9_mo_do30_q9_corr",
+    "9_mo_do30_q95_corr",
+    "9_mo_do30_q99_corr",
+]
+for var in add_vars:
+    corr_table[var] = np.nan
+
+
+for i in tqdm(range(0, len(corr_table))):
+    country_df = curr_data[curr_data["ihme_loc_id"] == corr_table.loc[i, "ihme_loc_id"]]
+    mortality = round(
+        len(country_df[country_df["child_mortality"] == 1]) / len(country_df), 4
+    )
+    corr_1_mo_q9 = round(
+        country_df[["days_over_30C_prev_0_mo", "q9_prev_0_mo"]].corr().iloc[0, 1], 2
+    )
+    corr_1_mo_q95 = round(
+        country_df[["days_over_30C_prev_0_mo", "q95_prev_0_mo"]].corr().iloc[0, 1], 2
+    )
+    corr_1_mo_q99 = round(
+        country_df[["days_over_30C_prev_0_mo", "q99_prev_0_mo"]].corr().iloc[0, 1], 2
+    )
+    corr_3_mo_q9 = round(
+        country_df[["days_over_30C_prev_3_mo_avg", "q9_prev_3_mo_avg"]]
+        .corr()
+        .iloc[0, 1],
+        2,
+    )
+    corr_3_mo_q95 = round(
+        country_df[["days_over_30C_prev_3_mo_avg", "q95_prev_3_mo_avg"]]
+        .corr()
+        .iloc[0, 1],
+        2,
+    )
+    corr_3_mo_q99 = round(
+        country_df[["days_over_30C_prev_3_mo_avg", "q99_prev_3_mo_avg"]]
+        .corr()
+        .iloc[0, 1],
+        2,
+    )
+    corr_6_mo_q9 = round(
+        country_df[["days_over_30C_prev_6_mo_avg", "q9_prev_6_mo_avg"]]
+        .corr()
+        .iloc[0, 1],
+        2,
+    )
+    corr_6_mo_q95 = round(
+        country_df[["days_over_30C_prev_6_mo_avg", "q95_prev_6_mo_avg"]]
+        .corr()
+        .iloc[0, 1],
+        2,
+    )
+    corr_6_mo_q99 = round(
+        country_df[["days_over_30C_prev_6_mo_avg", "q99_prev_6_mo_avg"]]
+        .corr()
+        .iloc[0, 1],
+        2,
+    )
+    corr_9_mo_q9 = round(
+        country_df[["days_over_30C_prev_9_mo_avg", "q9_prev_9_mo_avg"]]
+        .corr()
+        .iloc[0, 1],
+        2,
+    )
+    corr_9_mo_q95 = round(
+        country_df[["days_over_30C_prev_9_mo_avg", "q95_prev_9_mo_avg"]]
+        .corr()
+        .iloc[0, 1],
+        2,
+    )
+    corr_9_mo_q99 = round(
+        country_df[["days_over_30C_prev_9_mo_avg", "q99_prev_9_mo_avg"]]
+        .corr()
+        .iloc[0, 1],
+        2,
+    )
+
+    corr_table.loc[i, "mortality"] = mortality
+    corr_table.loc[i, "1_mo_do30_q9_corr"] = corr_1_mo_q9
+    corr_table.loc[i, "1_mo_do30_q95_corr"] = corr_1_mo_q95
+    corr_table.loc[i, "1_mo_do30_q99_corr"] = corr_1_mo_q99
+    corr_table.loc[i, "3_mo_do30_q9_corr"] = corr_3_mo_q9
+    corr_table.loc[i, "3_mo_do30_q95_corr"] = corr_3_mo_q95
+    corr_table.loc[i, "3_mo_do30_q99_corr"] = corr_3_mo_q99
+    corr_table.loc[i, "6_mo_do30_q9_corr"] = corr_6_mo_q9
+    corr_table.loc[i, "6_mo_do30_q95_corr"] = corr_6_mo_q95
+    corr_table.loc[i, "6_mo_do30_q99_corr"] = corr_6_mo_q99
+    corr_table.loc[i, "9_mo_do30_q9_corr"] = corr_9_mo_q9
+    corr_table.loc[i, "9_mo_do30_q95_corr"] = corr_9_mo_q95
+    corr_table.loc[i, "9_mo_do30_q99_corr"] = corr_9_mo_q99
+
+corr_table.to_csv(PLOT_PATH + "do30_thresholds_correlation_by_country.csv", index=False)
 ################################################################################
 
 

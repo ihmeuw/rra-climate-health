@@ -3018,20 +3018,26 @@ def run_training_data_prep_neonatal(
     # Merge climate vars with neonatal mortality data
     # reduce size
     climate_vars_df = climate_vars_df[
-        climate_vars_df["quantile_str"].isin(["q9", "q95", "q99"])
+        climate_vars_df["quantile_str"].isin(
+            [
+                "q75",
+                "q8",
+                "q85",
+            ]
+        )  # "q9", "q95", "q99"])
     ]
 
     temp_save_loc = Path(output_path_version) / "merge_chunks"
     os.makedirs(temp_save_loc, exist_ok=True, mode=0o777)
 
     # loop over each previous month to reduce space complexity
-    for pre_suf in tqdm(df_min_age_lookup["suffix"].unique()):
-        df_chunk = df_min_age_lookup[df_min_age_lookup["suffix"] == pre_suf].copy()
+    # for pre_suf in tqdm(df_min_age_lookup["suffix"].unique()):
+    #     df_chunk = df_min_age_lookup[df_min_age_lookup["suffix"] == pre_suf].copy()
 
-        # save chunks
-        df_chunk.to_parquet(
-            Path(temp_save_loc) / f"df_{pre_suf.replace('-', '_')}.parquet"
-        )
+    #     # save chunks
+    #     df_chunk.to_parquet(
+    #         Path(temp_save_loc) / f"df_{pre_suf.replace('-', '_')}.parquet"
+    #     )
 
     for pre_suf in tqdm(df_min_age_lookup["suffix"].unique()):
 
@@ -3081,7 +3087,8 @@ def run_training_data_prep_neonatal(
     )
 
     # calculate averages over time periods analyzed
-    for v in [9, 95, 99]:
+    # for v in [9, 95, 99]:
+    for v in [75, 8, 85]:
         for i in [3, 6, 9]:
             prev_vars = get_prev_climate_threshold_months(v, i)
             df_min_age_updated[f"q{v}_prev_{i}_mo_avg"] = df_min_age_updated[
