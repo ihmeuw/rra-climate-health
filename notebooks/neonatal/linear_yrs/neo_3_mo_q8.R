@@ -39,7 +39,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_9_mo_q9_ly_summary")
+summary_file <- paste0("nnm_3_mo_q8_ly_summary")
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_threshold_averages.parquet"
@@ -84,6 +84,10 @@ climate_vars <- c(
   'q75_prev_3_mo_avg',
   'q75_prev_6_mo_avg',
   'q75_prev_9_mo_avg',
+  'q8_prev_0_mo',
+  'q8_prev_3_mo_avg',
+  'q8_prev_6_mo_avg',
+  'q8_prev_9_mo_avg',
   'q85_prev_0_mo',
   'q85_prev_3_mo_avg',
   'q85_prev_6_mo_avg',
@@ -122,8 +126,8 @@ df_model <- neo_df[, ..cols]
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    q9_prev_9_mo_avg +
-    total_precipitation_prev_9_mo_avg +
+    q8_prev_3_mo_avg +
+    total_precipitation_prev_3_mo_avg +
     sex_id +
     birth_year +
     (1 | ihme_loc_id),
@@ -182,10 +186,11 @@ df_avg[, birth_year := round(mean(birth_year), 0)]
 
 df_avg[,sex_id:= mean(df_avg$sex_id)]
 
-df_avg[,total_precipitation_prev_9_mo:= mean(df_avg$total_precipitation_prev_9_mo)]
+df_avg[,total_precipitation_prev_3_mo:= mean(df_avg$total_precipitation_prev_3_mo)]
 
 # # Predict WITHOUT random effects (fixed effects only)
 df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)
 
 # # Save predictions to parquet
 write_parquet(df_avg, paste0(results_dir, "predictions_", summary_file, ".parquet"))
+

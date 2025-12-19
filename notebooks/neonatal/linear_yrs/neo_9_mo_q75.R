@@ -39,7 +39,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_9_mo_q9_ly_summary")
+summary_file <- paste0("nnm_9_mo_q75_ly_summary")
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_threshold_averages.parquet"
@@ -122,7 +122,7 @@ df_model <- neo_df[, ..cols]
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    q9_prev_9_mo_avg +
+    q75_prev_9_mo_avg +
     total_precipitation_prev_9_mo_avg +
     sex_id +
     birth_year +
