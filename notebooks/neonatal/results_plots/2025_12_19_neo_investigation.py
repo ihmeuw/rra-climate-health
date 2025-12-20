@@ -183,10 +183,10 @@ def create_custom_bins(data: pd.DataFrame, col: str):
 
 ## 1. Factor year 90th percentile  #############################################
 
-model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_q9_ly_summary.parquet")
-model3 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_3_mo_q9_ly_summary.parquet")
-model6 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_6_mo_q9_ly_summary.parquet")
-model9 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_9_mo_q9_ly_summary.parquet")
+model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_q9_summary.parquet")
+model3 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_3_mo_q9_summary.parquet")
+model6 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_6_mo_q9_summary.parquet")
+model9 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_9_mo_q9_summary.parquet")
 
 # get min and max values for color scale consistency across plots
 # as well as custom bins
@@ -350,7 +350,7 @@ with PdfPages(pdf_path) as pdf:
 print(f"PDF saved to {pdf_path}")
 
 # make table of summaries
-coef_file_name = "neonatal_q9_ly_coefs.csv"
+coef_file_name = "neonatal_q9_coefs.csv"
 
 results_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
 SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
@@ -367,7 +367,7 @@ vars_of_interest = [
     "total_precipitation_prev_3_mo_avg",
     "total_precipitation_prev_6_mo_avg",
     "total_precipitation_prev_9_mo_avg",
-    "birth_year",
+    # "birth_year",
 ]
 
 """
@@ -376,7 +376,7 @@ f = 'nnm_6_mo_q9_ly_summary.txt'
 
 summaries = [f for f in os.listdir(SUMMARY_DIR) if f.endswith(".txt")]
 # only look at q9
-summaries = [f for f in summaries if "_q9_ly_summary" in f]
+summaries = [f for f in summaries if "_q9_summary" in f]
 
 for f in summaries:
 
@@ -1740,6 +1740,6 @@ plt.ylabel("Estimate")
 plt.title("Effect of Birth Year on Neonatal Mortality (1-month, 95th Percentile Model)")
 plt.legend()
 plt.tight_layout()
-plt.savefig(PLOT_PATH + "neonatal_q95_birth_year_effects.pdf")
+plt.savefig(PLOT_PATH + "neonatal_q95_birth_year_effects_non_2023.pdf")
 plt.close()
 ################################################################################
