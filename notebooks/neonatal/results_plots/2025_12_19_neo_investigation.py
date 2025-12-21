@@ -443,14 +443,15 @@ for f in summaries:
             elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 1:  # variable and p-val
                 coef = l.split()[0]
                 # significance = re.findall(r"[\d]{1}\.[\d]*", l)[0]
-                significance = re.findall(r"\*.*", l)[0]
+                significance = re.findall(r"\*.*", l)
+                significance = significance[0] if significance else ""
                 coef_table.loc[coef_table["Variable"] == coef, "significance"] = (
                     significance
                 )
 
     results_table = pd.concat([results_table, coef_table], ignore_index=True)
 
-results_table["significance"] = results_table["significance"].fillna("")
+# results_table["significance"] = results_table["significance"].fillna("")
 
 results_table["Variable"] = results_table["Variable"].str.replace("_0_mo", "_X_mo_avg")
 results_table["Variable"] = results_table["Variable"].str.replace("_3_mo", "_X_mo")
@@ -472,7 +473,7 @@ var_order = [
     "sex_id",
     "q9_prev_X_mo_avg",
     "total_precipitation_prev_X_mo_avg",
-    "birth_year",
+    # "birth_year",
 ]
 
 results_table["Variable"] = pd.Categorical(
@@ -491,10 +492,10 @@ results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
 
 ## 2. Linear year 95th percentile  #############################################
 
-model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_q95_ly_summary.parquet")
-model3 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_3_mo_q95_ly_summary.parquet")
-model6 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_6_mo_q95_ly_summary.parquet")
-model9 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_9_mo_q95_ly_summary.parquet")
+model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_q95_summary.parquet")
+model3 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_3_mo_q95_summary.parquet")
+model6 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_6_mo_q95_summary.parquet")
+model9 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_9_mo_q95_summary.parquet")
 
 # get min and max values for color scale consistency across plots
 # as well as custom bins
@@ -614,7 +615,7 @@ bin_col_dict = {
 }
 
 # Create a PDF to save the plots
-pdf_path = os.path.join(PLOT_PATH, "neonatal_q95_ly.pdf")
+pdf_path = os.path.join(PLOT_PATH, "neonatal_q95.pdf")
 with PdfPages(pdf_path) as pdf:
     # Create a figure with 4 rows and 3 columns
     fig, axes = plt.subplots(
@@ -656,7 +657,7 @@ with PdfPages(pdf_path) as pdf:
 print(f"PDF saved to {pdf_path}")
 
 # make table of summaries
-coef_file_name = "neonatal_q95_ly_coefs.csv"
+coef_file_name = "neonatal_q95_coefs.csv"
 
 SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
 
@@ -673,7 +674,7 @@ vars_of_interest = [
     "total_precipitation_prev_3_mo_avg",
     "total_precipitation_prev_6_mo_avg",
     "total_precipitation_prev_9_mo_avg",
-    "birth_year",
+    # "birth_year",
 ]
 
 """
@@ -682,7 +683,7 @@ f = 'nnm_9_mo_q95_ly_summary.txt'
 
 summaries = [f for f in os.listdir(SUMMARY_DIR) if f.endswith(".txt")]
 # only look at q9
-summaries = [f for f in summaries if "_q95_ly_summary" in f]
+summaries = [f for f in summaries if "_q95_summary" in f]
 print(summaries)
 
 results_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
@@ -780,7 +781,7 @@ var_order = [
     "sex_id",
     climate_var_interest,
     "total_precipitation_prev_X_mo_avg",
-    "birth_year",
+    # "birth_year",
 ]
 
 results_table["Variable"] = pd.Categorical(
@@ -1120,13 +1121,13 @@ results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
 
 ## 4. Linear year days over 30  ################################################
 
-model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_do30_ly_summary.parquet")
-model3 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_3_mo_do30_ly_summary.parquet")
-model6 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_6_mo_do30_ly_summary.parquet")
-model9 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_9_mo_do30_ly_summary.parquet")
+model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_do30_summary.parquet")
+model3 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_3_mo_do30_summary.parquet")
+model6 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_6_mo_do30_summary.parquet")
+model9 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_9_mo_do30_summary.parquet")
 
-plot_file_name = "neonatal_do30_ly.pdf"
-coef_file_name = "neonatal_do30_ly_coefs.csv"
+plot_file_name = "neonatal_do30.pdf"
+coef_file_name = "neonatal_do30_coefs.csv"
 # get min and max values for color scale consistency across plots
 # as well as custom bins
 # Heat maps of variables
@@ -1165,9 +1166,9 @@ vars_of_interest = [
     "total_precipitation_prev_3_mo_avg",
     "total_precipitation_prev_6_mo_avg",
     "total_precipitation_prev_9_mo_avg",
-    "birth_year",
+    # "birth_year",
 ]
-summary_ext = "_do30_ly_summary"
+summary_ext = "_do30_summary"
 
 # data = pd.concat(
 #     [
@@ -1442,27 +1443,15 @@ results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
 
 ################################################################################
 
-## 5. Factor year 90th percentile  #############################################
-################################################################################
-
-## 6. Factor year 95th percentile  #############################################
-################################################################################
-
-## 7. Factor year 99th percentile  #############################################
-################################################################################
-
-## 8. Factor year days over 30  ################################################
-################################################################################
-
-## 9. Compare linear year 95th percentile against linear year days over 30, presentation format
+## 55. Compare linear year 95th percentile against linear year days over 30, presentation format
 
 ## Make final presentation-style figure
 modelm1q95 = pd.read_parquet(
-    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/predictions_nnm_1_mo_q95_ly_summary.parquet"
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/predictions_nnm_1_mo_q95_summary.parquet"
 )
 
 modelm1do30 = pd.read_parquet(
-    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/predictions_nnm_1_mo_do30_ly_summary.parquet"
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/predictions_nnm_1_mo_do30_summary.parquet"
 )
 
 columns_to_bin = [
@@ -1547,7 +1536,7 @@ x_labels = [
 ]
 
 # Create a PDF to save the plots
-pdf_path = os.path.join(PLOT_PATH, "neonatal_q95_vs_do30C_ly.pdf")
+pdf_path = os.path.join(PLOT_PATH, "neonatal_q95_vs_do30C.pdf")
 
 with PdfPages(pdf_path) as pdf:
     # Create a figure with 1 rows and 2 columns
