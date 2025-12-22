@@ -1620,6 +1620,7 @@ print(f"PDF saved to {pdf_path}")
 
 model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_q95_summary.parquet")
 
+
 # make table of birth_year estimates
 birth_year_file_name = "neonatal_q95_birth_year_estimates.csv"
 
@@ -1686,6 +1687,20 @@ results_table["Upper"] = results_table["Estimate"] + 1.96 * results_table["Std_E
 
 results_table.to_csv(PLOT_PATH + birth_year_file_name, index=False)
 
+# get line from linear year model
+
+ly_summary = "nnm_1_mo_q95_ly_summary.txt"
+with open(SUMMARY_DIR + ly_summary, "r") as infile:
+    s = infile.read().split("\n")
+for l in s:
+    if l.startswith("birth_year") and (len(l.split()) == 4) and ("<" not in l):
+
+        coef = l.split()[0]
+        estimate = l.split()[1]
+        std_error = l.split()[2]
+lower_bound = float(estimate) - 1.96 * float(std_error)
+upper_bound = float(estimate) + 1.96 * float(std_error)
+
 # Plot estimates and upper/lower confidence intervals
 plt.figure(figsize=(8, 6))
 plt.plot(results_table["Year"], results_table["Estimate"], marker="o", label="Estimate")
@@ -1697,13 +1712,19 @@ plt.fill_between(
     alpha=0.3,
     label="95% Confidence Interval",
 )
-plt.axhline(0, color="gray")
+plt.axhline(0, color="gray", linestyle="--")
+# Add horizontal line for the estimate
+plt.axhline(float(estimate), color="blue", label="Linear Year Model")
+
+# Add confidence interval shading for the horizontal line
+plt.axhspan(lower_bound, upper_bound, color="blue", alpha=0.2, label="Linear Model CI")
+
 plt.xlabel("Birth Year")
 plt.ylabel("Estimate")
 plt.title("Effect of Birth Year on Neonatal Mortality (1-month, 95th Percentile Model)")
 plt.legend()
 plt.tight_layout()
-plt.savefig(PLOT_PATH + "neonatal_q95_birth_year_effects.pdf")
+plt.savefig(PLOT_PATH + "neonatal_q95_birth_year_effects_1mo.pdf")
 plt.close()
 
 # make second version without 2023
@@ -1723,7 +1744,12 @@ plt.fill_between(
     alpha=0.3,
     label="95% Confidence Interval",
 )
-plt.axhline(0, color="gray")
+plt.axhline(0, color="gray", linestyle="--")
+# Add horizontal line for the estimate
+plt.axhline(float(estimate), color="blue", label="Linear Year Model")
+
+# Add confidence interval shading for the horizontal line
+plt.axhspan(lower_bound, upper_bound, color="blue", alpha=0.2, label="Linear Model CI")
 plt.xlabel("Birth Year")
 plt.ylabel("Estimate")
 plt.title("Effect of Birth Year on Neonatal Mortality (1-month, 95th Percentile Model)")
@@ -1731,4 +1757,209 @@ plt.legend()
 plt.tight_layout()
 plt.savefig(PLOT_PATH + "neonatal_q95_birth_year_effects_non_2023.pdf")
 plt.close()
+################################################################################
+
+# 7. Plot effects by birth year for 3-month, 95th percentile model #############
+
+model3 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_3_mo_q95_summary.parquet")
+
+# make table of birth_year estimates
+birth_year_file_name = "neonatal_q95_birth_year_estimates_3mo.csv"
+
+SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
+
+climate_var_interest = "q95_prev_X_mo_avg"
+vars_of_interest = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    "q95_prev_0_mo",
+    "q95_prev_3_mo_avg",
+    "q95_prev_6_mo_avg",
+    "q95_prev_9_mo_avg",
+    "total_precipitation_prev_0_mo",
+    "total_precipitation_prev_3_mo_avg",
+    "total_precipitation_prev_6_mo_avg",
+    "total_precipitation_prev_9_mo_avg",
+    "birth_year",
+]
+
+"""
+
+"""
+
+f = "nnm_3_mo_q95_summary.txt"
+
+results_table = pd.DataFrame(columns=["Variable", "Estimate", "Std_Error"])
+
+with open(SUMMARY_DIR + f, "r") as infile:
+    s = infile.read().split("\n")
+
+for l in s:
+    if l.startswith("birth_year") and (len(l.split()) == 4):
+
+        coef = l.split()[0]
+        estimate = l.split()[1]
+        std_error = l.split()[2]
+
+        results_table = pd.concat(
+            [
+                results_table,
+                pd.DataFrame.from_records(
+                    [
+                        {
+                            "Variable": coef,
+                            "Estimate": estimate,
+                            "Std_Error": std_error,
+                        }
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        )
+
+results_table = results_table[results_table["Estimate"] != "<"]
+results_table["Year"] = (
+    results_table["Variable"].str.replace("birth_year", "").astype(int)
+)
+results_table["Estimate"] = results_table["Estimate"].astype(float)
+results_table["Std_Error"] = results_table["Std_Error"].astype(float)
+results_table["Lower"] = results_table["Estimate"] - 1.96 * results_table["Std_Error"]
+results_table["Upper"] = results_table["Estimate"] + 1.96 * results_table["Std_Error"]
+
+results_table.to_csv(PLOT_PATH + birth_year_file_name, index=False)
+
+# Plot estimates and upper/lower confidence intervals
+plt.figure(figsize=(8, 6))
+plt.plot(results_table["Year"], results_table["Estimate"], marker="o", label="Estimate")
+plt.fill_between(
+    results_table["Year"],
+    results_table["Lower"],
+    results_table["Upper"],
+    color="red",
+    alpha=0.3,
+    label="95% Confidence Interval",
+)
+plt.axhline(0, color="gray")
+plt.xlabel("Birth Year")
+plt.ylabel("Estimate")
+plt.title("Effect of Birth Year on Neonatal Mortality (3-month, 95th Percentile Model)")
+plt.legend()
+plt.tight_layout()
+plt.savefig(PLOT_PATH + "neonatal_q95_birth_year_effects_3mo.pdf")
+plt.close()
+
+################################################################################
+
+# 8. Plot effects by birth year for 1-month, do30 percentile model #############
+
+model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_do30_summary.parquet")
+
+# make table of birth_year estimates
+birth_year_file_name = "neonatal_do30_birth_year_estimates_1mo.csv"
+
+SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
+
+climate_var_interest = "do30_prev_X_mo_avg"
+vars_of_interest = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    "do30_prev_0_mo",
+    "do30_prev_3_mo_avg",
+    "do30_prev_6_mo_avg",
+    "do30_prev_9_mo_avg",
+    "total_precipitation_prev_0_mo",
+    "total_precipitation_prev_3_mo_avg",
+    "total_precipitation_prev_6_mo_avg",
+    "total_precipitation_prev_9_mo_avg",
+    "birth_year",
+]
+
+"""
+
+"""
+
+f = "nnm_1_mo_do30_summary.txt"
+
+results_table = pd.DataFrame(columns=["Variable", "Estimate", "Std_Error"])
+
+with open(SUMMARY_DIR + f, "r") as infile:
+    s = infile.read().split("\n")
+
+for l in s:
+    if l.startswith("birth_year") and (len(l.split()) == 4):
+
+        coef = l.split()[0]
+        estimate = l.split()[1]
+        std_error = l.split()[2]
+
+        results_table = pd.concat(
+            [
+                results_table,
+                pd.DataFrame.from_records(
+                    [
+                        {
+                            "Variable": coef,
+                            "Estimate": estimate,
+                            "Std_Error": std_error,
+                        }
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        )
+
+results_table = results_table[results_table["Estimate"] != "<"]
+results_table["Year"] = (
+    results_table["Variable"].str.replace("birth_year", "").astype(int)
+)
+results_table["Estimate"] = results_table["Estimate"].astype(float)
+results_table["Std_Error"] = results_table["Std_Error"].astype(float)
+results_table["Lower"] = results_table["Estimate"] - 1.96 * results_table["Std_Error"]
+results_table["Upper"] = results_table["Estimate"] + 1.96 * results_table["Std_Error"]
+
+results_table.to_csv(PLOT_PATH + birth_year_file_name, index=False)
+
+
+ly_summary = "nnm_1_mo_do30_ly_summary.txt"
+with open(SUMMARY_DIR + ly_summary, "r") as infile:
+    s = infile.read().split("\n")
+for l in s:
+    if l.startswith("birth_year") and (len(l.split()) == 4) and ("<" not in l):
+
+        coef = l.split()[0]
+        estimate = l.split()[1]
+        std_error = l.split()[2]
+lower_bound = float(estimate) - 1.96 * float(std_error)
+upper_bound = float(estimate) + 1.96 * float(std_error)
+
+
+# Plot estimates and upper/lower confidence intervals
+plt.figure(figsize=(8, 6))
+plt.plot(results_table["Year"], results_table["Estimate"], marker="o", label="Estimate")
+plt.fill_between(
+    results_table["Year"],
+    results_table["Lower"],
+    results_table["Upper"],
+    color="red",
+    alpha=0.3,
+    label="95% Confidence Interval",
+)
+plt.axhline(0, color="gray", linestyle="--")
+# Add horizontal line for the estimate
+plt.axhline(float(estimate), color="blue", label="Linear Year Model")
+
+# Add confidence interval shading for the horizontal line
+plt.axhspan(lower_bound, upper_bound, color="blue", alpha=0.2, label="Linear Model CI")
+plt.xlabel("Birth Year")
+plt.ylabel("Estimate")
+plt.title(
+    "Effect of Birth Year on Neonatal Mortality (1-month, do30C Percentile Model)"
+)
+plt.legend()
+plt.tight_layout()
+plt.savefig(PLOT_PATH + "neonatal_do30_birth_year_effects_1mo.pdf")
+plt.close()
+
 ################################################################################
