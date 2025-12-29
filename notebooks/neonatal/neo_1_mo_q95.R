@@ -54,6 +54,10 @@ dir.create(model_summary_dir, recursive = TRUE, showWarnings = FALSE)
 model_objects_dir <- paste0(results_dir,"model_objects/")
 dir.create(model_objects_dir, recursive = TRUE, showWarnings = FALSE)
 
+inference_objects_dir <- paste0(results_dir,"inference_format/")
+dir.create(inference_objects_dir, recursive = TRUE, showWarnings = FALSE)
+
+
 # Read in neonatal df (must be made from full dataset)
 neo_df <- read_parquet(neo_version)
 neo_df <- data.table(neo_df)
@@ -151,6 +155,46 @@ cat(paste(re_output, collapse = "\n"), file = summary_file_path, append = TRUE)
 
 # Also save frailty estimates as a separate CSV for easier access
 write.csv(re_df, paste0(model_summary_dir, "re_estimates_", summary_file, ".csv"), row.names = FALSE)
+
+# save coefficients in required inference format:
+
+# example format
+# coefficients
+ex_coef <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_coefs.parquet")
+
+# random effects
+ex_re <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_ranef.parquet")
+
+inf_coef <- copy(ex_coef)[.I==0]
+
+coefficients <- fixef(model)
+
+# Convert coefficients to a dataframe
+inf_coef <- data.frame(
+  index = names(coefficients),
+  Estimate = coefficients
+)
+inf_coef <- setDT(copy(inf_coef))
+
+# rename vars as expected format
+required <- c('(Intercept)','consumption_pd','q95_prev_0_mo','total_precipitation_prev_0_mo','C(sex_id)1','C(birth_year)2022')
+inf_coef[index=='sex_id',index:='C(sex_id)1']
+inf_coef[index=='birth_year2022',index:='C(birth_year)2022']
+inf_coef <- inf_coef[index %in% required]
+rownames(inf_coef) <- inf_coef$index
+inf_coef$index <- NULL
+
+outfile_coef <- gsub("_summary","_coefs.csv",summary_file)
+write.csv(inf_coef,paste0(inference_objects_dir,outfile),row.names=TRUE)
+print(paste0(inference_objects_dir,outfile_coef))
+
+inf_re <- copy(re_df)
+setnames(inf_re,old=c("random_effects","ihme_loc_id"),new=c("X.Intercept.","index"))
+rownames(inf_re) <- inf_re$index
+inf_re$index <- NULL
+outfile_re <- gsub("_summary","_ranef.csv",summary_file)
+write.csv(inf_re,paste0(inference_objects_dir,outfile),row.names = TRUE)
+print(paste0(inference_objects_dir,outfile_re))
 
 #==============================================================================
 # SECTION 3: PREDICT MODEL FOR NEONATAL ON AVG BIRTH YEAR, SEX, PRECIPITATION
