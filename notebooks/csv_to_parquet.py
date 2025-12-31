@@ -9,6 +9,7 @@ INFILE = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/n
 infile = pd.read_csv(INFILE, index_col=0)
 
 OUTFILE = INFILE.replace(".csv", ".parquet")
+print(OUTFILE)
 infile.to_parquet(OUTFILE, index=True)
 
 # Coefficients
@@ -16,4 +17,5 @@ INFILE = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/n
 infile = pd.read_csv(INFILE, index_col=0)
 
 OUTFILE = INFILE.replace(".csv", ".parquet")
+print(OUTFILE)
 infile.to_parquet(OUTFILE, index=True)
