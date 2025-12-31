@@ -2516,6 +2516,19 @@ def run_training_data_prep_neonatal(
     data_source_type: str,
     module: str,
 ):
+    """
+    Overall structure of neonatal data prep:
+    1. Load and format neonatal data from DEM_BR module
+    2. Extracting and merging wealth dataset
+    3. Extract and merging annual climate variables
+    4. Extract monthly climate variables for previous months
+    5. Merge in monthly climate variables for previous months
+    6. Calculate averages over time periods analyzed for monthly climate variables
+    7. Extract monthly relative climate thresholds for previous months
+    8. Merge monthly relative climate thresholds with neonatal mortality data
+    9. Calculate averages over time periods analyzed for monthly relative climate thresholds
+    10. Add in temperature zones
+    """
 
     # Set up logging and versioned output path
     measure_root = Path(output_root) / data_source_type
@@ -2547,6 +2560,7 @@ def run_training_data_prep_neonatal(
     logging.info("Processing extraction survey data...")
     loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
 
+    ## 1. Load and format neonatal data from DEM_BR module
     data_raw = pd.read_parquet(
         "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_2025_10_14.parquet"
     )
@@ -2617,7 +2631,7 @@ def run_training_data_prep_neonatal(
     df["hh_id"] = df["hh_id"].astype("int")
     df.drop(columns=["old_hh_id"], inplace=True)
 
-    # Prepping wealth dataset
+    ## 2. Extracting and merging wealth dataset
     dhs_wealth_data_raw = get_DHS_wealth_dataset()
     dhs_wealth_data = dhs_wealth_data_raw.copy()
 
@@ -2721,7 +2735,7 @@ def run_training_data_prep_neonatal(
     # read back in if required
     # df_merged = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/neonatal_mortality_merged_wealth.parquet")
 
-    # Merge with climate data
+    ## 3. Extract and merging annual climate variables
     logging.info("Processing climate data...")
     # get climate variables based on birth_year rather than int_year
     climate_vars = get_climate_vars_for_dataframe(df_merged, year_col="birth_year")
@@ -2802,7 +2816,7 @@ def run_training_data_prep_neonatal(
         Path(output_path_version) / "neonatal_data_old_climate_vars.parquet"
     )
 
-    ## add in new climate vars
+    ## 4. Extract monthly climate variables for previous months
     # get previous monthly climate variables
     climate_vars_da = get_all_climate_vars_year_months_for_latlongs(df_min_age)
 
@@ -2839,7 +2853,8 @@ def run_training_data_prep_neonatal(
         inplace=True,
     )
 
-    # # Apply get_lookup_months to each row and concatenate the results into a new DataFrame
+    ## 5. Merge in monthly climate variables for previous months
+    # Apply get_lookup_months to each row and concatenate the results into a new DataFrame
     df_min_age_unique_yr_mo = df_min_age[
         ["birth_year", "birth_month"]
     ].drop_duplicates()
@@ -2941,6 +2956,8 @@ def run_training_data_prep_neonatal(
     # df_min_age_updated = pd.read_parquet(
     #     Path(output_path_version) / "neonatal_merged_all_prev_months.parquet"
     # )
+
+    ## 6. Calculate averages over time periods analyzed for monthly climate variables
     for v in var_names:
         for i in [3, 6, 9]:
             prev_vars = get_prev_climate_var_months(v, i)
@@ -2952,7 +2969,7 @@ def run_training_data_prep_neonatal(
         Path(output_path_version) / "neonatal_data_prev_month_vars.parquet"
     )
 
-    ## continue by adding in thresholds
+    ## 7. Extract monthly relative climate thresholds for previous months
 
     # add index for easier merging
     df_min_age_updated = df_min_age_updated.reset_index()
@@ -2964,8 +2981,7 @@ def run_training_data_prep_neonatal(
     # save temp copy
     climate_vars.to_netcdf(Path(output_path_version) / "climate_thresholds.nc")
 
-    # waiting here
-    # format climate_vars dr
+    # format climate_vars df
     climate_vars_df = climate_vars.to_dataframe().reset_index()
     climate_vars_df.drop(columns=["point", "last_year"], inplace=True)
 
@@ -3022,7 +3038,7 @@ def run_training_data_prep_neonatal(
         Path(output_path_version) / "df_min_age_lookup.parquet"
     )
 
-    # Merge climate vars with neonatal mortality data
+    ## 8. Merge monthly relative climate thresholds with neonatal mortality data
     # reduce size
     climate_vars_df = climate_vars_df[
         climate_vars_df["quantile_str"].isin(["q75", "q8", "q85", "q9", "q95", "q99"])
@@ -3077,7 +3093,7 @@ def run_training_data_prep_neonatal(
         Path(output_path_version) / "neonatal_merged_all_thresholds.parquet"
     )
 
-    # calculate averages over time periods analyzed
+    ## 9. Calculate averages over time periods analyzed for monthly relative climate thresholds
     for v in [75, 8, 85, 9, 95, 99]:
         for i in [3, 6, 9]:
             prev_vars = get_prev_climate_threshold_months(v, i)
@@ -3090,7 +3106,8 @@ def run_training_data_prep_neonatal(
         Path(output_path_version) / "neonatal_threshold_averages.parquet"
     )
 
-    ## Add in temperature zones (small enough not to require parallelization)
+    ## 10. Add in temperature zones
+    # (small enough not to require parallelization)
     lats = xr.DataArray(df_min_age_updated["lat"], dims="point")
     lons = xr.DataArray(df_min_age_updated["long"], dims="point")
     return_arrays = []
