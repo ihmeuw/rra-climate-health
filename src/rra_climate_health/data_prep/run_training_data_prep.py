@@ -1961,6 +1961,7 @@ def plot_indvs_by_age_group(data):
 def run_training_data_prep_child_mortality(
     output_root: str | Path, data_source_type: str, module: str
 ) -> None:
+    # TODO: calculate int_year from age_month and birth_year so as not to drop missing int_year rows
 
     # Set up logging and versioned output path
     measure_root = Path(output_root) / data_source_type

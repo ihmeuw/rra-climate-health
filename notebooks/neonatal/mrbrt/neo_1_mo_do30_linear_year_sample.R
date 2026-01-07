@@ -1,9 +1,7 @@
 ################################################################################
-# DESCRIPTION: Script to run baseline model on neonatal mortality data, first 
-# using a logistic regression
-
+# DESCRIPTION: 
 # PROJECT: Climate nutrition
-# DATE: 2025-10-23
+# DATE: 2025-06-01
 ################################################################################
 
 #==============================================================================
@@ -48,11 +46,11 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_1_mo_mrbrt_linear_yr")
+summary_file <- paste0("nnm_1_mo_do30_mrbrt_linear_yr_sample")
 
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_12.01/splines/"
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_12.01/neonatal/neonatal_data.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_data.parquet"
 
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -76,22 +74,59 @@ neo_df[,sex_id := sex_id-1]
 # neo_df <- dummy_cols(neo_df, select_columns = "birth_year", remove_first_dummy = FALSE, remove_selected_columns = TRUE)
 neo_df[,birth_year := as.integer(birth_year)]
 
-# get sample
-# indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
-# indv_counts <- indv_dt[, .N, by = ihme_loc_id]
-# indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
-# indv_dt[, n_sample := floor(sample_percent * N)]
+# test for NaNs
+neo_df[is.na(consumption_pd),.N]
 
-# set.seed(42)
-# sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
-# df_sample <- df_model[indv_id %in% sampled_indv]
+# drop NaNs for any column
+climate_vars <- c(
+  # "mean_temperature",
+  # "total_precipitation",
+  # "relative_humidity",
+  # "mean_high_temperature",
+  # "mean_low_temperature",
+  # "precipitation_days",
+  # "days_over_30C",
+  # "days_over_26C",
+  # "any_days_over_30C",
+  "days_over_30C_prev_0_mo",
+  # "days_over_30C_prev_3_mo_avg",
+  # "days_over_30C_prev_6_mo_avg",
+  # "days_over_30C_prev_9_mo_avg",
+  # 'q9_prev_0_mo',
+  'q95_prev_0_mo',
+  # 'q9_prev_3_mo_avg',
+  # 'q9_prev_6_mo_avg',
+  # 'q9_prev_9_mo_avg',
+  # 'q95_prev_3_mo_avg',
+  # 'q95_prev_6_mo_avg',
+  # 'q95_prev_9_mo_avg',
+  # 'zone',
+  "total_precipitation_prev_0_mo"
+  # "total_precipitation_prev_3_mo_avg",
+  # "total_precipitation_prev_6_mo_avg",
+  # "total_precipitation_prev_9_mo_avg"
+)
+cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year", climate_vars)
+df_model <- neo_df[, ..cols]
+
+df_model <- na.omit(df_model)
+
+# get sample
+sample_percent <- 0.1
+indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
+indv_counts <- indv_dt[, .N, by = ihme_loc_id]
+indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
+indv_dt[, n_sample := floor(sample_percent * N)]
+
+set.seed(42)
+sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
+df_sample <- df_model[indv_id %in% sampled_indv]
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
-## Options
 
-df_model <- neo_df[,.(child_mortality,
+df_sample <- df_sample[,.(child_mortality,
                       consumption_pd,
                       days_over_30C_prev_0_mo,
                       total_precipitation_prev_0_mo,
@@ -103,7 +138,7 @@ df_model <- neo_df[,.(child_mortality,
 dat <- mr$MRData()
 
 dat$load_df(
-  data = df_model,  
+  data = df_sample,  
   col_obs = "child_mortality", 
   col_covs = list("consumption_pd",
                   "days_over_30C_prev_0_mo",
@@ -149,13 +184,13 @@ model <- mr$MRBRT(
 
 model$fit_model()
 
-print(summary(model))
 
-# save model parameters for future use:
-saveRDS(model, file = paste0(model_objects_dir, summary_file,".rds"))
+print(model$summary())
+
+py_save_object(object = model, filename = paste0(model_objects_dir, summary_file,".pkl"), pickle = "dill")
 
 # Read model back in
-# model = readRDS(file = paste0(model_objects_dir, summary_file,".rds"))
+# model = py_load_object(filename =  paste0(model_summary_dir,model_name,".pkl"), pickle = "dill")
 
 # summary(model)
 # 

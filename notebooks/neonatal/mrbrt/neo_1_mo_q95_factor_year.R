@@ -48,11 +48,11 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_1_mo_mrbrt")
+summary_file <- paste0("nnm_1_mo_q95_mrbrt_factor_yr")
 
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_09.01/splines/"
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/training_data/2025_12_09.01/neonatal/neonatal_data.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_data.parquet"
 
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -92,77 +92,79 @@ neo_df <- dummy_cols(neo_df, select_columns = "birth_year", remove_first_dummy =
 ## Options
 
 df_model <- neo_df[,.(child_mortality,
-                        consumption_pd,
-                        days_over_30C_prev_0_mo,
-                        total_precipitation_prev_0_mo,
-                        sex_id,
-                        ihme_loc_id,
-                        birth_year_1959,
-                        birth_year_1960,
-                        birth_year_1961,
-                        birth_year_1962,
-                        birth_year_1963,
-                        birth_year_1964,
-                        birth_year_1965,
-                        birth_year_1966,
-                        birth_year_1967,
-                        birth_year_1968,
-                        birth_year_1969,
-                        birth_year_1970,
-                        birth_year_1971,
-                        birth_year_1972,
-                        birth_year_1973,
-                        birth_year_1974,
-                        birth_year_1975,
-                        birth_year_1976,
-                        birth_year_1977,
-                        birth_year_1978,
-                        birth_year_1979,
-                        birth_year_1980,
-                        birth_year_1981,
-                        birth_year_1982,
-                        birth_year_1983,
-                        birth_year_1984,
-                        birth_year_1985,
-                        birth_year_1986,
-                        birth_year_1987,
-                        birth_year_1988,
-                        birth_year_1989,
-                        birth_year_1990,
-                        birth_year_1991,
-                        birth_year_1992,
-                        birth_year_1993,
-                        birth_year_1994,
-                        birth_year_1995,
-                        birth_year_1996,
-                        birth_year_1997,
-                        birth_year_1998,
-                        birth_year_1999,
-                        birth_year_2000,
-                        birth_year_2001,
-                        birth_year_2002,
-                        birth_year_2003,
-                        birth_year_2004,
-                        birth_year_2005,
-                        birth_year_2006,
-                        birth_year_2007,
-                        birth_year_2008,
-                        birth_year_2009,
-                        birth_year_2010,
-                        birth_year_2011,
-                        birth_year_2012,
-                        birth_year_2013,
-                        birth_year_2014,
-                        birth_year_2015,
-                        birth_year_2016,
-                        birth_year_2017,
-                        birth_year_2018,
-                        birth_year_2019,
-                        birth_year_2020,
-                        birth_year_2021,
-                        birth_year_2022,
-                        birth_year_2023
-                      )]
+                      consumption_pd,
+                      q95_prev_0_mo,
+                      total_precipitation_prev_0_mo,
+                      sex_id,
+                      ihme_loc_id,
+                      birth_year_1959,
+                      birth_year_1960,
+                      birth_year_1961,
+                      birth_year_1962,
+                      birth_year_1963,
+                      birth_year_1964,
+                      birth_year_1965,
+                      birth_year_1966,
+                      birth_year_1967,
+                      birth_year_1968,
+                      birth_year_1969,
+                      birth_year_1970,
+                      birth_year_1971,
+                      birth_year_1972,
+                      birth_year_1973,
+                      birth_year_1974,
+                      birth_year_1975,
+                      birth_year_1976,
+                      birth_year_1977,
+                      birth_year_1978,
+                      birth_year_1979,
+                      birth_year_1980,
+                      birth_year_1981,
+                      birth_year_1982,
+                      birth_year_1983,
+                      birth_year_1984,
+                      birth_year_1985,
+                      birth_year_1986,
+                      birth_year_1987,
+                      birth_year_1988,
+                      birth_year_1989,
+                      birth_year_1990,
+                      birth_year_1991,
+                      birth_year_1992,
+                      birth_year_1993,
+                      birth_year_1994,
+                      birth_year_1995,
+                      birth_year_1996,
+                      birth_year_1997,
+                      birth_year_1998,
+                      birth_year_1999,
+                      birth_year_2000,
+                      birth_year_2001,
+                      birth_year_2002,
+                      birth_year_2003,
+                      birth_year_2004,
+                      birth_year_2005,
+                      birth_year_2006,
+                      birth_year_2007,
+                      birth_year_2008,
+                      birth_year_2009,
+                      birth_year_2010,
+                      birth_year_2011,
+                      birth_year_2012,
+                      birth_year_2013,
+                      birth_year_2014,
+                      birth_year_2015,
+                      birth_year_2016,
+                      birth_year_2017,
+                      birth_year_2018,
+                      birth_year_2019,
+                      birth_year_2020,
+                      birth_year_2021,
+                      birth_year_2022,
+                      birth_year_2023
+)]
+
+df_model <- na.omit(df_model)
 
 dat <- mr$MRData()
 
@@ -170,7 +172,7 @@ dat$load_df(
   data = df_model,  
   col_obs = "child_mortality", 
   col_covs = list("consumption_pd",
-                  "days_over_30C_prev_0_mo",
+                  "q95_prev_0_mo",
                   "total_precipitation_prev_0_mo",
                   "sex_id",
                   "birth_year_1959",
@@ -258,7 +260,7 @@ model <- mr$MRBRT(
       prior_spline_monotonicity = "increasing"
     ),
     mr$LinearCovModel(
-      alt_cov = "days_over_30C_prev_0_mo",
+      alt_cov = "q95_prev_0_mo",
       use_spline = TRUE,
       prior_spline_monotonicity = "increasing"
     ),
@@ -469,12 +471,12 @@ model <- mr$MRBRT(
 
 model$fit_model()
 
+print(model$summary())
 
-# save model parameters for future use:
-saveRDS(model, file = paste0(model_objects_dir, summary_file,".rds"))
+py_save_object(object = model, filename = paste0(model_objects_dir, summary_file,".pkl"), pickle = "dill")
 
 # Read model back in
-# model = readRDS(file = paste0(model_objects_dir, summary_file,".rds"))
+# model = py_load_object(filename =  paste0(model_summary_dir,model_name,".pkl"), pickle = "dill")
 
 # summary(model)
 # 
