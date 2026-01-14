@@ -24,13 +24,17 @@ if (Sys.info()["sysname"] == "Linux") {
   l <- "L:/"
 }
 
-Sys.setenv("RETICULATE_PYTHON" = '/ihme/code/mscm/miniconda3/envs/mrtool_0.0.2/bin/python')
-# Sys.setenv("RETICULATE_PYTHON" = "/ihme/code/mscm/miniconda3/envs/mrtool_0.0.1/bin/python") # this line might be necessary on some Singularity images
+# Sys.setenv("RETICULATE_PYTHON" = '/ihme/code/mscm/miniconda3/envs/mrtool_0.0.3/bin/python')
+Sys.setenv("RETICULATE_PYTHON" = "/ihme/code/mscm/miniconda3/envs/mrtool_0.0.1/bin/python") # this line might be necessary on some Singularity images
 library(reticulate)
-reticulate::use_python("/ihme/code/mscm/miniconda3/envs/mrtool_0.0.2/bin/python")
+reticulate::use_python("/ihme/code/mscm/miniconda3/envs/mrtool_0.0.3/bin/python")
 mr <- reticulate::import("mrtool")
 library(dplyr)
 
+library(reticulate)
+
+reticulate::use_python("/ihme/code/mscm/miniconda3/envs/mrtool_0.0.1/bin/python")
+mr <- import("mrtool")
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")

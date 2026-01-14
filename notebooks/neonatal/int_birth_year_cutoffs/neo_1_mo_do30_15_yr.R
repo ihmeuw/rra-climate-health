@@ -1,8 +1,18 @@
 ################################################################################
-# DESCRIPTION: Script to run baseline model on neonatal mortality data, 
+# DESCRIPTION: Script to run baseline model on neonatal mortality data, first 
 # using a logistic regression
+# model <- glmer(
+#   child_mortality ~ consumption_pd +
+#     days_over_30C +
+#     total_precipitation + 
+#     sex_id +
+#     birth_year +
+#     (1 | ihme_loc_id),
+#   data = df_model,
+#   family = binomial(link = "logit")
+# )
 # PROJECT: Climate nutrition
-# DATE: 2025-12-09
+# DATE: 2025-10-23
 ################################################################################
 
 #==============================================================================
@@ -39,7 +49,8 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_1_mo_q95_5yr_cutoff_summary")
+summary_file <- paste0("nnm_1_mo_do30_15yr_cutoff_summary")
+
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_data.parquet"
@@ -54,17 +65,13 @@ dir.create(model_summary_dir, recursive = TRUE, showWarnings = FALSE)
 model_objects_dir <- paste0(results_dir,"model_objects/")
 dir.create(model_objects_dir, recursive = TRUE, showWarnings = FALSE)
 
-inference_objects_dir <- paste0(results_dir,"inference_format/")
-dir.create(inference_objects_dir, recursive = TRUE, showWarnings = FALSE)
-
-
 # Read in neonatal df (must be made from full dataset)
 neo_df <- read_parquet(neo_version)
 neo_df <- data.table(neo_df)
 
 # cut off age_month_original to be max 66 months
 range(neo_df$age_month_original)
-neo_df<- neo_df[age_month_original <=60]
+neo_df<- neo_df[age_month_original <=180]
 
 neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 # convert sex_id to int between 0 and 1, where 0 is male and 1 is female
@@ -84,19 +91,10 @@ climate_vars <- c(
   # "days_over_30C",
   # "days_over_26C",
   # "any_days_over_30C",
-  # "days_over_30C_prev_0_mo",
-  # "days_over_30C_prev_3_mo_avg",
-  # "days_over_30C_prev_6_mo_avg",
-  # "days_over_30C_prev_9_mo_avg",
-  'q9_prev_0_mo',
-  'q95_prev_0_mo',
-  'q9_prev_3_mo_avg',
-  'q9_prev_6_mo_avg',
-  'q9_prev_9_mo_avg',
-  'q95_prev_3_mo_avg',
-  'q95_prev_6_mo_avg',
-  'q95_prev_9_mo_avg',
-  'zone',
+  "days_over_30C_prev_0_mo",
+  "days_over_30C_prev_3_mo_avg",
+  "days_over_30C_prev_6_mo_avg",
+  "days_over_30C_prev_9_mo_avg",
   "total_precipitation_prev_0_mo",
   "total_precipitation_prev_3_mo_avg",
   "total_precipitation_prev_6_mo_avg",
@@ -120,11 +118,19 @@ df_model <- na.omit(df_model)
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
-
+## Options
+# "days_over_30C_prev_0_mo",
+# "days_over_30C_prev_3_mo_avg",
+# "days_over_30C_prev_6_mo_avg",
+# "days_over_30C_prev_9_mo_avg",
+# "total_precipitation_prev_0_mo",
+# "total_precipitation_prev_3_mo_avg",
+# "total_precipitation_prev_6_mo_avg",
+# "total_precipitation_prev_9_mo_avg"
 
 model <- glmer(
   child_mortality ~ consumption_pd +
-    q95_prev_0_mo +
+    days_over_30C_prev_0_mo +
     total_precipitation_prev_0_mo +
     sex_id +
     birth_year +
@@ -161,46 +167,6 @@ cat(paste(re_output, collapse = "\n"), file = summary_file_path, append = TRUE)
 
 # Also save frailty estimates as a separate CSV for easier access
 write.csv(re_df, paste0(model_summary_dir, "re_estimates_", summary_file, ".csv"), row.names = FALSE)
-
-# save coefficients in required inference format:
-# 
-# # example format
-# # coefficients
-# ex_coef <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_coefs.parquet")
-# 
-# # random effects
-# ex_re <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_ranef.parquet")
-# 
-# inf_coef <- copy(ex_coef)[.I==0]
-# 
-# coefficients <- fixef(model)
-# 
-# # Convert coefficients to a dataframe
-# inf_coef <- data.frame(
-#   index = names(coefficients),
-#   Estimate = coefficients
-# )
-# inf_coef <- setDT(copy(inf_coef))
-# 
-# # rename vars as expected format
-# required <- c('(Intercept)','consumption_pd','q95_prev_0_mo','total_precipitation_prev_0_mo','C(sex_id)1','C(birth_year)2022')
-# inf_coef[index=='sex_id',index:='C(sex_id)1']
-# inf_coef[index=='birth_year2022',index:='C(birth_year)2022']
-# inf_coef <- inf_coef[index %in% required]
-# rownames(inf_coef) <- inf_coef$index
-# inf_coef$index <- NULL
-# 
-# outfile_coef <- gsub("_summary","_coefs.csv",summary_file)
-# write.csv(inf_coef,paste0(inference_objects_dir,outfile),row.names=TRUE)
-# print(paste0(inference_objects_dir,outfile_coef))
-# 
-# inf_re <- copy(re_df)
-# setnames(inf_re,old=c("random_effects","ihme_loc_id"),new=c("X.Intercept.","index"))
-# rownames(inf_re) <- inf_re$index
-# inf_re$index <- NULL
-# outfile_re <- gsub("_summary","_ranef.csv",summary_file)
-# write.csv(inf_re,paste0(inference_objects_dir,outfile),row.names = TRUE)
-# print(paste0(inference_objects_dir,outfile_re))
 
 #==============================================================================
 # SECTION 3: PREDICT MODEL FOR NEONATAL ON AVG BIRTH YEAR, SEX, PRECIPITATION

@@ -39,7 +39,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_1_mo_q95_5yr_cutoff_summary")
+summary_file <- paste0("nnm_1_mo_q95_15yr_cutoff_summary")
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_data.parquet"
@@ -62,9 +62,9 @@ dir.create(inference_objects_dir, recursive = TRUE, showWarnings = FALSE)
 neo_df <- read_parquet(neo_version)
 neo_df <- data.table(neo_df)
 
-# cut off age_month_original to be max 66 months
+# cut off age_month_original 
 range(neo_df$age_month_original)
-neo_df<- neo_df[age_month_original <=60]
+neo_df<- neo_df[age_month_original <=180]
 
 neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 # convert sex_id to int between 0 and 1, where 0 is male and 1 is female
