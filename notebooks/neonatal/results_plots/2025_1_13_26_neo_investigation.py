@@ -773,7 +773,7 @@ plt.tight_layout()
 plt.show()
 
 # 2.a Plot consumption scatters without any data transformation
-
+model_grouped_psu = model_grouped_psu.sort_values("consumption_pd")
 fig, ax = plt.subplots(figsize=(10, 6))
 
 # Plot the density of data points using hist2d
@@ -789,10 +789,10 @@ cbar = plt.colorbar(hist[3], ax=ax)
 cbar.set_label("Density")
 
 # Overlay the red line for pred_fixed_q95
-sorted_data = model_grouped_psu.sort_values("pred_fixed_q95")
+# sorted_data = model_grouped_psu.sort_values("consumption_pd")
 ax.plot(
-    sorted_data["consumption_pd"],
-    sorted_data["pred_fixed_q95"],
+    model_grouped_psu["consumption_pd"],
+    model_grouped_psu["pred_fixed_q95"],
     color="red",
     label="Predictions holding all\nvars at avg except q95",
     linewidth=2,
@@ -811,6 +811,10 @@ plt.show()
 
 # 2.b log-transform child-mortality
 
+model_grouped_psu["log_pred_fixed_q95"] = np.log(
+    model_grouped_psu["pred_fixed_q95"] + 1e-6
+)
+
 fig, ax = plt.subplots(figsize=(10, 6))
 
 # Plot the density of data points using hist2d
@@ -826,6 +830,15 @@ cbar = plt.colorbar(hist[3], ax=ax)
 cbar.set_label("Density")
 
 
+# Overlay the red line for log_pred_fixed_q95
+ax.plot(
+    model_grouped_psu["consumption_pd"],
+    model_grouped_psu["log_pred_fixed_q95"],
+    color="red",
+    label="Log predictions holding all\nvars at avg except q95",
+    linewidth=2,
+)
+
 # Add labels, title, and legend
 ax.set_xlabel("Consumption per day", fontsize=12)
 ax.set_ylabel("Log Child Mortality", fontsize=12)
@@ -838,6 +851,11 @@ plt.show()
 
 
 # 2.c logit-transform child-mortality
+
+model_grouped_psu["logit_pred_fixed_q95"] = np.log(
+    (model_grouped_psu["pred_fixed_q95"] + 1e-6)
+    / (1 - model_grouped_psu["pred_fixed_q95"] + 1e-6)
+)
 
 fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -852,6 +870,14 @@ hist = ax.hist2d(
 # Add a colorbar to show density
 cbar = plt.colorbar(hist[3], ax=ax)
 cbar.set_label("Density")
+
+ax.plot(
+    model_grouped_psu["consumption_pd"],
+    model_grouped_psu["logit_pred_fixed_q95"],
+    color="red",
+    label="Logit predictions holding all\nvars at avg except q95",
+    linewidth=2,
+)
 
 # Add labels, title, and legend
 ax.set_xlabel("Consumption per day", fontsize=12)
