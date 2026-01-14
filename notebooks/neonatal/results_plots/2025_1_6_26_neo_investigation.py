@@ -914,6 +914,620 @@ results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
 
 ################################################################################
 
+# 2. days over 30 with 10-year cutoff ####################################################
+
+os.listdir(RESULTS_PATH)
+model1 = pd.read_parquet(
+    RESULTS_PATH + "predictions_nnm_1_mo_do30_10yr_cutoff_summary.parquet"
+)
+
+# get min and max values for color scale consistency across plots
+# as well as custom bins
+# Heat maps of variables
+columns_to_bin = [
+    # "q9_prev_0_mo",
+    # "q9_prev_3_mo_avg",
+    # "q9_prev_6_mo_avg",
+    # "q9_prev_9_mo_avg",
+    # "q95_prev_0_mo",
+    # "q95_prev_3_mo_avg",
+    # "q95_prev_6_mo_avg",
+    # "q95_prev_9_mo_avg",
+    "days_over_30C_prev_0_mo"
+]
+
+# data = pd.concat(
+#     [
+#         model1["q9_prev_0_mo"],
+#         model3["q9_prev_3_mo_avg"],
+#         model6["q9_prev_6_mo_avg"],
+#         model9["q9_prev_9_mo_avg"],
+#     ],
+#     ignore_index=True,
+# )
+
+
+# # Calculate the frequency of each unique value
+# value_counts = data.value_counts(normalize=True) * 100  # Normalize to get percentages
+
+# # Sort the values for better visualization
+# value_counts = value_counts.sort_index()
+
+# # make custom bins for days-over30:
+# # first will be 0 to the first non-zero value
+# # the next 4 bins will be quartiles of the non-zero values
+# # Separate zero and non-zero values
+# zero_values = data[data == 0]  # All zero values
+# non_zero_values = data[data > 0]  # All non-zero values
+
+# # Get the first non-zero value
+# first_non_zero = non_zero_values.min()
+
+# # Calculate quartiles for non-zero values
+# quartiles = np.percentile(non_zero_values, [25, 50, 75, 100])
+
+# Define custom bin edges
+custom_bins_fixed = [0, 0.1, 2, 4, 9, 31]
+
+custom_y_bins = [
+    0,
+    0.784781,
+    1.180789,
+    1.541445,
+    1.950251,
+    2.465952,
+    3.103463,
+    4.003564,
+    5.541124,
+    9.413681,
+    112.879922,
+]
+# get mix/maxes for plots
+multiply_by_val = 1000  # for easier to read heatmaps
+all_values = []
+
+for model in [model1]:
+    heatmap_df = model.copy()
+    for col in columns_to_bin:
+        heatmap_df[f"{col}_bin"] = pd.cut(
+            heatmap_df[col], bins=custom_bins_fixed, include_lowest=True, right=False
+        )
+    # heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
+    #     heatmap_df.consumption_pd, 10, retbins=True
+    # )
+    heatmap_df["consumption_pd"] = pd.cut(
+        heatmap_df.consumption_pd, bins=custom_y_bins, include_lowest=True, right=False
+    )
+    versions = [
+        "child_mortality",
+        "pred_fe",
+        "pred_me",
+    ]
+    for col in columns_to_bin:
+        for version in versions:
+            vals = (
+                heatmap_df.groupby(["consumption_pd", f"{col}_bin"])[version]
+                .mean()
+                .values
+            )
+            all_values.append(vals)
+
+all_values = np.concatenate(all_values)
+
+vmin = all_values.min()
+vmax = all_values.max()
+
+vmin *= multiply_by_val
+vmax *= multiply_by_val
+print(vmax)
+
+# Plot all on same PDF
+# Define models and versions
+model = model1.copy()
+model_name = "1-month"
+versions = [
+    ("child_mortality", "Child Mortality"),
+    ("pred_me", "Predicted ME"),
+    ("pred_fe", "Predicted FE"),
+]
+
+
+bin_col_dict = {
+    "1-month": "days_over_30C_prev_0_mo",
+    # "3-month": "q95_prev_3_mo_avg",
+    # "6-month": "q95_prev_6_mo_avg",
+    # "9-month": "q95_prev_9_mo_avg",
+}
+
+
+# Create a PDF to save the plots
+pdf_path = os.path.join(PLOT_PATH, "neonatal_days_over_30C_cutoff.pdf")
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 4 rows and 3 columns
+    fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(15, 5), constrained_layout=True)
+
+    for col, (version, version_label) in enumerate(versions):
+        # Prepare the data for the current model and version
+        data = model.rename(columns={version: "model_predictions"})
+
+        """
+        model = models[1]
+        model_name = '1-month'
+        data = model.rename(columns={version: "model_predictions"})
+        bin_cols=[bin_col_dict[model_name]]
+        custom_bins=custom_bins_fixed
+        """
+        # custom_bins_for_model = create_custom_bins(model, bin_col_dict[model_name])
+
+        # Plot on the specific Axes
+        plot_heat_map_grid(
+            data=data,
+            bin_cols=[bin_col_dict[model_name]],
+            ax=axes[col],
+            title=f"{model_name} - {version_label}",
+            multiply_by=multiply_by_val,
+            vmin=vmin,
+            vmax=vmax,
+            show_colorbar=(col == 2),  # Show colorbar only for the last column
+            custom_bins=custom_bins_fixed,  # custom_bins_for_model,
+            custom_y_bins=custom_y_bins,
+        )
+
+    # Save the figure to the PDF
+    pdf.savefig(fig)
+    plt.close(fig)
+
+print(f"PDF saved to {pdf_path}")
+
+# make table of summaries
+coef_file_name = "neonatal_do30_10_yr_cutoff_coefs.csv"
+
+SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
+
+climate_var_interest = "days_over_30C_prev_0_mo"
+vars_of_interest = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    "days_over_30C_prev_0_mo",
+    # "q95_prev_3_mo_avg",
+    # "q95_prev_6_mo_avg",
+    # "q95_prev_9_mo_avg",
+    "total_precipitation_prev_0_mo",
+    # "total_precipitation_prev_3_mo_avg",
+    # "total_precipitation_prev_6_mo_avg",
+    # "total_precipitation_prev_9_mo_avg",
+    # "birth_year",
+]
+
+"""
+f = 'nnm_9_mo_q95_ly_summary.txt'
+"""
+
+summaries = [f for f in os.listdir(SUMMARY_DIR) if f.endswith(".txt")]
+# only look at q9
+summaries = [f for f in summaries if "_do30_10yr_cutoff_summary" in f]
+print(summaries)
+
+results_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
+for f in summaries:
+
+    time_period = re.findall(r"(?<=nnm_).*(?=_mo)", f)[0]
+    # print(time_period)
+    time_period_v = f"{time_period}-month"
+
+    coef_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
+    with open(SUMMARY_DIR + f, "r") as infile:
+        s = infile.read().split("\n")
+    # remove all lines between 'Correlation of Fixed Effects:' and 'optimizer'
+    # to prevent parsing errors.
+    start_idx = None
+    end_idx = None
+    for i, l in enumerate(s):
+        if "Correlation of Fixed Effects:" in l:
+            start_idx = i
+        if "optimizer" in l and start_idx is not None and end_idx is None:
+            end_idx = i
+    if start_idx is not None and end_idx is not None:
+        s = s[:start_idx] + s[end_idx + 1 :]
+    # [l for l in s]
+    for l in s:
+        if l.startswith(tuple(vars_of_interest)) and bool(re.findall(r"[\d]{3}", l)):
+            # test if all info on single line or if it overflowed:
+            if len(l.split()) == 5:
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                significance = re.findall(r"\*.*", l)
+                significance = significance[0] if significance else ""
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                    "significance": significance,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 3:  # p-val missing from end
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 1:  # variable and p-val
+                coef = l.split()[0]
+                # significance = re.findall(r"[\d]{1}\.[\d]*", l)[0]
+                significance = re.findall(r"\*.*", l)
+                significance = significance[0] if significance else ""
+                coef_table.loc[coef_table["Variable"] == coef, "significance"] = (
+                    significance
+                )
+
+    results_table = pd.concat([results_table, coef_table], ignore_index=True)
+
+# results_table["Variable"] = results_table["Variable"].str.replace("_0_mo", "_X_mo_avg")
+# results_table["Variable"] = results_table["Variable"].str.replace("_3_mo", "_X_mo")
+# results_table["Variable"] = results_table["Variable"].str.replace("_6_mo", "_X_mo")
+# results_table["Variable"] = results_table["Variable"].str.replace("_9_mo", "_X_mo")
+
+results_table["Estimate"] = results_table["Estimate"].astype(float)
+# results_table["p_value"] = results_table["p_value"].astype(float)
+results_table["Estimate"] = results_table["Estimate"].round(4)
+results_table["Estimate"] = results_table["Estimate"].astype(str)
+results_table["Estimate"] = results_table["Estimate"] + results_table["significance"]
+
+results_table.drop(columns="significance", inplace=True)
+results_table["Variable"].unique()
+
+var_order = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    climate_var_interest,
+    "total_precipitation_prev_0_mo",
+    # "birth_year",
+]
+
+results_table["Variable"] = pd.Categorical(
+    results_table["Variable"], categories=var_order, ordered=True
+)
+
+results_table.sort_values(by=["Variable", "Time"], inplace=True)
+results_table_wide = results_table.pivot_table(
+    index=["Variable"], columns=["Time"], values="Estimate", aggfunc="first"
+)
+results_table_wide.reset_index(inplace=True)
+
+results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
+
+################################################################################
+
+# 2. days over 30 with 15-year cutoff ####################################################
+
+os.listdir(RESULTS_PATH)
+model1 = pd.read_parquet(
+    RESULTS_PATH + "predictions_nnm_1_mo_do30_15yr_cutoff_summary.parquet"
+)
+
+# get min and max values for color scale consistency across plots
+# as well as custom bins
+# Heat maps of variables
+columns_to_bin = [
+    # "q9_prev_0_mo",
+    # "q9_prev_3_mo_avg",
+    # "q9_prev_6_mo_avg",
+    # "q9_prev_9_mo_avg",
+    # "q95_prev_0_mo",
+    # "q95_prev_3_mo_avg",
+    # "q95_prev_6_mo_avg",
+    # "q95_prev_9_mo_avg",
+    "days_over_30C_prev_0_mo"
+]
+
+# data = pd.concat(
+#     [
+#         model1["q9_prev_0_mo"],
+#         model3["q9_prev_3_mo_avg"],
+#         model6["q9_prev_6_mo_avg"],
+#         model9["q9_prev_9_mo_avg"],
+#     ],
+#     ignore_index=True,
+# )
+
+
+# # Calculate the frequency of each unique value
+# value_counts = data.value_counts(normalize=True) * 100  # Normalize to get percentages
+
+# # Sort the values for better visualization
+# value_counts = value_counts.sort_index()
+
+# # make custom bins for days-over30:
+# # first will be 0 to the first non-zero value
+# # the next 4 bins will be quartiles of the non-zero values
+# # Separate zero and non-zero values
+# zero_values = data[data == 0]  # All zero values
+# non_zero_values = data[data > 0]  # All non-zero values
+
+# # Get the first non-zero value
+# first_non_zero = non_zero_values.min()
+
+# # Calculate quartiles for non-zero values
+# quartiles = np.percentile(non_zero_values, [25, 50, 75, 100])
+
+# Define custom bin edges
+custom_bins_fixed = [0, 0.1, 2, 4, 9, 31]
+
+custom_y_bins = [
+    0,
+    0.784781,
+    1.180789,
+    1.541445,
+    1.950251,
+    2.465952,
+    3.103463,
+    4.003564,
+    5.541124,
+    9.413681,
+    112.879922,
+]
+# get mix/maxes for plots
+multiply_by_val = 1000  # for easier to read heatmaps
+all_values = []
+
+for model in [model1]:
+    heatmap_df = model.copy()
+    for col in columns_to_bin:
+        heatmap_df[f"{col}_bin"] = pd.cut(
+            heatmap_df[col], bins=custom_bins_fixed, include_lowest=True, right=False
+        )
+    # heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
+    #     heatmap_df.consumption_pd, 10, retbins=True
+    # )
+    heatmap_df["consumption_pd"] = pd.cut(
+        heatmap_df.consumption_pd, bins=custom_y_bins, include_lowest=True, right=False
+    )
+    versions = [
+        "child_mortality",
+        "pred_fe",
+        "pred_me",
+    ]
+    for col in columns_to_bin:
+        for version in versions:
+            vals = (
+                heatmap_df.groupby(["consumption_pd", f"{col}_bin"])[version]
+                .mean()
+                .values
+            )
+            all_values.append(vals)
+
+all_values = np.concatenate(all_values)
+
+vmin = all_values.min()
+vmax = all_values.max()
+
+vmin *= multiply_by_val
+vmax *= multiply_by_val
+print(vmax)
+
+# Plot all on same PDF
+# Define models and versions
+model = model1.copy()
+model_name = "1-month"
+versions = [
+    ("child_mortality", "Child Mortality"),
+    ("pred_me", "Predicted ME"),
+    ("pred_fe", "Predicted FE"),
+]
+
+
+bin_col_dict = {
+    "1-month": "days_over_30C_prev_0_mo",
+    # "3-month": "q95_prev_3_mo_avg",
+    # "6-month": "q95_prev_6_mo_avg",
+    # "9-month": "q95_prev_9_mo_avg",
+}
+
+
+# Create a PDF to save the plots
+pdf_path = os.path.join(PLOT_PATH, "neonatal_days_over_30C_cutoff.pdf")
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 4 rows and 3 columns
+    fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(15, 5), constrained_layout=True)
+
+    for col, (version, version_label) in enumerate(versions):
+        # Prepare the data for the current model and version
+        data = model.rename(columns={version: "model_predictions"})
+
+        """
+        model = models[1]
+        model_name = '1-month'
+        data = model.rename(columns={version: "model_predictions"})
+        bin_cols=[bin_col_dict[model_name]]
+        custom_bins=custom_bins_fixed
+        """
+        # custom_bins_for_model = create_custom_bins(model, bin_col_dict[model_name])
+
+        # Plot on the specific Axes
+        plot_heat_map_grid(
+            data=data,
+            bin_cols=[bin_col_dict[model_name]],
+            ax=axes[col],
+            title=f"{model_name} - {version_label}",
+            multiply_by=multiply_by_val,
+            vmin=vmin,
+            vmax=vmax,
+            show_colorbar=(col == 2),  # Show colorbar only for the last column
+            custom_bins=custom_bins_fixed,  # custom_bins_for_model,
+            custom_y_bins=custom_y_bins,
+        )
+
+    # Save the figure to the PDF
+    pdf.savefig(fig)
+    plt.close(fig)
+
+print(f"PDF saved to {pdf_path}")
+
+# make table of summaries
+coef_file_name = "neonatal_do30_cutoff_coefs.csv"
+
+SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
+
+climate_var_interest = "days_over_30C_prev_0_mo"
+vars_of_interest = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    "days_over_30C_prev_0_mo",
+    # "q95_prev_3_mo_avg",
+    # "q95_prev_6_mo_avg",
+    # "q95_prev_9_mo_avg",
+    "total_precipitation_prev_0_mo",
+    # "total_precipitation_prev_3_mo_avg",
+    # "total_precipitation_prev_6_mo_avg",
+    # "total_precipitation_prev_9_mo_avg",
+    # "birth_year",
+]
+
+"""
+f = 'nnm_9_mo_q95_ly_summary.txt'
+"""
+
+summaries = [f for f in os.listdir(SUMMARY_DIR) if f.endswith(".txt")]
+# only look at q9
+summaries = [f for f in summaries if "_do30_5yr_cutoff_summary" in f]
+print(summaries)
+
+results_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
+for f in summaries:
+
+    time_period = re.findall(r"(?<=nnm_).*(?=_mo)", f)[0]
+    # print(time_period)
+    time_period_v = f"{time_period}-month"
+
+    coef_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
+    with open(SUMMARY_DIR + f, "r") as infile:
+        s = infile.read().split("\n")
+    # remove all lines between 'Correlation of Fixed Effects:' and 'optimizer'
+    # to prevent parsing errors.
+    start_idx = None
+    end_idx = None
+    for i, l in enumerate(s):
+        if "Correlation of Fixed Effects:" in l:
+            start_idx = i
+        if "optimizer" in l and start_idx is not None and end_idx is None:
+            end_idx = i
+    if start_idx is not None and end_idx is not None:
+        s = s[:start_idx] + s[end_idx + 1 :]
+    # [l for l in s]
+    for l in s:
+        if l.startswith(tuple(vars_of_interest)) and bool(re.findall(r"[\d]{3}", l)):
+            # test if all info on single line or if it overflowed:
+            if len(l.split()) == 5:
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                significance = re.findall(r"\*.*", l)
+                significance = significance[0] if significance else ""
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                    "significance": significance,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 3:  # p-val missing from end
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 1:  # variable and p-val
+                coef = l.split()[0]
+                # significance = re.findall(r"[\d]{1}\.[\d]*", l)[0]
+                significance = re.findall(r"\*.*", l)
+                significance = significance[0] if significance else ""
+                coef_table.loc[coef_table["Variable"] == coef, "significance"] = (
+                    significance
+                )
+
+    results_table = pd.concat([results_table, coef_table], ignore_index=True)
+
+# results_table["Variable"] = results_table["Variable"].str.replace("_0_mo", "_X_mo_avg")
+# results_table["Variable"] = results_table["Variable"].str.replace("_3_mo", "_X_mo")
+# results_table["Variable"] = results_table["Variable"].str.replace("_6_mo", "_X_mo")
+# results_table["Variable"] = results_table["Variable"].str.replace("_9_mo", "_X_mo")
+
+results_table["Estimate"] = results_table["Estimate"].astype(float)
+# results_table["p_value"] = results_table["p_value"].astype(float)
+results_table["Estimate"] = results_table["Estimate"].round(4)
+results_table["Estimate"] = results_table["Estimate"].astype(str)
+results_table["Estimate"] = results_table["Estimate"] + results_table["significance"]
+
+results_table.drop(columns="significance", inplace=True)
+results_table["Variable"].unique()
+
+var_order = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    climate_var_interest,
+    "total_precipitation_prev_0_mo",
+    # "birth_year",
+]
+
+results_table["Variable"] = pd.Categorical(
+    results_table["Variable"], categories=var_order, ordered=True
+)
+
+results_table.sort_values(by=["Variable", "Time"], inplace=True)
+results_table_wide = results_table.pivot_table(
+    index=["Variable"], columns=["Time"], values="Estimate", aggfunc="first"
+)
+results_table_wide.reset_index(inplace=True)
+
+results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
+
+################################################################################
+
 # 3. q95 with 10-year cutoff ###################################################
 
 
@@ -1217,6 +1831,621 @@ results_table_wide = results_table.pivot_table(
 results_table_wide.reset_index(inplace=True)
 
 results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
+
+# 1. Factor year 95th percentile, 5-year cutoff  ##############################################
+
+model1 = pd.read_parquet(
+    RESULTS_PATH + "predictions_nnm_1_mo_q95_5yr_cutoff_summary.parquet"
+)
+
+# get min and max values for color scale consistency across plots
+# as well as custom bins
+# Heat maps of variables
+columns_to_bin = [
+    # "q9_prev_0_mo",
+    # "q9_prev_3_mo_avg",
+    # "q9_prev_6_mo_avg",
+    # "q9_prev_9_mo_avg",
+    "q95_prev_0_mo",
+    # "q95_prev_3_mo_avg",
+    # "q95_prev_6_mo_avg",
+    # "q95_prev_9_mo_avg",
+]
+
+# data = pd.concat(
+#     [
+#         model1["q9_prev_0_mo"],
+#         model3["q9_prev_3_mo_avg"],
+#         model6["q9_prev_6_mo_avg"],
+#         model9["q9_prev_9_mo_avg"],
+#     ],
+#     ignore_index=True,
+# )
+
+
+# # Calculate the frequency of each unique value
+# value_counts = data.value_counts(normalize=True) * 100  # Normalize to get percentages
+
+# # Sort the values for better visualization
+# value_counts = value_counts.sort_index()
+
+# # make custom bins for days-over30:
+# # first will be 0 to the first non-zero value
+# # the next 4 bins will be quartiles of the non-zero values
+# # Separate zero and non-zero values
+# zero_values = data[data == 0]  # All zero values
+# non_zero_values = data[data > 0]  # All non-zero values
+
+# # Get the first non-zero value
+# first_non_zero = non_zero_values.min()
+
+# # Calculate quartiles for non-zero values
+# quartiles = np.percentile(non_zero_values, [25, 50, 75, 100])
+
+# Define custom bin edges
+custom_bins_fixed = [0, 0.1, 2, 4, 9, 31]
+
+custom_y_bins = [
+    0,
+    0.784781,
+    1.180789,
+    1.541445,
+    1.950251,
+    2.465952,
+    3.103463,
+    4.003564,
+    5.541124,
+    9.413681,
+    112.879922,
+]
+# get mix/maxes for plots
+multiply_by_val = 1000  # for easier to read heatmaps
+all_values = []
+
+for model in [model1]:
+    heatmap_df = model.copy()
+    for col in columns_to_bin:
+        heatmap_df[f"{col}_bin"] = pd.cut(
+            heatmap_df[col], bins=custom_bins_fixed, include_lowest=True, right=False
+        )
+    # heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
+    #     heatmap_df.consumption_pd, 10, retbins=True
+    # )
+    heatmap_df["consumption_pd"] = pd.cut(
+        heatmap_df.consumption_pd, bins=custom_y_bins, include_lowest=True, right=False
+    )
+    versions = [
+        "child_mortality",
+        "pred_fe",
+        "pred_me",
+    ]
+    for col in columns_to_bin:
+        for version in versions:
+            vals = (
+                heatmap_df.groupby(["consumption_pd", f"{col}_bin"])[version]
+                .mean()
+                .values
+            )
+            all_values.append(vals)
+
+all_values = np.concatenate(all_values)
+
+vmin = all_values.min()
+vmax = all_values.max()
+
+vmin *= multiply_by_val
+vmax *= multiply_by_val
+print(vmax)
+
+# Plot all on same PDF
+# Define models and versions
+model = model1.copy()
+model_name = "1-month"
+versions = [
+    ("child_mortality", "Child Mortality"),
+    ("pred_me", "Predicted ME"),
+    ("pred_fe", "Predicted FE"),
+]
+
+
+bin_col_dict = {
+    "1-month": "q95_prev_0_mo",
+    # "3-month": "q95_prev_3_mo_avg",
+    # "6-month": "q95_prev_6_mo_avg",
+    # "9-month": "q95_prev_9_mo_avg",
+}
+
+
+# Create a PDF to save the plots
+pdf_path = os.path.join(PLOT_PATH, "neonatal_q95_cutoff.pdf")
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 4 rows and 3 columns
+    fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(15, 5), constrained_layout=True)
+
+    for col, (version, version_label) in enumerate(versions):
+        # Prepare the data for the current model and version
+        data = model.rename(columns={version: "model_predictions"})
+
+        """
+        model = models[1]
+        model_name = '1-month'
+        data = model.rename(columns={version: "model_predictions"})
+        bin_cols=[bin_col_dict[model_name]]
+        custom_bins=custom_bins_fixed
+        """
+        # custom_bins_for_model = create_custom_bins(model, bin_col_dict[model_name])
+
+        # Plot on the specific Axes
+        plot_heat_map_grid(
+            data=data,
+            bin_cols=[bin_col_dict[model_name]],
+            ax=axes[col],
+            title=f"{model_name} - {version_label}",
+            multiply_by=multiply_by_val,
+            vmin=vmin,
+            vmax=vmax,
+            show_colorbar=(col == 2),  # Show colorbar only for the last column
+            custom_bins=custom_bins_fixed,  # custom_bins_for_model,
+            custom_y_bins=custom_y_bins,
+        )
+
+    # Save the figure to the PDF
+    pdf.savefig(fig)
+    plt.close(fig)
+
+print(f"PDF saved to {pdf_path}")
+
+# make table of summaries
+coef_file_name = "neonatal_q95_cutoff_coefs.csv"
+
+SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
+
+climate_var_interest = "q95_prev_0_mo"
+vars_of_interest = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    "q95_prev_0_mo",
+    # "q95_prev_3_mo_avg",
+    # "q95_prev_6_mo_avg",
+    # "q95_prev_9_mo_avg",
+    "total_precipitation_prev_0_mo",
+    # "total_precipitation_prev_3_mo_avg",
+    # "total_precipitation_prev_6_mo_avg",
+    # "total_precipitation_prev_9_mo_avg",
+    # "birth_year",
+]
+
+"""
+f = 'nnm_9_mo_q95_ly_summary.txt'
+"""
+
+summaries = [f for f in os.listdir(SUMMARY_DIR) if f.endswith(".txt")]
+# only look at q9
+summaries = [f for f in summaries if "_q95_5yr_cutoff_summary" in f]
+print(summaries)
+
+results_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
+for f in summaries:
+
+    time_period = re.findall(r"(?<=nnm_).*(?=_mo)", f)[0]
+    # print(time_period)
+    time_period_v = f"{time_period}-month"
+
+    coef_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
+    with open(SUMMARY_DIR + f, "r") as infile:
+        s = infile.read().split("\n")
+    # remove all lines between 'Correlation of Fixed Effects:' and 'optimizer'
+    # to prevent parsing errors.
+    start_idx = None
+    end_idx = None
+    for i, l in enumerate(s):
+        if "Correlation of Fixed Effects:" in l:
+            start_idx = i
+        if "optimizer" in l and start_idx is not None and end_idx is None:
+            end_idx = i
+    if start_idx is not None and end_idx is not None:
+        s = s[:start_idx] + s[end_idx + 1 :]
+    # [l for l in s]
+    for l in s:
+        if l.startswith(tuple(vars_of_interest)) and bool(re.findall(r"[\d]{3}", l)):
+            # test if all info on single line or if it overflowed:
+            if len(l.split()) == 5:
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                significance = re.findall(r"\*.*", l)
+                significance = significance[0] if significance else ""
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                    "significance": significance,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 3:  # p-val missing from end
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 1:  # variable and p-val
+                coef = l.split()[0]
+                # significance = re.findall(r"[\d]{1}\.[\d]*", l)[0]
+                significance = re.findall(r"\*.*", l)
+                significance = significance[0] if significance else ""
+                coef_table.loc[coef_table["Variable"] == coef, "significance"] = (
+                    significance
+                )
+
+    results_table = pd.concat([results_table, coef_table], ignore_index=True)
+
+# results_table["Variable"] = results_table["Variable"].str.replace("_0_mo", "_X_mo_avg")
+# results_table["Variable"] = results_table["Variable"].str.replace("_3_mo", "_X_mo")
+# results_table["Variable"] = results_table["Variable"].str.replace("_6_mo", "_X_mo")
+# results_table["Variable"] = results_table["Variable"].str.replace("_9_mo", "_X_mo")
+
+results_table["Estimate"] = results_table["Estimate"].astype(float)
+# results_table["p_value"] = results_table["p_value"].astype(float)
+results_table["Estimate"] = results_table["Estimate"].round(4)
+results_table["Estimate"] = results_table["Estimate"].astype(str)
+results_table["Estimate"] = results_table["Estimate"] + results_table["significance"]
+
+results_table.drop(columns="significance", inplace=True)
+results_table["Variable"].unique()
+
+var_order = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    climate_var_interest,
+    "total_precipitation_prev_0_mo",
+    # "birth_year",
+]
+
+results_table["Variable"] = pd.Categorical(
+    results_table["Variable"], categories=var_order, ordered=True
+)
+
+results_table.sort_values(by=["Variable", "Time"], inplace=True)
+results_table_wide = results_table.pivot_table(
+    index=["Variable"], columns=["Time"], values="Estimate", aggfunc="first"
+)
+results_table_wide.reset_index(inplace=True)
+
+results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
+
+################################################################################
+
+# 2. days over q95 with 15-year cutoff ####################################################
+
+os.listdir(RESULTS_PATH)
+model1 = pd.read_parquet(
+    RESULTS_PATH + "predictions_nnm_1_mo_q95_15yr_cutoff_summary.parquet"
+)
+
+# get min and max values for color scale consistency across plots
+# as well as custom bins
+# Heat maps of variables
+columns_to_bin = [
+    # "q9_prev_0_mo",
+    # "q9_prev_3_mo_avg",
+    # "q9_prev_6_mo_avg",
+    # "q9_prev_9_mo_avg",
+    "q95_prev_0_mo",
+    # "q95_prev_3_mo_avg",
+    # "q95_prev_6_mo_avg",
+    # "q95_prev_9_mo_avg",
+    # "days_over_30C_prev_0_mo"
+]
+
+# data = pd.concat(
+#     [
+#         model1["q9_prev_0_mo"],
+#         model3["q9_prev_3_mo_avg"],
+#         model6["q9_prev_6_mo_avg"],
+#         model9["q9_prev_9_mo_avg"],
+#     ],
+#     ignore_index=True,
+# )
+
+
+# # Calculate the frequency of each unique value
+# value_counts = data.value_counts(normalize=True) * 100  # Normalize to get percentages
+
+# # Sort the values for better visualization
+# value_counts = value_counts.sort_index()
+
+# # make custom bins for days-over30:
+# # first will be 0 to the first non-zero value
+# # the next 4 bins will be quartiles of the non-zero values
+# # Separate zero and non-zero values
+# zero_values = data[data == 0]  # All zero values
+# non_zero_values = data[data > 0]  # All non-zero values
+
+# # Get the first non-zero value
+# first_non_zero = non_zero_values.min()
+
+# # Calculate quartiles for non-zero values
+# quartiles = np.percentile(non_zero_values, [25, 50, 75, 100])
+
+# Define custom bin edges
+custom_bins_fixed = [0, 0.1, 2, 4, 9, 31]
+
+custom_y_bins = [
+    0,
+    0.784781,
+    1.180789,
+    1.541445,
+    1.950251,
+    2.465952,
+    3.103463,
+    4.003564,
+    5.541124,
+    9.413681,
+    112.879922,
+]
+# get mix/maxes for plots
+multiply_by_val = 1000  # for easier to read heatmaps
+all_values = []
+
+for model in [model1]:
+    heatmap_df = model.copy()
+    for col in columns_to_bin:
+        heatmap_df[f"{col}_bin"] = pd.cut(
+            heatmap_df[col], bins=custom_bins_fixed, include_lowest=True, right=False
+        )
+    # heatmap_df["consumption_pd"], ldi_bins = pd.qcut(
+    #     heatmap_df.consumption_pd, 10, retbins=True
+    # )
+    heatmap_df["consumption_pd"] = pd.cut(
+        heatmap_df.consumption_pd, bins=custom_y_bins, include_lowest=True, right=False
+    )
+    versions = [
+        "child_mortality",
+        "pred_fe",
+        "pred_me",
+    ]
+    for col in columns_to_bin:
+        for version in versions:
+            vals = (
+                heatmap_df.groupby(["consumption_pd", f"{col}_bin"])[version]
+                .mean()
+                .values
+            )
+            all_values.append(vals)
+
+all_values = np.concatenate(all_values)
+
+vmin = all_values.min()
+vmax = all_values.max()
+
+vmin *= multiply_by_val
+vmax *= multiply_by_val
+print(vmax)
+
+# Plot all on same PDF
+# Define models and versions
+model = model1.copy()
+model_name = "1-month"
+versions = [
+    ("child_mortality", "Child Mortality"),
+    ("pred_me", "Predicted ME"),
+    ("pred_fe", "Predicted FE"),
+]
+
+
+bin_col_dict = {
+    "1-month": "days_over_30C_prev_0_mo",
+    # "3-month": "q95_prev_3_mo_avg",
+    # "6-month": "q95_prev_6_mo_avg",
+    # "9-month": "q95_prev_9_mo_avg",
+}
+
+
+# Create a PDF to save the plots
+pdf_path = os.path.join(PLOT_PATH, "neonatal_q95_15yr_cutoff.pdf")
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 4 rows and 3 columns
+    fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(15, 5), constrained_layout=True)
+
+    for col, (version, version_label) in enumerate(versions):
+        # Prepare the data for the current model and version
+        data = model.rename(columns={version: "model_predictions"})
+
+        """
+        model = models[1]
+        model_name = '1-month'
+        data = model.rename(columns={version: "model_predictions"})
+        bin_cols=[bin_col_dict[model_name]]
+        custom_bins=custom_bins_fixed
+        """
+        # custom_bins_for_model = create_custom_bins(model, bin_col_dict[model_name])
+
+        # Plot on the specific Axes
+        plot_heat_map_grid(
+            data=data,
+            bin_cols=[bin_col_dict[model_name]],
+            ax=axes[col],
+            title=f"{model_name} - {version_label}",
+            multiply_by=multiply_by_val,
+            vmin=vmin,
+            vmax=vmax,
+            show_colorbar=(col == 2),  # Show colorbar only for the last column
+            custom_bins=custom_bins_fixed,  # custom_bins_for_model,
+            custom_y_bins=custom_y_bins,
+        )
+
+    # Save the figure to the PDF
+    pdf.savefig(fig)
+    plt.close(fig)
+
+print(f"PDF saved to {pdf_path}")
+
+# make table of summaries
+coef_file_name = "neonatal_q95_15yr_cutoff_coefs.csv"
+
+SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
+
+climate_var_interest = "q95_prev_0_mo"
+vars_of_interest = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    "q95_prev_0_mo",
+    # "days_over_30C_prev_0_mo",
+    # "q95_prev_3_mo_avg",
+    # "q95_prev_6_mo_avg",
+    # "q95_prev_9_mo_avg",
+    "total_precipitation_prev_0_mo",
+    # "total_precipitation_prev_3_mo_avg",
+    # "total_precipitation_prev_6_mo_avg",
+    # "total_precipitation_prev_9_mo_avg",
+    # "birth_year",
+]
+
+"""
+f = 'nnm_9_mo_q95_ly_summary.txt'
+"""
+
+summaries = [f for f in os.listdir(SUMMARY_DIR) if f.endswith(".txt")]
+# only look at q9
+summaries = [f for f in summaries if "_q95_15yr_cutoff_summary" in f]
+print(summaries)
+
+results_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
+for f in summaries:
+
+    time_period = re.findall(r"(?<=nnm_).*(?=_mo)", f)[0]
+    # print(time_period)
+    time_period_v = f"{time_period}-month"
+
+    coef_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
+    with open(SUMMARY_DIR + f, "r") as infile:
+        s = infile.read().split("\n")
+    # remove all lines between 'Correlation of Fixed Effects:' and 'optimizer'
+    # to prevent parsing errors.
+    start_idx = None
+    end_idx = None
+    for i, l in enumerate(s):
+        if "Correlation of Fixed Effects:" in l:
+            start_idx = i
+        if "optimizer" in l and start_idx is not None and end_idx is None:
+            end_idx = i
+    if start_idx is not None and end_idx is not None:
+        s = s[:start_idx] + s[end_idx + 1 :]
+    # [l for l in s]
+    for l in s:
+        if l.startswith(tuple(vars_of_interest)) and bool(re.findall(r"[\d]{3}", l)):
+            # test if all info on single line or if it overflowed:
+            if len(l.split()) == 5:
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                significance = re.findall(r"\*.*", l)
+                significance = significance[0] if significance else ""
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                    "significance": significance,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 3:  # p-val missing from end
+                coef = l.split()[0]
+                estimate = l.split()[1]
+                coef_table = pd.concat(
+                    [
+                        coef_table,
+                        pd.DataFrame.from_records(
+                            [
+                                {
+                                    "Time": time_period_v,
+                                    "Variable": coef,
+                                    "Estimate": estimate,
+                                }
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 1:  # variable and p-val
+                coef = l.split()[0]
+                # significance = re.findall(r"[\d]{1}\.[\d]*", l)[0]
+                significance = re.findall(r"\*.*", l)
+                significance = significance[0] if significance else ""
+                coef_table.loc[coef_table["Variable"] == coef, "significance"] = (
+                    significance
+                )
+
+    results_table = pd.concat([results_table, coef_table], ignore_index=True)
+
+# results_table["Variable"] = results_table["Variable"].str.replace("_0_mo", "_X_mo_avg")
+# results_table["Variable"] = results_table["Variable"].str.replace("_3_mo", "_X_mo")
+# results_table["Variable"] = results_table["Variable"].str.replace("_6_mo", "_X_mo")
+# results_table["Variable"] = results_table["Variable"].str.replace("_9_mo", "_X_mo")
+
+results_table["Estimate"] = results_table["Estimate"].astype(float)
+# results_table["p_value"] = results_table["p_value"].astype(float)
+results_table["Estimate"] = results_table["Estimate"].round(4)
+results_table["Estimate"] = results_table["Estimate"].astype(str)
+results_table["Estimate"] = results_table["Estimate"] + results_table["significance"]
+
+results_table.drop(columns="significance", inplace=True)
+results_table["Variable"].unique()
+
+var_order = [
+    "(Intercept)",
+    "consumption_pd",
+    "sex_id",
+    climate_var_interest,
+    "total_precipitation_prev_0_mo",
+    # "birth_year",
+]
+
+results_table["Variable"] = pd.Categorical(
+    results_table["Variable"], categories=var_order, ordered=True
+)
+
+results_table.sort_values(by=["Variable", "Time"], inplace=True)
+results_table_wide = results_table.pivot_table(
+    index=["Variable"], columns=["Time"], values="Estimate", aggfunc="first"
+)
+results_table_wide.reset_index(inplace=True)
+
+results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
+
+percent_data = len
+
+################################################################################
 
 ################################################################################
 
@@ -1739,6 +2968,8 @@ raw_data = raw_data.dropna(
 
 len(raw_data[(raw_data["age_month_original"] <= 60)]) / len(raw_data)
 len(raw_data[(raw_data["age_month_original"] <= 120)]) / len(raw_data)
+len(raw_data[(raw_data["age_month_original"] <= 180)]) / len(raw_data)
+
 
 plt.figure(figsize=(8, 6))
 plt.bar(

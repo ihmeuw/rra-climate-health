@@ -607,6 +607,8 @@ results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
 
 # 2. Make scatter plots with fit overlaying ####################################################
 
+# reload latest
+model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_q95_mgcv_summary.parquet")
 
 # get average child_mortality, consumption_pd, 'q95_prev_0_mo', s_consumption_pd_contribution,
 # s_consumption_pd_contribution_upper, s_consumption_pd_contribution_lower,
@@ -618,78 +620,24 @@ model_grouped_psu = (
             "child_mortality",
             "consumption_pd",
             "q95_prev_0_mo",
-            "s_consumption_pd_contribution",
-            "s_consumption_pd_contribution_upper",
-            "s_consumption_pd_contribution_lower",
-            "s_q95_prev_0_mo_contribution",
-            "s_q95_prev_0_mo_contribution_upper",
-            "s_q95_prev_0_mo_contribution_lower",
+            "pred_fixed_consumption",
+            "pred_fixed_q95",
         ]
     ]
     .mean()
     .reset_index()
 )
 
-model_grouped_psu["log_mortality"] = np.log(model_grouped_psu["child_mortality"] + 1e-6)
-model_grouped_psu["logit_mortality"] = np.log(
-    model_grouped_psu["child_mortality"]
-    / (1 - model_grouped_psu["child_mortality"] + 1e-6)
-)
-model_grouped_psu["log_s_consumption_pd_contribution"] = np.log(
-    model_grouped_psu["s_consumption_pd_contribution"] + 1e-6
-)
-model_grouped_psu["log_s_consumption_pd_contribution_upper"] = np.log(
-    model_grouped_psu["s_consumption_pd_contribution_upper"] + 1e-6
-)
-model_grouped_psu["log_s_consumption_pd_contribution_lower"] = np.log(
-    model_grouped_psu["s_consumption_pd_contribution_lower"] + 1e-6
-)
-model_grouped_psu["logit_s_consumption_pd_contribution"] = np.log(
-    model_grouped_psu["s_consumption_pd_contribution"]
-    / (1 - model_grouped_psu["s_consumption_pd_contribution"] + 1e-6)
-)
-model_grouped_psu["logit_s_consumption_pd_contribution_upper"] = np.log(
-    model_grouped_psu["s_consumption_pd_contribution_upper"]
-    / (1 - model_grouped_psu["s_consumption_pd_contribution_upper"] + 1e-6)
-)
-model_grouped_psu["logit_s_consumption_pd_contribution_lower"] = np.log(
-    model_grouped_psu["s_consumption_pd_contribution_lower"]
-    / (1 - model_grouped_psu["s_consumption_pd_contribution_lower"] + 1e-6)
-)
 
+# 1.a Plot q95 scatters without any data transformation
 
-model_grouped_psu["log_s_q95_prev_0_mo_contribution"] = np.log(
-    model_grouped_psu["s_q95_prev_0_mo_contribution"] + 1e-6
-)
-model_grouped_psu["log_s_q95_prev_0_mo_contribution_upper"] = np.log(
-    model_grouped_psu["s_q95_prev_0_mo_contribution_upper"] + 1e-6
-)
-model_grouped_psu["log_s_q95_prev_0_mo_contribution_lower"] = np.log(
-    model_grouped_psu["s_q95_prev_0_mo_contribution_lower"] + 1e-6
-)
-model_grouped_psu["logit_s_q95_prev_0_mo_contribution"] = np.log(
-    model_grouped_psu["s_q95_prev_0_mo_contribution"]
-    / (1 - model_grouped_psu["s_q95_prev_0_mo_contribution"] + 1e-6)
-)
-model_grouped_psu["logit_s_q95_prev_0_mo_contribution_upper"] = np.log(
-    model_grouped_psu["s_q95_prev_0_mo_contribution_upper"]
-    / (1 - model_grouped_psu["s_q95_prev_0_mo_contribution_upper"] + 1e-6)
-)
-model_grouped_psu["logit_s_q95_prev_0_mo_contribution_lower"] = np.log(
-    model_grouped_psu["s_q95_prev_0_mo_contribution_lower"]
-    / (1 - model_grouped_psu["s_q95_prev_0_mo_contribution_lower"] + 1e-6)
-)
-
-# Plot q95
-# Create the figure and axis
 fig, ax = plt.subplots(figsize=(10, 6))
 
 # Plot the density of data points using hist2d
 hist = ax.hist2d(
     model_grouped_psu["q95_prev_0_mo"],
     model_grouped_psu["child_mortality"],
-    bins=100,
-    cmap="Blues",
+    bins=60,
     norm=mcolors.LogNorm(),
 )
 
@@ -697,36 +645,142 @@ hist = ax.hist2d(
 cbar = plt.colorbar(hist[3], ax=ax)
 cbar.set_label("Density")
 
-# Overlay the line for s_q95_prev_0_mo_contribution
+# Overlay the red line for pred_fixed_consumption
 sorted_data = model_grouped_psu.sort_values("q95_prev_0_mo")
 ax.plot(
     sorted_data["q95_prev_0_mo"],
-    sorted_data["s_q95_prev_0_mo_contribution"],
+    sorted_data["pred_fixed_consumption"],
     color="red",
-    label="Spline Contribution",
+    label="Predictions holding all\nvars at avg except q95",
     linewidth=2,
 )
 
+# Set x-axis ticks to integers
+x_min = int(model_grouped_psu["q95_prev_0_mo"].min())
+x_max = int(model_grouped_psu["q95_prev_0_mo"].max())
+ax.set_xticks(range(x_min, x_max + 1))
+
 # Add labels, title, and legend
-ax.set_xlabel("q95_prev_0_mo", fontsize=12)
+ax.set_xlabel("Days over 95th Percentile during Birth Month", fontsize=12)
 ax.set_ylabel("Child Mortality", fontsize=12)
-ax.set_title("Child Mortality vs q95_prev_0_mo with Spline Contribution", fontsize=14)
+ax.set_title(
+    "Child Mortality vs Days over 95th Percentile (no transformation)", fontsize=14
+)
 ax.legend()
 
 # Show the plot
 plt.tight_layout()
 plt.show()
 
-# plot consumption
-# Create the figure and axis
+# 1.b log-transform child-mortality
+model_grouped_psu["log_mortality"] = np.log(model_grouped_psu["child_mortality"] + 1e-6)
+model_grouped_psu["log_pred_fixed_consumption"] = np.log(
+    model_grouped_psu["pred_fixed_consumption"] + 1e-6
+)
+
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+# Plot the density of data points using hist2d
+hist = ax.hist2d(
+    model_grouped_psu["q95_prev_0_mo"],
+    model_grouped_psu["log_mortality"],
+    bins=60,
+    norm=mcolors.LogNorm(),
+)
+
+# Add a colorbar to show density
+cbar = plt.colorbar(hist[3], ax=ax)
+cbar.set_label("Density")
+
+# Overlay the red line for pred_fixed_consumption
+sorted_data = model_grouped_psu.sort_values("q95_prev_0_mo")
+ax.plot(
+    sorted_data["q95_prev_0_mo"],
+    sorted_data["log_pred_fixed_consumption"],
+    color="red",
+    label="Log predictions holding all\nvars at avg except q95",
+    linewidth=2,
+)
+
+# Set x-axis ticks to integers
+x_min = int(model_grouped_psu["q95_prev_0_mo"].min())
+x_max = int(model_grouped_psu["q95_prev_0_mo"].max())
+ax.set_xticks(range(x_min, x_max + 1))
+
+# Add labels, title, and legend
+ax.set_xlabel("Days over 95th Percentile during Birth Month", fontsize=12)
+ax.set_ylabel("Log Child Mortality", fontsize=12)
+ax.set_title(
+    "Child Mortality vs Days over 95th Percentile (log-transformed)", fontsize=14
+)
+ax.legend()
+
+# Show the plot
+plt.tight_layout()
+plt.show()
+
+# 1.c logit-transform child-mortality
+model_grouped_psu["logit_mortality"] = np.log(
+    (model_grouped_psu["child_mortality"] + 1e-6)
+    / (1 - model_grouped_psu["child_mortality"] + 1e-6)
+)
+
+model_grouped_psu["logit_pred_fixed_consumption"] = np.log(
+    (model_grouped_psu["pred_fixed_consumption"] + 1e-6)
+    / (1 - model_grouped_psu["pred_fixed_consumption"] + 1e-6)
+)
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+# Plot the density of data points using hist2d
+hist = ax.hist2d(
+    model_grouped_psu["q95_prev_0_mo"],
+    model_grouped_psu["logit_mortality"],
+    bins=60,
+    norm=mcolors.LogNorm(),
+)
+
+# Overlay the red line for logit_pred_fixed_consumption
+sorted_data = model_grouped_psu.sort_values("q95_prev_0_mo")
+ax.plot(
+    sorted_data["q95_prev_0_mo"],
+    sorted_data["logit_pred_fixed_consumption"],
+    color="red",
+    label="Logit predictions holding all\nvars at avg except q95",
+    linewidth=2,
+)
+
+# Add a colorbar to show density
+cbar = plt.colorbar(hist[3], ax=ax)
+cbar.set_label("Density")
+
+# Set x-axis ticks to integers
+x_min = int(model_grouped_psu["q95_prev_0_mo"].min())
+x_max = int(model_grouped_psu["q95_prev_0_mo"].max())
+ax.set_xticks(range(x_min, x_max + 1))
+
+# Add labels, title, and legend
+ax.set_xlabel("Days over 95th Percentile during Birth Month", fontsize=12)
+ax.set_ylabel("Logit Child Mortality", fontsize=12)
+ax.set_title(
+    "Child Mortality vs Days over 95th Percentile (logit-transformed)", fontsize=14
+)
+ax.legend()
+
+# Show the plot
+plt.tight_layout()
+plt.show()
+
+# 2.a Plot consumption scatters without any data transformation
+
 fig, ax = plt.subplots(figsize=(10, 6))
 
 # Plot the density of data points using hist2d
 hist = ax.hist2d(
     model_grouped_psu["consumption_pd"],
     model_grouped_psu["child_mortality"],
-    bins=100,
-    cmap="Blues",
+    bins=60,
     norm=mcolors.LogNorm(),
 )
 
@@ -734,23 +788,79 @@ hist = ax.hist2d(
 cbar = plt.colorbar(hist[3], ax=ax)
 cbar.set_label("Density")
 
-# Overlay the line for s_consumption_pd_contribution
-sorted_data = model_grouped_psu.sort_values("consumption_pd")
+# Overlay the red line for pred_fixed_q95
+sorted_data = model_grouped_psu.sort_values("pred_fixed_q95")
 ax.plot(
     sorted_data["consumption_pd"],
-    sorted_data["s_consumption_pd_contribution"],
+    sorted_data["pred_fixed_q95"],
     color="red",
-    label="Spline Contribution",
+    label="Predictions holding all\nvars at avg except q95",
     linewidth=2,
 )
 
+
 # Add labels, title, and legend
-ax.set_xlabel("consumption_pd", fontsize=12)
+ax.set_xlabel("Consumption per day", fontsize=12)
 ax.set_ylabel("Child Mortality", fontsize=12)
-ax.set_title("Child Mortality vs consumption_pd with Spline Contribution", fontsize=14)
+ax.set_title("Child Mortality vs Consumption per day (no transformation)", fontsize=14)
 ax.legend()
 
 # Show the plot
 plt.tight_layout()
 plt.show()
+
+# 2.b log-transform child-mortality
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+# Plot the density of data points using hist2d
+hist = ax.hist2d(
+    model_grouped_psu["consumption_pd"],
+    model_grouped_psu["log_mortality"],
+    bins=60,
+    norm=mcolors.LogNorm(),
+)
+
+# Add a colorbar to show density
+cbar = plt.colorbar(hist[3], ax=ax)
+cbar.set_label("Density")
+
+
+# Add labels, title, and legend
+ax.set_xlabel("Consumption per day", fontsize=12)
+ax.set_ylabel("Log Child Mortality", fontsize=12)
+ax.set_title("Child Mortality vs Consumption per day (log-transformed)", fontsize=14)
+ax.legend()
+
+# Show the plot
+plt.tight_layout()
+plt.show()
+
+
+# 2.c logit-transform child-mortality
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+# Plot the density of data points using hist2d
+hist = ax.hist2d(
+    model_grouped_psu["consumption_pd"],
+    model_grouped_psu["logit_mortality"],
+    bins=60,
+    norm=mcolors.LogNorm(),
+)
+
+# Add a colorbar to show density
+cbar = plt.colorbar(hist[3], ax=ax)
+cbar.set_label("Density")
+
+# Add labels, title, and legend
+ax.set_xlabel("Consumption per day", fontsize=12)
+ax.set_ylabel("Logit Child Mortality", fontsize=12)
+ax.set_title("Child Mortality vs Consumption per day (logit-transformed)", fontsize=14)
+ax.legend()
+
+# Show the plot
+plt.tight_layout()
+plt.show()
+
 ################################################################################

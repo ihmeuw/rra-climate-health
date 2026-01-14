@@ -163,6 +163,7 @@ model <- scam(
 saveRDS(model, file = paste0(model_objects_dir, summary_file,".rds"))
 
 # Read model back in
+# summary_file <- "nnm_1_mo_q95_mgcv_summary"
 # model = readRDS(file = paste0(model_objects_dir, summary_file,".rds"))
 
 summary(model)
@@ -183,6 +184,25 @@ coefs$variable <- rownames(coefs)
 setDT(coefs)
 names(coefs) <- c("coefficient","variable")
 coefs <- coefs[,.(variable,coefficient)]
+
+loc_levels <- data.frame(ihme_loc_id = levels(df_model$ihme_loc_id))
+# Extract random effect terms from coefs
+random_effect_terms <- grep("^s\\(ihme_loc_id\\)", coefs$variable, value = TRUE)
+
+# Create a mapping of random effect terms to ihme_loc_id levels
+random_effect_mapping <- data.table(
+  variable = random_effect_terms,
+  ihme_loc_id = loc_levels$ihme_loc_id
+)
+
+# Replace random effect terms in coefs with corresponding ihme_loc_id levels
+coefs <- merge(coefs, random_effect_mapping, by = "variable", all.x = TRUE)
+
+# If the replacement is successful, update the variable column
+coefs[, variable := ifelse(!is.na(ihme_loc_id), ihme_loc_id, variable)]
+
+# Drop the temporary ihme_loc_id column
+coefs[, ihme_loc_id := NULL]
 
 write.table(
   coefs,
@@ -308,6 +328,29 @@ df_avg_psu[,s_consumption_pd_contribution_upper:=s_consumption_pd_contribution+1
 df_avg_psu[,s_consumption_pd_contribution_lower:=s_consumption_pd_contribution-1.96*s_consumption_pd_se]
 df_avg_psu[,s_q95_prev_0_mo_contribution_upper:=s_q95_prev_0_mo_contribution+1.96*s_q95_prev_0_mo_se]
 df_avg_psu[,s_q95_prev_0_mo_contribution_lower:=s_q95_prev_0_mo_contribution-1.96*s_q95_prev_0_mo_se]
+
+
+# make additional predictions trying to hold rest of other variables flat
+model <- scam(
+  child_mortality ~ s(consumption_pd, bs="mpd") +
+    s(q95_prev_0_mo, bs="mpi") +
+    total_precipitation_prev_0_mo +
+    sex_id +
+    birth_year +
+    s(ihme_loc_id, bs="re"),
+  data = df_model,
+  family = binomial(link = "logit")
+)
+
+df_fixed_consumption <- copy(df_avg)
+df_fixed_consumption[,consumption_pd := mean(df_avg$consumption_pd)]
+df_fixed_consumption[,ihme_loc_id:="UGA"]
+df_avg_psu$pred_fixed_consumption <- predict(model, newdata = df_fixed_consumption, type = "response", re.form = NA)
+
+df_fixed_q95 <- copy(df_avg)
+df_fixed_q95[,q95_prev_0_mo := mean(df_avg$q95_prev_0_mo)]
+df_fixed_q95[,ihme_loc_id:="UGA"]
+df_avg_psu$pred_fixed_q95 <- predict(model, newdata = df_fixed_q95, type = "response", re.form = NA)
 
 
 # # Save predictions to parquet
