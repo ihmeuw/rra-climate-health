@@ -331,26 +331,56 @@ df_avg_psu[,s_q95_prev_0_mo_contribution_lower:=s_q95_prev_0_mo_contribution-1.9
 
 
 # make additional predictions trying to hold rest of other variables flat
-model <- scam(
-  child_mortality ~ s(consumption_pd, bs="mpd") +
-    s(q95_prev_0_mo, bs="mpi") +
-    total_precipitation_prev_0_mo +
-    sex_id +
-    birth_year +
-    s(ihme_loc_id, bs="re"),
-  data = df_model,
-  family = binomial(link = "logit")
-)
 
 df_fixed_consumption <- copy(df_avg)
 df_fixed_consumption[,consumption_pd := mean(df_avg$consumption_pd)]
 df_fixed_consumption[,ihme_loc_id:="UGA"]
-df_avg_psu$pred_fixed_consumption <- predict(model, newdata = df_fixed_consumption, type = "response", re.form = NA)
+df_fixed_consumption <- df_fixed_consumption[,.(indv_id,
+                                                consumption_pd,
+                                                q95_prev_0_mo,
+                                                total_precipitation_prev_0_mo,
+                                                sex_id,
+                                                birth_year,
+                                                ihme_loc_id)]
+summary(df_fixed_consumption)
+# pred_fixed_consumption <- predict(model, newdata = df_fixed_consumption, type = "response", re.form = NA)
+df_fixed_consumption$pred_fixed_consumption <- predict(model, newdata = df_fixed_consumption, type = "response")
+
+df_avg_psu <- merge(df_avg_psu,df_fixed_consumption[,.(indv_id,pred_fixed_consumption)],by="indv_id")
+
+# sanity check
+df_q95_sc <- copy(df_avg_psu[,.(indv_id,q95_prev_0_mo,pred_fixed_consumption)])
+setorderv(df_q95_sc,cols="q95_prev_0_mo")
+all(diff(df_q95_sc$pred_fixed_consumption) >= 0) # TRUE
+
 
 df_fixed_q95 <- copy(df_avg)
 df_fixed_q95[,q95_prev_0_mo := mean(df_avg$q95_prev_0_mo)]
 df_fixed_q95[,ihme_loc_id:="UGA"]
-df_avg_psu$pred_fixed_q95 <- predict(model, newdata = df_fixed_q95, type = "response", re.form = NA)
+df_fixed_q95 <- df_fixed_q95[,.(indv_id,
+                                consumption_pd,
+                                q95_prev_0_mo,
+                                total_precipitation_prev_0_mo,
+                                sex_id,birth_year,
+                                ihme_loc_id)]
+summary(df_fixed_q95)
+
+df_fixed_q95$pred_fixed_q95 <- predict(model, newdata = df_fixed_q95, type = "response")
+
+df_avg_psu <- merge(df_avg_psu,df_fixed_q95[,.(indv_id,pred_fixed_q95)],by="indv_id")
+
+# sanity check
+df_consumption_sc <- copy(df_avg_psu[,.(indv_id,consumption_pd,pred_fixed_q95)])
+setorderv(df_consumption_sc,cols="consumption_pd")
+all(diff(df_consumption_sc$pred_fixed_q95) <= 0) # TRUE
+
+# 
+# df_fixed_q95$pred_fixed_q95 <- df_avg_psu$pred_fixed_q95
+# setorderv(df_fixed_q95,cols=c("consumption_pd"))
+# troubleshoot <- unique(df_fixed_q95[,.(indv_id,consumption_pd,pred_fixed_q95)])
+# head(troubleshoot)
+# tail(troubleshoot)
+# cor(troubleshoot$consumption_pd,troubleshoot$pred_fixed_q95)
 
 
 # # Save predictions to parquet
