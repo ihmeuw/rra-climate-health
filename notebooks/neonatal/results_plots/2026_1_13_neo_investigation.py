@@ -425,7 +425,7 @@ bin_col_dict = {
 
 
 # Create a PDF to save the plots
-pdf_path = os.path.join(PLOT_PATH, "neonatal_q95_scam.pdf")
+pdf_path = os.path.join(PLOT_PATH, "neonatal_q95_scam_v2.pdf")
 with PdfPages(pdf_path) as pdf:
     # Create a figure with 4 rows and 3 columns
     fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(15, 5), constrained_layout=True)
@@ -610,52 +610,31 @@ results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
 # reload latest
 model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_q95_mgcv_summary.parquet")
 
-troubleshoot = model1[["indv_id", "consumption_pd", "pred_fixed_q95"]]
-troubleshoot.sort_values(by=["consumption_pd"], inplace=True)
-assert troubleshoot[
-    "pred_fixed_q95"
-].is_monotonic_decreasing, "pred_fixed_q95 is not monotonic"
+# fixed consumption df (varying q95)
+df_q95_only = pd.read_parquet(
+    RESULTS_PATH + "predictions_fixed_consumption_nnm_1_mo_q95_mgcv_summary.parquet"
+)
 
+# fixed q95 df (varying consumption)
+df_consumption_only = pd.read_parquet(
+    RESULTS_PATH + "predictions_fixed_q95_nnm_1_mo_q95_mgcv_summary.parquet"
+)
 
-troubleshoot = model1[["indv_id", "q95_prev_0_mo", "pred_fixed_consumption"]]
-troubleshoot.sort_values(by=["q95_prev_0_mo"], inplace=True)
-assert troubleshoot[
-    "pred_fixed_consumption"
-].is_monotonic_increasing, "pred_fixed_consumption is not monotonic"
+# offset amount constant
+OFFSET = 1e-3
 
-
-# get average child_mortality, consumption_pd, 'q95_prev_0_mo', s_consumption_pd_contribution,
-# s_consumption_pd_contribution_upper, s_consumption_pd_contribution_lower,
-# s_q95_prev_0_mo_contribution, s_q95_prev_0_mo_contribution_upper, s_q95_prev_0_mo_contribution_lower
-# by psu
+# get average child_mortality, consumption_pd, 'q95_prev_0_mo'
 model_grouped_psu = (
     model1.groupby("psu")[
         [
             "child_mortality",
             "consumption_pd",
             "q95_prev_0_mo",
-            "pred_fixed_consumption",
-            "pred_fixed_q95",
         ]
     ]
     .mean()
     .reset_index()
 )
-
-troubleshoot = model_grouped_psu[["psu", "consumption_pd", "pred_fixed_q95"]]
-troubleshoot.sort_values(by=["consumption_pd"], inplace=True)
-assert troubleshoot[
-    "pred_fixed_q95"
-].is_monotonic_decreasing, "pred_fixed_q95 is not monotonic"
-
-
-# note that monotonicity is lost after averaging by psu
-troubleshoot = model1[["indv_id", "q95_prev_0_mo", "pred_fixed_consumption"]]
-troubleshoot.sort_values(by=["q95_prev_0_mo"], inplace=True)
-assert troubleshoot[
-    "pred_fixed_consumption"
-].is_monotonic_increasing, "pred_fixed_consumption is not monotonic"
-
 
 # 1.a Plot q95 scatters without any data transformation
 model_grouped_psu_q95 = model_grouped_psu.copy()
@@ -677,11 +656,21 @@ cbar.set_label("Density")
 
 # Overlay the red line for pred_fixed_consumption
 ax.plot(
-    model_grouped_psu_q95["q95_prev_0_mo"],
-    model_grouped_psu_q95["pred_fixed_consumption"],
+    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
+    df_q95_only.query("statistic=='mean_consumption_pd'")["pred_fixed_consumption"],
     color="red",
     label="Predictions holding all\nvars at avg except q95",
     linewidth=2,
+)
+
+# Add a lightly-shaded red band for lower and upper bounds
+ax.fill_between(
+    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
+    df_q95_only.query("statistic=='lower_consumption_pd'")["pred_fixed_consumption"],
+    df_q95_only.query("statistic=='upper_consumption_pd'")["pred_fixed_consumption"],
+    color="red",
+    alpha=0.2,  # Transparency for the shaded region
+    label="CI made with upper/lower consumption_pd",
 )
 
 # Set x-axis ticks to integers
@@ -703,10 +692,10 @@ plt.show()
 
 # 1.b log-transform child-mortality
 model_grouped_psu_q95["log_mortality"] = np.log(
-    model_grouped_psu_q95["child_mortality"] + 1e-6
+    model_grouped_psu_q95["child_mortality"] + OFFSET
 )
-model_grouped_psu_q95["log_pred_fixed_consumption"] = np.log(
-    model_grouped_psu_q95["pred_fixed_consumption"] + 1e-6
+df_q95_only["log_pred_fixed_consumption"] = np.log(
+    df_q95_only["pred_fixed_consumption"] + OFFSET
 )
 
 
@@ -726,11 +715,26 @@ cbar.set_label("Density")
 
 # Overlay the red line for pred_fixed_consumption
 ax.plot(
-    model_grouped_psu_q95["q95_prev_0_mo"],
-    model_grouped_psu_q95["log_pred_fixed_consumption"],
+    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
+    df_q95_only.query("statistic=='mean_consumption_pd'")["log_pred_fixed_consumption"],
     color="red",
     label="Log predictions holding all\nvars at avg except q95",
     linewidth=2,
+)
+
+
+# Add a lightly-shaded red band for lower and upper bounds
+ax.fill_between(
+    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
+    df_q95_only.query("statistic=='lower_consumption_pd'")[
+        "log_pred_fixed_consumption"
+    ],
+    df_q95_only.query("statistic=='upper_consumption_pd'")[
+        "log_pred_fixed_consumption"
+    ],
+    color="red",
+    alpha=0.2,  # Transparency for the shaded region
+    label="CI made with upper/lower consumption_pd",
 )
 
 # Set x-axis ticks to integers
@@ -752,13 +756,13 @@ plt.show()
 
 # 1.c logit-transform child-mortality
 model_grouped_psu_q95["logit_mortality"] = np.log(
-    (model_grouped_psu_q95["child_mortality"] + 1e-6)
-    / (1 - model_grouped_psu_q95["child_mortality"] + 1e-6)
+    (model_grouped_psu_q95["child_mortality"] + OFFSET)
+    / (1 - model_grouped_psu_q95["child_mortality"] + OFFSET)
 )
 
-model_grouped_psu_q95["logit_pred_fixed_consumption"] = np.log(
-    (model_grouped_psu_q95["pred_fixed_consumption"] + 1e-6)
-    / (1 - model_grouped_psu_q95["pred_fixed_consumption"] + 1e-6)
+df_q95_only["logit_pred_fixed_consumption"] = np.log(
+    (df_q95_only["pred_fixed_consumption"] + OFFSET)
+    / (1 - df_q95_only["pred_fixed_consumption"] + OFFSET)
 )
 
 fig, ax = plt.subplots(figsize=(10, 6))
@@ -773,11 +777,27 @@ hist = ax.hist2d(
 
 # Overlay the red line for logit_pred_fixed_consumption
 ax.plot(
-    model_grouped_psu_q95["q95_prev_0_mo"],
-    model_grouped_psu_q95["logit_pred_fixed_consumption"],
+    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
+    df_q95_only.query("statistic=='mean_consumption_pd'")[
+        "logit_pred_fixed_consumption"
+    ],
     color="red",
     label="Logit predictions holding all\nvars at avg except q95",
     linewidth=2,
+)
+
+# Add a lightly-shaded red band for lower and upper bounds
+ax.fill_between(
+    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
+    df_q95_only.query("statistic=='lower_consumption_pd'")[
+        "logit_pred_fixed_consumption"
+    ],
+    df_q95_only.query("statistic=='upper_consumption_pd'")[
+        "logit_pred_fixed_consumption"
+    ],
+    color="red",
+    alpha=0.2,  # Transparency for the shaded region
+    label="CI made with upper/lower consumption_pd",
 )
 
 # Add a colorbar to show density
@@ -804,9 +824,6 @@ plt.show()
 # 2.a Plot consumption scatters without any data transformation
 model_grouped_psu_consumption = model_grouped_psu.copy()
 model_grouped_psu_consumption.sort_values("consumption_pd", inplace=True)
-assert model_grouped_psu_consumption[
-    "pred_fixed_q95"
-].is_monotonic_decreasing, "pred_fixed_q95 is not monotonic"
 
 fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -824,13 +841,23 @@ cbar.set_label("Density")
 
 # Overlay the red line for pred_fixed_q95
 ax.plot(
-    model_grouped_psu_consumption["consumption_pd"],
-    model_grouped_psu_consumption["pred_fixed_q95"],
+    df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
+    df_consumption_only.query("statistic=='mean_q95'")["pred_fixed_q95"],
     color="red",
     label="Predictions holding all\nvars at avg except consumption",
     linewidth=2,
 )
 
+
+# Add a lightly-shaded red band for lower and upper bounds
+ax.fill_between(
+    df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
+    df_consumption_only.query("statistic=='lower_q95'")["pred_fixed_q95"],
+    df_consumption_only.query("statistic=='upper_q95'")["pred_fixed_q95"],
+    color="red",
+    alpha=0.2,  # Transparency for the shaded region
+    label="CI made with upper/lower q95",
+)
 
 # Add labels, title, and legend
 ax.set_xlabel("Consumption per day", fontsize=12)
@@ -844,10 +871,10 @@ plt.show()
 
 # 2.b log-transform child-mortality
 model_grouped_psu_consumption["log_mortality"] = np.log(
-    model_grouped_psu_consumption["child_mortality"] + 1e-6
+    model_grouped_psu_consumption["child_mortality"] + OFFSET
 )
-model_grouped_psu_consumption["log_pred_fixed_q95"] = np.log(
-    model_grouped_psu_consumption["pred_fixed_q95"] + 1e-6
+df_consumption_only["log_pred_fixed_q95"] = np.log(
+    df_consumption_only["pred_fixed_q95"] + OFFSET
 )
 
 fig, ax = plt.subplots(figsize=(10, 6))
@@ -867,11 +894,21 @@ cbar.set_label("Density")
 
 # Overlay the red line for log_pred_fixed_q95
 ax.plot(
-    model_grouped_psu_consumption["consumption_pd"],
-    model_grouped_psu_consumption["log_pred_fixed_q95"],
+    df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
+    df_consumption_only.query("statistic=='mean_q95'")["log_pred_fixed_q95"],
     color="red",
     label="Log predictions holding all\nvars at avg except consumption",
     linewidth=2,
+)
+
+# Add a lightly-shaded red band for lower and upper bounds
+ax.fill_between(
+    df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
+    df_consumption_only.query("statistic=='lower_q95'")["log_pred_fixed_q95"],
+    df_consumption_only.query("statistic=='upper_q95'")["log_pred_fixed_q95"],
+    color="red",
+    alpha=0.2,  # Transparency for the shaded region
+    label="CI made with upper/lower q95",
 )
 
 # Add labels, title, and legend
@@ -887,12 +924,12 @@ plt.show()
 
 # 2.c logit-transform child-mortality
 model_grouped_psu_consumption["logit_mortality"] = np.log(
-    (model_grouped_psu_consumption["child_mortality"] + 1e-6)
-    / (1 - model_grouped_psu_consumption["child_mortality"] + 1e-6)
+    (model_grouped_psu_consumption["child_mortality"] + OFFSET)
+    / (1 - model_grouped_psu_consumption["child_mortality"] + OFFSET)
 )
-model_grouped_psu_consumption["logit_pred_fixed_q95"] = np.log(
-    (model_grouped_psu_consumption["pred_fixed_q95"] + 1e-6)
-    / (1 - model_grouped_psu_consumption["pred_fixed_q95"] + 1e-6)
+df_consumption_only["logit_pred_fixed_q95"] = np.log(
+    (df_consumption_only["pred_fixed_q95"] + OFFSET)
+    / (1 - df_consumption_only["pred_fixed_q95"] + OFFSET)
 )
 
 fig, ax = plt.subplots(figsize=(10, 6))
@@ -910,11 +947,21 @@ cbar = plt.colorbar(hist[3], ax=ax)
 cbar.set_label("Density")
 
 ax.plot(
-    model_grouped_psu_consumption["consumption_pd"],
-    model_grouped_psu_consumption["logit_pred_fixed_q95"],
+    df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
+    df_consumption_only.query("statistic=='mean_q95'")["logit_pred_fixed_q95"],
     color="red",
     label="Logit predictions holding all\nvars at avg except consumption",
     linewidth=2,
+)
+
+# Add a lightly-shaded red band for lower and upper bounds
+ax.fill_between(
+    df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
+    df_consumption_only.query("statistic=='lower_q95'")["logit_pred_fixed_q95"],
+    df_consumption_only.query("statistic=='upper_q95'")["logit_pred_fixed_q95"],
+    color="red",
+    alpha=0.2,  # Transparency for the shaded region
+    label="CI made with upper/lower q95",
 )
 
 # Add labels, title, and legend
@@ -926,10 +973,113 @@ ax.legend()
 # Show the plot
 plt.tight_layout()
 
+# Save to logged versions to PDF for presentation
+# Save to PDF
+# Define the PDF path
+pdf_path = os.path.join(PLOT_PATH, "scam_plots_logged.pdf")
+
+# Open a PDF to save the plots
+with PdfPages(pdf_path) as pdf:
+    # Create a figure with 1 rows and 2 columns
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(12, 6), constrained_layout=True)
+
+    # Plot 1.b (Log-transformed Mortality)
+    ax = axes[0]
+    model_grouped_psu_q95["log_mortality"] = np.log(
+        model_grouped_psu_q95["child_mortality"] + OFFSET
+    )
+    df_q95_only["log_pred_fixed_consumption"] = np.log(
+        df_q95_only["pred_fixed_consumption"] + OFFSET
+    )
+    hist = ax.hist2d(
+        model_grouped_psu_q95["q95_prev_0_mo"],
+        model_grouped_psu_q95["log_mortality"],
+        bins=60,
+        norm=mcolors.LogNorm(),
+    )
+    cbar = plt.colorbar(hist[3], ax=ax)
+    cbar.set_label("Density")
+    # Overlay the red line for pred_fixed_consumption
+    ax.plot(
+        df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
+        df_q95_only.query("statistic=='mean_consumption_pd'")[
+            "log_pred_fixed_consumption"
+        ],
+        color="red",
+        label="Log predictions holding all\nvars at avg except q95",
+        linewidth=2,
+    )
+
+    # Add a lightly-shaded red band for lower and upper bounds
+    ax.fill_between(
+        df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
+        df_q95_only.query("statistic=='lower_consumption_pd'")[
+            "log_pred_fixed_consumption"
+        ],
+        df_q95_only.query("statistic=='upper_consumption_pd'")[
+            "log_pred_fixed_consumption"
+        ],
+        color="red",
+        alpha=0.2,  # Transparency for the shaded region
+        label="CI made with upper/lower consumption_pd",
+    )
+
+    ax.set_xlabel("Days over 95th Percentile during Birth Month", fontsize=12)
+    ax.set_ylabel("Log Mortality", fontsize=12)
+    ax.set_title(
+        "Marginal Effect of Days over 95th Percentile",
+        fontsize=14,
+    )
+    ax.legend(loc="lower right")
+
+    # Plot 2.b (Log-transformed Mortality)
+    ax = axes[1]
+    model_grouped_psu_consumption["log_mortality"] = np.log(
+        model_grouped_psu_consumption["child_mortality"] + OFFSET
+    )
+    df_consumption_only["log_pred_fixed_q95"] = np.log(
+        df_consumption_only["pred_fixed_q95"] + OFFSET
+    )
+    hist = ax.hist2d(
+        model_grouped_psu_consumption["consumption_pd"],
+        model_grouped_psu_consumption["log_mortality"],
+        bins=60,
+        norm=mcolors.LogNorm(),
+    )
+    cbar = plt.colorbar(hist[3], ax=ax)
+    cbar.set_label("Density")
+    # Overlay the red line for log_pred_fixed_q95
+    ax.plot(
+        df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
+        df_consumption_only.query("statistic=='mean_q95'")["log_pred_fixed_q95"],
+        color="red",
+        label="Log predictions holding all\nvars at avg except consumption",
+        linewidth=2,
+    )
+
+    # Add a lightly-shaded red band for lower and upper bounds
+    ax.fill_between(
+        df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
+        df_consumption_only.query("statistic=='lower_q95'")["log_pred_fixed_q95"],
+        df_consumption_only.query("statistic=='upper_q95'")["log_pred_fixed_q95"],
+        color="red",
+        alpha=0.2,  # Transparency for the shaded region
+        label="CI made with upper/lower q95",
+    )
+    ax.set_xlabel("Consumption per day", fontsize=12)
+    ax.set_ylabel("Log Mortality", fontsize=12)
+    ax.set_title("Marginal Effect of Consumption per Day", fontsize=14)
+    ax.legend(loc="lower right")
+
+    # Save the figure to the PDF
+    pdf.savefig(fig)
+    plt.close(fig)
+
+print(f"PDF saved to {pdf_path}")
 
 # Save to PDF
 # Define the PDF path
-pdf_path = os.path.join(PLOT_PATH, "scam_plots_combined_v1.pdf")
+pdf_path = os.path.join(PLOT_PATH, "scam_plots_combined_v2.pdf")
 
 # Open a PDF to save the plots
 with PdfPages(pdf_path) as pdf:
@@ -951,8 +1101,8 @@ with PdfPages(pdf_path) as pdf:
     cbar = plt.colorbar(hist[3], ax=ax)
     cbar.set_label("Density")
     ax.plot(
-        model_grouped_psu_q95["q95_prev_0_mo"],
-        model_grouped_psu_q95["pred_fixed_consumption"],
+        df_q95_only["q95_prev_0_mo"],
+        df_q95_only["pred_fixed_consumption"],
         color="red",
         label="Predictions holding all\nvars at avg except q95",
         linewidth=2,
@@ -968,10 +1118,10 @@ with PdfPages(pdf_path) as pdf:
     # Plot 1.b (Log-transformed Mortality)
     ax = axes[1, 0]
     model_grouped_psu_q95["log_mortality"] = np.log(
-        model_grouped_psu_q95["child_mortality"] + 1e-6
+        model_grouped_psu_q95["child_mortality"] + OFFSET
     )
-    model_grouped_psu_q95["log_pred_fixed_consumption"] = np.log(
-        model_grouped_psu_q95["pred_fixed_consumption"] + 1e-6
+    df_q95_only["log_pred_fixed_consumption"] = np.log(
+        df_q95_only["pred_fixed_consumption"] + OFFSET
     )
     hist = ax.hist2d(
         model_grouped_psu_q95["q95_prev_0_mo"],
@@ -982,8 +1132,8 @@ with PdfPages(pdf_path) as pdf:
     cbar = plt.colorbar(hist[3], ax=ax)
     cbar.set_label("Density")
     ax.plot(
-        model_grouped_psu_q95["q95_prev_0_mo"],
-        model_grouped_psu_q95["log_pred_fixed_consumption"],
+        df_q95_only["q95_prev_0_mo"],
+        df_q95_only["log_pred_fixed_consumption"],
         color="red",
         label="Log predictions holding all\nvars at avg except q95",
         linewidth=2,
@@ -996,12 +1146,12 @@ with PdfPages(pdf_path) as pdf:
     # Plot 1.c (Logit-transformed Mortality)
     ax = axes[2, 0]
     model_grouped_psu_q95["logit_mortality"] = np.log(
-        (model_grouped_psu_q95["child_mortality"] + 1e-6)
-        / (1 - model_grouped_psu_q95["child_mortality"] + 1e-6)
+        (model_grouped_psu_q95["child_mortality"] + OFFSET)
+        / (1 - model_grouped_psu_q95["child_mortality"] + OFFSET)
     )
-    model_grouped_psu_q95["logit_pred_fixed_consumption"] = np.log(
-        (model_grouped_psu_q95["pred_fixed_consumption"] + 1e-6)
-        / (1 - model_grouped_psu_q95["pred_fixed_consumption"] + 1e-6)
+    df_q95_only["logit_pred_fixed_consumption"] = np.log(
+        (df_q95_only["pred_fixed_consumption"] + OFFSET)
+        / (1 - df_q95_only["pred_fixed_consumption"] + OFFSET)
     )
     hist = ax.hist2d(
         model_grouped_psu_q95["q95_prev_0_mo"],
@@ -1012,8 +1162,8 @@ with PdfPages(pdf_path) as pdf:
     cbar = plt.colorbar(hist[3], ax=ax)
     cbar.set_label("Density")
     ax.plot(
-        model_grouped_psu_q95["q95_prev_0_mo"],
-        model_grouped_psu_q95["logit_pred_fixed_consumption"],
+        df_q95_only["q95_prev_0_mo"],
+        df_q95_only["logit_pred_fixed_consumption"],
         color="red",
         label="Logit predictions holding all\nvars at avg except q95",
         linewidth=2,
@@ -1036,8 +1186,8 @@ with PdfPages(pdf_path) as pdf:
     cbar = plt.colorbar(hist[3], ax=ax)
     cbar.set_label("Density")
     ax.plot(
-        model_grouped_psu_consumption["consumption_pd"],
-        model_grouped_psu_consumption["pred_fixed_q95"],
+        df_consumption_only["consumption_pd"],
+        df_consumption_only["pred_fixed_q95"],
         color="red",
         label="Predictions holding all\nvars at avg except consumption",
         linewidth=2,
@@ -1052,10 +1202,10 @@ with PdfPages(pdf_path) as pdf:
     # Plot 2.b (Log-transformed Mortality)
     ax = axes[1, 1]
     model_grouped_psu_consumption["log_mortality"] = np.log(
-        model_grouped_psu_consumption["child_mortality"] + 1e-6
+        model_grouped_psu_consumption["child_mortality"] + OFFSET
     )
-    model_grouped_psu_consumption["log_pred_fixed_q95"] = np.log(
-        model_grouped_psu_consumption["pred_fixed_q95"] + 1e-6
+    df_consumption_only["log_pred_fixed_q95"] = np.log(
+        df_consumption_only["pred_fixed_q95"] + OFFSET
     )
     hist = ax.hist2d(
         model_grouped_psu_consumption["consumption_pd"],
@@ -1066,8 +1216,8 @@ with PdfPages(pdf_path) as pdf:
     cbar = plt.colorbar(hist[3], ax=ax)
     cbar.set_label("Density")
     ax.plot(
-        model_grouped_psu_consumption["consumption_pd"],
-        model_grouped_psu_consumption["log_pred_fixed_q95"],
+        df_consumption_only["consumption_pd"],
+        df_consumption_only["log_pred_fixed_q95"],
         color="red",
         label="Log predictions holding all\nvars at avg except consumption",
         linewidth=2,
@@ -1080,12 +1230,12 @@ with PdfPages(pdf_path) as pdf:
     # Plot 2.c (Logit-transformed Mortality)
     ax = axes[2, 1]
     model_grouped_psu_consumption["logit_mortality"] = np.log(
-        (model_grouped_psu_consumption["child_mortality"] + 1e-6)
-        / (1 - model_grouped_psu_consumption["child_mortality"] + 1e-6)
+        (model_grouped_psu_consumption["child_mortality"] + OFFSET)
+        / (1 - model_grouped_psu_consumption["child_mortality"] + OFFSET)
     )
-    model_grouped_psu_consumption["logit_pred_fixed_q95"] = np.log(
-        (model_grouped_psu_consumption["pred_fixed_q95"] + 1e-6)
-        / (1 - model_grouped_psu_consumption["pred_fixed_q95"] + 1e-6)
+    df_consumption_only["logit_pred_fixed_q95"] = np.log(
+        (df_consumption_only["pred_fixed_q95"] + OFFSET)
+        / (1 - df_consumption_only["pred_fixed_q95"] + OFFSET)
     )
     hist = ax.hist2d(
         model_grouped_psu_consumption["consumption_pd"],
@@ -1096,8 +1246,8 @@ with PdfPages(pdf_path) as pdf:
     cbar = plt.colorbar(hist[3], ax=ax)
     cbar.set_label("Density")
     ax.plot(
-        model_grouped_psu_consumption["consumption_pd"],
-        model_grouped_psu_consumption["logit_pred_fixed_q95"],
+        df_consumption_only["consumption_pd"],
+        df_consumption_only["logit_pred_fixed_q95"],
         color="red",
         label="Logit predictions holding all\nvars at avg except consumption",
         linewidth=2,

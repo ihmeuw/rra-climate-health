@@ -1387,7 +1387,7 @@ with PdfPages(pdf_path) as pdf:
 print(f"PDF saved to {pdf_path}")
 
 # make table of summaries
-coef_file_name = "neonatal_do30_cutoff_coefs.csv"
+coef_file_name = "neonatal_do30_15_yrcutoff_coefs.csv"
 
 SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
 
@@ -1413,7 +1413,7 @@ f = 'nnm_9_mo_q95_ly_summary.txt'
 
 summaries = [f for f in os.listdir(SUMMARY_DIR) if f.endswith(".txt")]
 # only look at q9
-summaries = [f for f in summaries if "_do30_5yr_cutoff_summary" in f]
+summaries = [f for f in summaries if "_do30_15yr_cutoff_summary" in f]
 print(summaries)
 
 results_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
