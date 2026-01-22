@@ -42,7 +42,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- paste0("nnm_1_mo_q95_scam_summary")
+summary_file <- paste0("nnm_1_mo_do30_scam_summary")
 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_data.parquet"
@@ -83,23 +83,23 @@ climate_vars <- c(
   # "days_over_30C",
   # "days_over_26C",
   # "any_days_over_30C",
-  # "days_over_30C_prev_0_mo",
+  "days_over_30C_prev_0_mo",
   # "days_over_30C_prev_3_mo_avg",
   # "days_over_30C_prev_6_mo_avg",
   # "days_over_30C_prev_9_mo_avg",
-  'q9_prev_0_mo',
-  'q95_prev_0_mo',
-  'q9_prev_3_mo_avg',
-  'q9_prev_6_mo_avg',
-  'q9_prev_9_mo_avg',
-  'q95_prev_3_mo_avg',
-  'q95_prev_6_mo_avg',
-  'q95_prev_9_mo_avg',
-  'zone',
-  "total_precipitation_prev_0_mo",
-  "total_precipitation_prev_3_mo_avg",
-  "total_precipitation_prev_6_mo_avg",
-  "total_precipitation_prev_9_mo_avg"
+  # 'q9_prev_0_mo',
+  # 'q95_prev_0_mo',
+  # 'q9_prev_3_mo_avg',
+  # 'q9_prev_6_mo_avg',
+  # 'q9_prev_9_mo_avg',
+  # 'q95_prev_3_mo_avg',
+  # 'q95_prev_6_mo_avg',
+  # 'q95_prev_9_mo_avg',
+  # 'zone',
+  "total_precipitation_prev_0_mo"
+  # "total_precipitation_prev_3_mo_avg",
+  # "total_precipitation_prev_6_mo_avg",
+  # "total_precipitation_prev_9_mo_avg"
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year", climate_vars)
 df_model <- neo_df[, ..cols]
@@ -150,7 +150,7 @@ df_model <- na.omit(df_model)
 
 model <- scam(
   child_mortality ~ s(consumption_pd, bs="mpd") +
-    s(q95_prev_0_mo, bs="mpi") +
+    s(days_over_30C_prev_0_mo, bs="mpi") +
     total_precipitation_prev_0_mo +
     sex_id +
     birth_year +
@@ -200,6 +200,7 @@ coefs <- merge(coefs, random_effect_mapping, by = "variable", all.x = TRUE)
 
 # If the replacement is successful, update the variable column
 coefs[, variable := ifelse(!is.na(ihme_loc_id), ihme_loc_id, variable)]
+
 
 # Drop the temporary ihme_loc_id column
 coefs[, ihme_loc_id := NULL]
@@ -270,22 +271,10 @@ write.table(
 #==============================================================================
 
 df_avg <- copy(df_model)
-# 
-# # Extract levels for a specific factor
-# birth_year_levels <- levels(model@frame$birth_year)
-# ihme_loc_id_levels <- levels(model@frame$ihme_loc_id)
-# 
-# df_avg$birth_year <- factor(df_avg$birth_year, levels = birth_year_levels)
-# df_avg$ihme_loc_id <- factor(df_avg$ihme_loc_id, levels = ihme_loc_id_levels)
-# 
-# # remove any NAs imposed from above step (could be because some years didn't make it in the subset)
-# # df_avg <- df_avg[!is.na(birth_year)] # should not be a problem on full data
-# 
-# # # Predict WITH random effects (mixed effects) - not sure if this is correct for scam package
 
 df_avg$pred_me <- predict(model, newdata = df_avg, type = "response", re.form = NULL)
 
-# 
+
 # # # override existing variables to be able to use predict function from package
 df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0),
                               levels = levels(df_model$birth_year))]
@@ -294,20 +283,19 @@ df_avg[,sex_id:= mean(df_avg$sex_id)]
 
 df_avg[,total_precipitation_prev_0_mo:= mean(df_avg$total_precipitation_prev_0_mo)]
 
-# # Predict WITHOUT random effects (fixed effects only)
+# Predict WITHOUT random effects (fixed effects only)
 
-# 
+
 df_avg_fixed_loc <- copy(df_avg)
-df_avg_fixed_loc[,ihme_loc_id:="UGA"]
+df_avg_fixed_loc[,ihme_loc_id:="CAF"]
 df_avg_fixed_loc <- df_avg_fixed_loc[,.(indv_id,
-                                                consumption_pd,
-                                                q95_prev_0_mo,
-                                                total_precipitation_prev_0_mo,
-                                                sex_id,
-                                                birth_year,
-                                                ihme_loc_id)]
+                                        consumption_pd,
+                                        days_over_30C_prev_0_mo,
+                                        total_precipitation_prev_0_mo,
+                                        sex_id,
+                                        birth_year,
+                                        ihme_loc_id)]
 summary(df_avg_fixed_loc)
-# pred_fixed_consumption <- predict(model, newdata = df_fixed_consumption, type = "response", re.form = NA)
 df_avg_fixed_loc$pred_fe <- predict(model, newdata = df_avg_fixed_loc, type = "response")
 
 df_avg <- merge(df_avg,df_avg_fixed_loc[,.(indv_id,pred_fe)],by="indv_id")
@@ -333,18 +321,18 @@ df_avg_psu <- merge(df_avg,psu,by="indv_id")
 
 setnames(df_avg_psu,
          old=c("s(consumption_pd)_contribution",
-               "s(q95_prev_0_mo)_contribution",
+               "s(days_over_30C_prev_0_mo)_contribution",
                "s(consumption_pd)_se",
-               "s(q95_prev_0_mo)_se"),
+               "s(days_over_30C_prev_0_mo)_se"),
          new=c("s_consumption_pd_contribution",
-               "s_q95_prev_0_mo_contribution",
+               "s_days_over_30C_contribution",
                "s_consumption_pd_se",
-               "s_q95_prev_0_mo_se"))
+               "s_days_over_30C_se"))
 
 df_avg_psu[,s_consumption_pd_contribution_upper:=s_consumption_pd_contribution+1.96*s_consumption_pd_se]
 df_avg_psu[,s_consumption_pd_contribution_lower:=s_consumption_pd_contribution-1.96*s_consumption_pd_se]
-df_avg_psu[,s_q95_prev_0_mo_contribution_upper:=s_q95_prev_0_mo_contribution+1.96*s_q95_prev_0_mo_se]
-df_avg_psu[,s_q95_prev_0_mo_contribution_lower:=s_q95_prev_0_mo_contribution-1.96*s_q95_prev_0_mo_se]
+df_avg_psu[,s_days_over_30C_contribution_upper:=s_days_over_30C_contribution+1.96*s_days_over_30C_se]
+df_avg_psu[,s_days_over_30C_contribution_lower:=s_days_over_30C_contribution-1.96*s_days_over_30C_se]
 
 
 # make additional predictions trying to hold rest of other variables flat
@@ -353,55 +341,55 @@ df_avg_psu[,s_q95_prev_0_mo_contribution_lower:=s_q95_prev_0_mo_contribution-1.9
 # # Save predictions to parquet
 write_parquet(df_avg_psu, paste0(results_dir, "predictions_", summary_file, ".parquet"))
 
-# make synthetic data sets that are smaller but for the purpose of plotting 
+# make synthetic data sets that are smaller but for the purpose of plotting
 # marginal effects for q95 and consumption
 
 df_fixed_consumption <- copy(df_avg)
 df_fixed_consumption[,consumption_pd := mean(df_avg$consumption_pd)]
-df_fixed_consumption[,ihme_loc_id:="UGA"]
+df_fixed_consumption[,ihme_loc_id:="CAF"]
 df_fixed_consumption <- df_fixed_consumption[,.(consumption_pd,
-                                                q95_prev_0_mo,
+                                                days_over_30C_prev_0_mo,
                                                 total_precipitation_prev_0_mo,
                                                 sex_id,
                                                 birth_year,
                                                 ihme_loc_id)]
 summary(df_fixed_consumption)
-range(df_fixed_consumption$q95_prev_0_mo) #[1]  0 31
-q95_prev_0_mo_range <- seq(min(df_fixed_consumption$q95_prev_0_mo),max(df_fixed_consumption$q95_prev_0_mo),0.1)
-df_fixed_consumption$q95_prev_0_mo <- NULL
-df_fixed_consumption <- df_fixed_consumption[0:length(q95_prev_0_mo_range)]
-df_fixed_consumption[,q95_prev_0_mo:=q95_prev_0_mo_range]
+range(df_fixed_consumption$days_over_30C_prev_0_mo) #[1]  0 31
+days_over_30C_range <- seq(min(df_fixed_consumption$days_over_30C_prev_0_mo),max(df_fixed_consumption$days_over_30C_prev_0_mo),0.1)
+df_fixed_consumption$days_over_30C_prev_0_mo <- NULL
+df_fixed_consumption <- df_fixed_consumption[0:length(days_over_30C_range)]
+df_fixed_consumption[,days_over_30C_prev_0_mo:=days_over_30C_range]
 df_fixed_consumption[,statistic := "mean_consumption_pd"]
 
 # repeat for upper and lower consumption_pd
 df_fixed_consumption_upper <- copy(df_avg)
 df_fixed_consumption_upper[,consumption_pd := min(mean(df_avg$consumption_pd)+1.96*sd(df_avg$consumption_pd),max(df_avg$consumption_pd))]
-df_fixed_consumption_upper[,ihme_loc_id:="UGA"]
+df_fixed_consumption_upper[,ihme_loc_id:="CAF"]
 df_fixed_consumption_upper <- df_fixed_consumption_upper[,.(consumption_pd,
-                                                q95_prev_0_mo,
+                                                            days_over_30C_prev_0_mo,
                                                 total_precipitation_prev_0_mo,
                                                 sex_id,
                                                 birth_year,
                                                 ihme_loc_id)]
 
-df_fixed_consumption_upper$q95_prev_0_mo <- NULL
-df_fixed_consumption_upper <- df_fixed_consumption_upper[0:length(q95_prev_0_mo_range)]
-df_fixed_consumption_upper[,q95_prev_0_mo:=q95_prev_0_mo_range]
+df_fixed_consumption_upper$days_over_30C_prev_0_mo <- NULL
+df_fixed_consumption_upper <- df_fixed_consumption_upper[0:length(days_over_30C_range)]
+df_fixed_consumption_upper[,days_over_30C_prev_0_mo:=days_over_30C_range]
 df_fixed_consumption_upper[,statistic := "upper_consumption_pd"]
 
 df_fixed_consumption_lower <- copy(df_avg)
 df_fixed_consumption_lower[,consumption_pd := max(mean(df_avg$consumption_pd)-1.96*sd(df_avg$consumption_pd),min(df_avg$consumption_pd))]
-df_fixed_consumption_lower[,ihme_loc_id:="UGA"]
+df_fixed_consumption_lower[,ihme_loc_id:="CAF"]
 df_fixed_consumption_lower <- df_fixed_consumption_lower[,.(consumption_pd,
-                                                            q95_prev_0_mo,
+                                                            days_over_30C_prev_0_mo,
                                                             total_precipitation_prev_0_mo,
                                                             sex_id,
                                                             birth_year,
                                                             ihme_loc_id)]
 
-df_fixed_consumption_lower$q95_prev_0_mo <- NULL
-df_fixed_consumption_lower <- df_fixed_consumption_lower[0:length(q95_prev_0_mo_range)]
-df_fixed_consumption_lower[,q95_prev_0_mo:=q95_prev_0_mo_range]
+df_fixed_consumption_lower$days_over_30C_prev_0_mo <- NULL
+df_fixed_consumption_lower <- df_fixed_consumption_lower[0:length(days_over_30C_range)]
+df_fixed_consumption_lower[,days_over_30C_prev_0_mo:=days_over_30C_range]
 df_fixed_consumption_lower[,statistic := "lower_consumption_pd"]
 
 df_fixed_consumption <- rbind(df_fixed_consumption,df_fixed_consumption_lower,df_fixed_consumption_upper)
@@ -416,64 +404,66 @@ all(diff(df_fixed_consumption$pred_fixed_consumption) >= 0) # TRUE
 write_parquet(df_fixed_consumption, paste0(results_dir, "predictions_fixed_consumption_", summary_file, ".parquet"))
 paste0(results_dir, "predictions_fixed_consumption_", summary_file, ".parquet")
 
-# Repeat by fixing q95
-df_fixed_q95 <- copy(df_avg)
-df_fixed_q95[,q95_prev_0_mo := mean(df_avg$q95_prev_0_mo)]
-df_fixed_q95[,ihme_loc_id:="UGA"]
-df_fixed_q95 <- df_fixed_q95[,.(consumption_pd,
-                                q95_prev_0_mo,
+# Repeat by fixing days_over_30C
+df_fixed_do30 <- copy(df_avg)
+df_fixed_do30[,days_over_30C_prev_0_mo := mean(df_avg$days_over_30C_prev_0_mo)]
+df_fixed_do30[,ihme_loc_id:="CAF"]
+df_fixed_do30 <- df_fixed_do30[,.(consumption_pd,
+                                  days_over_30C_prev_0_mo,
                                 total_precipitation_prev_0_mo,
                                 sex_id,birth_year,
                                 ihme_loc_id)]
-summary(df_fixed_q95)
-range(df_fixed_q95$consumption_pd) #0.0000356825 112.7981388261
-consumption_pd_range <- seq(min(df_fixed_q95$consumption_pd),max(df_fixed_q95$consumption_pd),0.1)
+summary(df_fixed_do30)
+range(df_fixed_do30$consumption_pd) #0.0000356825 112.7981388261
+consumption_pd_range <- seq(min(df_fixed_do30$consumption_pd),max(df_fixed_do30$consumption_pd),0.1)
 
-df_fixed_q95$consumption_pd <- NULL
-df_fixed_q95 <- df_fixed_q95[0:length(consumption_pd_range)]
-df_fixed_q95[,consumption_pd:=consumption_pd_range]
-df_fixed_q95[,statistic := "mean_q95"]
+df_fixed_do30$consumption_pd <- NULL
+df_fixed_do30 <- df_fixed_do30[0:length(consumption_pd_range)]
+df_fixed_do30[,consumption_pd:=consumption_pd_range]
+df_fixed_do30[,statistic := "mean_do30"]
 
 # repeat for upper/lower
-df_fixed_q95_upper <- copy(df_avg)
-df_fixed_q95_upper[,q95_prev_0_mo := min(mean(df_avg$q95_prev_0_mo)+1.96*sd(df_avg$q95_prev_0_mo),max(df_avg$q95_prev_0_mo))]
-df_fixed_q95_upper[,ihme_loc_id:="UGA"]
-df_fixed_q95_upper <- df_fixed_q95_upper[,.(consumption_pd,
-                                q95_prev_0_mo,
-                                total_precipitation_prev_0_mo,
-                                sex_id,birth_year,
-                                ihme_loc_id)]
+df_fixed_do30_upper <- copy(df_avg)
+df_fixed_do30_upper[,days_over_30C_prev_0_mo := min(mean(df_avg$days_over_30C_prev_0_mo)+1.96*sd(df_avg$days_over_30C_prev_0_mo),max(df_avg$days_over_30C_prev_0_mo))]
+df_fixed_do30_upper[,ihme_loc_id:="CAF"]
+df_fixed_do30_upper <- df_fixed_do30_upper[,.(consumption_pd,
+                                              days_over_30C_prev_0_mo,
+                                              total_precipitation_prev_0_mo,
+                                              sex_id,birth_year,
+                                              ihme_loc_id)]
 
-df_fixed_q95_upper$consumption_pd <- NULL
-df_fixed_q95_upper <- df_fixed_q95_upper[0:length(consumption_pd_range)]
-df_fixed_q95_upper[,consumption_pd:=consumption_pd_range]
-df_fixed_q95_upper[,statistic := "upper_q95"]
+df_fixed_do30_upper$consumption_pd <- NULL
+df_fixed_do30_upper <- df_fixed_do30_upper[0:length(consumption_pd_range)]
+df_fixed_do30_upper[,consumption_pd:=consumption_pd_range]
+df_fixed_do30_upper[,statistic := "upper_do30"]
 
-df_fixed_q95_lower <- copy(df_avg)
-df_fixed_q95_lower[,q95_prev_0_mo := max(mean(df_avg$q95_prev_0_mo)-1.96*sd(df_avg$q95_prev_0_mo),min(df_avg$q95_prev_0_mo))]
-df_fixed_q95_lower[,ihme_loc_id:="UGA"]
-df_fixed_q95_lower <- df_fixed_q95_lower[,.(consumption_pd,
-                                            q95_prev_0_mo,
+df_fixed_do30_lower <- copy(df_avg)
+df_fixed_do30_lower[,days_over_30C_prev_0_mo := max(mean(df_avg$days_over_30C_prev_0_mo)-1.96*sd(df_avg$days_over_30C_prev_0_mo),min(df_avg$days_over_30C_prev_0_mo))]
+df_fixed_do30_lower[,ihme_loc_id:="CAF"]
+df_fixed_do30_lower <- df_fixed_do30_lower[,.(consumption_pd,
+                                              days_over_30C_prev_0_mo,
                                             total_precipitation_prev_0_mo,
                                             sex_id,birth_year,
                                             ihme_loc_id)]
 
-df_fixed_q95_lower$consumption_pd <- NULL
-df_fixed_q95_lower <- df_fixed_q95_lower[0:length(consumption_pd_range)]
-df_fixed_q95_lower[,consumption_pd:=consumption_pd_range]
-df_fixed_q95_lower[,statistic := "lower_q95"]
+df_fixed_do30_lower$consumption_pd <- NULL
+df_fixed_do30_lower <- df_fixed_do30_lower[0:length(consumption_pd_range)]
+df_fixed_do30_lower[,consumption_pd:=consumption_pd_range]
+df_fixed_do30_lower[,statistic := "lower_do30"]
 
-df_fixed_q95 <- rbind(df_fixed_q95,df_fixed_q95_lower,df_fixed_q95_upper)
+df_fixed_do30 <- rbind(df_fixed_do30,df_fixed_do30_lower,df_fixed_do30_upper)
 
-table(df_fixed_q95$q95_prev_0_mo)
+table(df_fixed_do30_lower$days_over_30C_prev_0_mo)
+table(df_fixed_do30_upper$days_over_30C_prev_0_mo)
+table(df_fixed_do30$days_over_30C_prev_0_mo)
 
 # pred_fixed_consumption <- predict(model, newdata = df_fixed_consumption, type = "response", re.form = NA)
-df_fixed_q95$pred_fixed_q95 <- predict(model, newdata = df_fixed_q95, type = "response")
+df_fixed_do30$pred_fixed_do30 <- predict(model, newdata = df_fixed_do30, type = "response")
 
 # sanity check
-all(diff(df_fixed_q95$pred_fixed_q95) <= 0) # TRUE
-write_parquet(df_fixed_q95, paste0(results_dir, "predictions_fixed_q95_", summary_file, ".parquet"))
-paste0(results_dir, "predictions_fixed_q95_", summary_file, ".parquet")
+all(diff(df_fixed_do30$days_over_30C_prev_0_mo) <= 0) # TRUE
+write_parquet(df_fixed_do30, paste0(results_dir, "predictions_fixed_do30_", summary_file, ".parquet"))
+paste0(results_dir, "predictions_fixed_do30_", summary_file, ".parquet")
 
 #==============================================================================
 # SECTION 4: CUSTOM PLOTS
@@ -482,38 +472,39 @@ paste0(results_dir, "predictions_fixed_q95_", summary_file, ".parquet")
 
 
 # Create a data frame with q95_prev_0_mo and its spline contribution
-plot_data <- data.frame(
+fit <- data.table(pred_with_se$fit)
+se_fit <- data.table(pred_with_se$se.fit)
+
+plot_data <- data.table(
   consumption_pd = df_model$consumption_pd,
-  q95_prev_0_mo = df_model$q95_prev_0_mo,
-  spline_contribution_consumption_pd = pred_with_se$fit[, "s(consumption_pd)"],
-  spline_contribution_q95 = pred_with_se$fit[, "s(q95_prev_0_mo)"],
-  se_q95 = pred_with_se$se.fit[, "s(q95_prev_0_mo)"],
-  se_consumption_pd = pred_with_se$se.fit[, "s(consumption_pd)"]
+  days_over_30C = df_model$days_over_30C_prev_0_mo,
+  spline_contribution_consumption_pd = fit[["s(consumption_pd)"]],
+  spline_contribution_do30 = fit[["s(days_over_30C_prev_0_mo)"]],
+  se_do30 = se_fit[["s(days_over_30C_prev_0_mo)"]],
+  se_consumption_pd = se_fit[["s(consumption_pd)"]]
 )
 
 
 plot_data <- plot_data %>%
   mutate(
-    q95_lower_ci = spline_contribution_q95 - 1.96 * se_q95,
-    q95_upper_ci = spline_contribution_q95 + 1.96 * se_q95,
+    do30_lower_ci = spline_contribution_do30 - 1.96 * se_do30,
+    do30_upper_ci = spline_contribution_do30 + 1.96 * se_do30,
     c_lower_ci = spline_contribution_consumption_pd - 1.96 * se_consumption_pd,
     c_upper_ci = spline_contribution_consumption_pd + 1.96 * se_consumption_pd
   )
 
-
 ## Add lines for linear models
-linear_q95 <- 0.00126388
-consumption_linear <- -0.04295646
+linear_do30 <- 0.0064507
+consumption_linear <- -0.0426716
 
-
-# plot q95
-p_q95 <- ggplot(plot_data, aes(x = q95_prev_0_mo, y = spline_contribution_q95)) +
+# plot do30
+p_do30 <- ggplot(plot_data, aes(x = days_over_30C, y = spline_contribution_do30)) +
   geom_line(aes(color = "Spline")) +
-  geom_ribbon(aes(ymin = q95_lower_ci, ymax = q95_upper_ci), alpha = 0.2, fill = "blue") +
+  geom_ribbon(aes(ymin = do30_lower_ci, ymax = do30_upper_ci), alpha = 0.2, fill = "blue") +
   geom_abline(
     aes(color = "Slope from linear model",
-        slope = linear_q95,
-        intercept = -0.002559393), # min(plot_data$spline_contribution_q95)
+    slope = linear_do30,
+    intercept = -0.0217828),
     linetype = "dashed"
   ) +
   scale_color_manual(
@@ -522,11 +513,11 @@ p_q95 <- ggplot(plot_data, aes(x = q95_prev_0_mo, y = spline_contribution_q95)) 
                "Spline"="blue") 
   ) +
   labs(
-    title = "Spline Contribution for q95_prev_0_mo",
-    x = "q95_prev_0_mo",
+    title = "Spline Contribution for days_over_30C",
+    x = "days_over_30C",
     y = "Spline Contribution"
   ) +
-  theme_minimal()+
+  theme_minimal() +
   theme(
     plot.title = element_text(size = 30),
     axis.title.x = element_text(size = 26),
@@ -535,18 +526,19 @@ p_q95 <- ggplot(plot_data, aes(x = q95_prev_0_mo, y = spline_contribution_q95)) 
     axis.text.y = element_text(size = 20),
     legend.title = element_text(size = 20),
     legend.text = element_text(size = 18),
-    legend.position = c(0.8, 0.1),  # Position legend inside the plot (x, y)
+    legend.position = c(0.8, 0.2),  # Position legend inside the plot (x, y)
     legend.background = element_rect(fill = "white", color = "black", size = 0.5),  # Add a background box
-    legend.key = element_rect(fill = "white")  # Ensure legend keys have a white background 
+    legend.key = element_rect(fill = "white")  # Ensure legend keys have a white background
   )
 
+# Save the plot
 ggsave(
-  filename = paste0(plot_dir, summary_file, "_q95_with_linear.png"),
-  plot = p_q95,
-  bg = "white",          # Set background to white
-  width = 10,             # Adjust width (in inches)
-  height = 8,            # Adjust height (in inches)
-  dpi = 300              # Set resolution for better quality
+  filename = paste0(plot_dir, summary_file, "_do30_with_linear.png"),
+  plot = p_do30,
+  bg = "white",
+  width = 10,
+  height = 8,
+  dpi = 300
 )
 
 # plot consumption
@@ -560,9 +552,9 @@ p_consumption <- ggplot(plot_data, aes(x = consumption_pd, y = spline_contributi
   ) +
   geom_abline(
     aes(
-      slope = consumption_linear, 
-      intercept = 0.3094057, # max(plot_data$spline_contribution_consumption_pd)
-      color = "Slope from linear model"), 
+    slope = consumption_linear, 
+    intercept = 0.3033357, 
+    color = "Slope from linear model"), 
     linetype = "dashed"
   ) +
   scale_color_manual(
@@ -570,7 +562,7 @@ p_consumption <- ggplot(plot_data, aes(x = consumption_pd, y = spline_contributi
     values = c("Slope from linear model" = "red",
                "Spline"="blue") 
   ) +
-  scale_x_continuous(breaks = seq(0, max(plot_data$consumption_pd, na.rm = TRUE), by = 30)) + 
+  scale_x_continuous(breaks = seq(0, max(plot_data$consumption_pd, na.rm = TRUE), by = 30)) +
   theme_minimal()+
   theme(
     plot.title = element_text(size = 30),
@@ -587,7 +579,7 @@ p_consumption <- ggplot(plot_data, aes(x = consumption_pd, y = spline_contributi
 
 
 ggsave(
-  filename = paste0(plot_dir, summary_file, "_consumption_with_linear.png"),
+  filename = paste0(plot_dir, summary_file, "_consumption_linear.png"),
   plot = p_consumption,
   bg = "white",          # Set background to white
   width = 10,             # Adjust width (in inches)
@@ -598,27 +590,27 @@ ggsave(
 # Make histograms of data density for q95 and consumption_pd
 
 
-p_hist_q95 <- ggplot(plot_data, aes(x = q95_prev_0_mo)) +
+p_hist_do30 <- ggplot(plot_data, aes(x = days_over_30C)) +
   geom_histogram(binwidth = 1, fill = "blue", color = "black", alpha = 0.7) +
   labs(
-    title = "Data Density by q95_prev_0_mo",
-    x = "q95_prev_0_mo",
+    title = "Data Density by days_over_30C",
+    x = "days_over_30C",
     y = "Data points"
   ) +
-  scale_y_continuous(labels = comma) +  
+  scale_y_continuous(labels = comma) +
   theme_minimal()+
   theme(
-    plot.title = element_text(size = 30), 
-    axis.title.x = element_text(size = 26),  
+    plot.title = element_text(size = 30),
+    axis.title.x = element_text(size = 26),
     axis.title.y = element_text(size = 26),
-    axis.text.x = element_text(size = 20), 
-    axis.text.y = element_text(size = 20)     
+    axis.text.x = element_text(size = 20),
+    axis.text.y = element_text(size = 20)
   )
 
 # Save the histogram plot
 ggsave(
-  filename = paste0(plot_dir, summary_file, "_q95_density.png"),
-  plot = p_hist_q95,
+  filename = paste0(plot_dir, summary_file, "_do30_density.png"),
+  plot = p_hist_do30,
   bg = "white",          # Set background to white
   width = 10,             # Adjust width (in inches)
   height = 8,            # Adjust height (in inches)
@@ -633,15 +625,15 @@ p_hist_consumption <- ggplot(plot_data, aes(x = consumption_pd)) +
     x = "consumption_pd",
     y = "Data points"
   ) +
-  scale_x_continuous(breaks = seq(0, max(plot_data$consumption_pd, na.rm = TRUE), by = 30)) + 
+  scale_x_continuous(breaks = seq(0, max(plot_data$consumption_pd, na.rm = TRUE), by = 30)) +
   scale_y_continuous(labels = comma) +  # Format y-axis with commas
   theme_minimal()+
   theme(
-    plot.title = element_text(size = 30), 
-    axis.title.x = element_text(size = 26),  
+    plot.title = element_text(size = 30),
+    axis.title.x = element_text(size = 26),
     axis.title.y = element_text(size = 26),
-    axis.text.x = element_text(size = 20), 
-    axis.text.y = element_text(size = 20)     
+    axis.text.x = element_text(size = 20),
+    axis.text.y = element_text(size = 20)
   )
 
 
@@ -650,10 +642,10 @@ p_hist_consumption <- ggplot(plot_data, aes(x = consumption_pd)) +
 ggsave(
   filename = paste0(plot_dir, summary_file, "_consumption_density.png"),
   plot = p_hist_consumption,
-  bg = "white",          
+  bg = "white",
   width = 10,             # Adjust width (in inches)
-  height = 8,            # Adjust height (in inches)           
-  dpi = 300              
+  height = 8,            # Adjust height (in inches)
+  dpi = 300
 )
 
 
