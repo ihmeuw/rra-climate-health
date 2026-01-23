@@ -1,8 +1,5 @@
 """
-Plot neonatal mortality model with 5-year cutoffs.
-
-1. Factor year 95th percentile
-2. Factor year days over 30
+Plot neonatal mortality model latest
 
 """
 
@@ -14,10 +11,12 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import matplotlib.colors as mcolors
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.ticker import MultipleLocator
 from matplotlib.gridspec import GridSpec
 import re
 import os
 from tqdm import tqdm
+
 
 RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
 PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/plots/"
@@ -304,7 +303,9 @@ def create_custom_bins(data: pd.DataFrame, col: str):
 
 # 1. Scam package  ##############################################
 
-model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_q95_mgcv_summary.parquet")
+model1 = pd.read_parquet(
+    RESULTS_PATH + "predictions_nnm_1_mo_do30_scam_summary.parquet"
+)
 
 # get min and max values for color scale consistency across plots
 # as well as custom bins
@@ -314,10 +315,11 @@ columns_to_bin = [
     # "q9_prev_3_mo_avg",
     # "q9_prev_6_mo_avg",
     # "q9_prev_9_mo_avg",
-    "q95_prev_0_mo",
+    # "q95_prev_0_mo",
     # "q95_prev_3_mo_avg",
     # "q95_prev_6_mo_avg",
     # "q95_prev_9_mo_avg",
+    "days_over_30C_prev_0_mo"
 ]
 
 # data = pd.concat(
@@ -417,7 +419,8 @@ versions = [
 
 
 bin_col_dict = {
-    "1-month": "q95_prev_0_mo",
+    "1-month": "days_over_30C_prev_0_mo"
+    # "1-month": "q95_prev_0_mo",
     # "3-month": "q95_prev_3_mo_avg",
     # "6-month": "q95_prev_6_mo_avg",
     # "9-month": "q95_prev_9_mo_avg",
@@ -425,7 +428,7 @@ bin_col_dict = {
 
 
 # Create a PDF to save the plots
-pdf_path = os.path.join(PLOT_PATH, "neonatal_q95_scam_v2.pdf")
+pdf_path = os.path.join(PLOT_PATH, "neonatal_do30_scam_v1.pdf")
 with PdfPages(pdf_path) as pdf:
     # Create a figure with 4 rows and 3 columns
     fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(15, 5), constrained_layout=True)
@@ -463,173 +466,173 @@ with PdfPages(pdf_path) as pdf:
 
 print(f"PDF saved to {pdf_path}")
 
-# make table of summaries
-coef_file_name = "neonatal_q95_cutoff_coefs.csv"
+# # make table of summaries
+# coef_file_name = "neonatal_q95_cutoff_coefs.csv"
 
-SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
+# SUMMARY_DIR = RESULTS_PATH + "model_summaries/"
 
-climate_var_interest = "q95_prev_0_mo"
-vars_of_interest = [
-    "(Intercept)",
-    "consumption_pd",
-    "sex_id",
-    "q95_prev_0_mo",
-    # "q95_prev_3_mo_avg",
-    # "q95_prev_6_mo_avg",
-    # "q95_prev_9_mo_avg",
-    "total_precipitation_prev_0_mo",
-    # "total_precipitation_prev_3_mo_avg",
-    # "total_precipitation_prev_6_mo_avg",
-    # "total_precipitation_prev_9_mo_avg",
-    # "birth_year",
-]
+# climate_var_interest = "q95_prev_0_mo"
+# vars_of_interest = [
+#     "(Intercept)",
+#     "consumption_pd",
+#     "sex_id",
+#     "q95_prev_0_mo",
+#     # "q95_prev_3_mo_avg",
+#     # "q95_prev_6_mo_avg",
+#     # "q95_prev_9_mo_avg",
+#     "total_precipitation_prev_0_mo",
+#     # "total_precipitation_prev_3_mo_avg",
+#     # "total_precipitation_prev_6_mo_avg",
+#     # "total_precipitation_prev_9_mo_avg",
+#     # "birth_year",
+# ]
 
-"""
-f = 'nnm_9_mo_q95_ly_summary.txt'
-"""
+# """
+# f = 'nnm_9_mo_q95_ly_summary.txt'
+# """
 
-summaries = [f for f in os.listdir(SUMMARY_DIR) if f.endswith(".txt")]
-# only look at q9
-summaries = [f for f in summaries if "_q95_5yr_cutoff_summary" in f]
-print(summaries)
+# summaries = [f for f in os.listdir(SUMMARY_DIR) if f.endswith(".txt")]
+# # only look at q9
+# summaries = [f for f in summaries if "_q95_5yr_cutoff_summary" in f]
+# print(summaries)
 
-results_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
-for f in summaries:
+# results_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
+# for f in summaries:
 
-    time_period = re.findall(r"(?<=nnm_).*(?=_mo)", f)[0]
-    # print(time_period)
-    time_period_v = f"{time_period}-month"
+#     time_period = re.findall(r"(?<=nnm_).*(?=_mo)", f)[0]
+#     # print(time_period)
+#     time_period_v = f"{time_period}-month"
 
-    coef_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
-    with open(SUMMARY_DIR + f, "r") as infile:
-        s = infile.read().split("\n")
-    # remove all lines between 'Correlation of Fixed Effects:' and 'optimizer'
-    # to prevent parsing errors.
-    start_idx = None
-    end_idx = None
-    for i, l in enumerate(s):
-        if "Correlation of Fixed Effects:" in l:
-            start_idx = i
-        if "optimizer" in l and start_idx is not None and end_idx is None:
-            end_idx = i
-    if start_idx is not None and end_idx is not None:
-        s = s[:start_idx] + s[end_idx + 1 :]
-    # [l for l in s]
-    for l in s:
-        if l.startswith(tuple(vars_of_interest)) and bool(re.findall(r"[\d]{3}", l)):
-            # test if all info on single line or if it overflowed:
-            if len(l.split()) == 5:
-                coef = l.split()[0]
-                estimate = l.split()[1]
-                significance = re.findall(r"\*.*", l)
-                significance = significance[0] if significance else ""
-                coef_table = pd.concat(
-                    [
-                        coef_table,
-                        pd.DataFrame.from_records(
-                            [
-                                {
-                                    "Time": time_period_v,
-                                    "Variable": coef,
-                                    "Estimate": estimate,
-                                    "significance": significance,
-                                }
-                            ]
-                        ),
-                    ],
-                    ignore_index=True,
-                )
-            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 3:  # p-val missing from end
-                coef = l.split()[0]
-                estimate = l.split()[1]
-                coef_table = pd.concat(
-                    [
-                        coef_table,
-                        pd.DataFrame.from_records(
-                            [
-                                {
-                                    "Time": time_period_v,
-                                    "Variable": coef,
-                                    "Estimate": estimate,
-                                }
-                            ]
-                        ),
-                    ],
-                    ignore_index=True,
-                )
-            elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 1:  # variable and p-val
-                coef = l.split()[0]
-                # significance = re.findall(r"[\d]{1}\.[\d]*", l)[0]
-                significance = re.findall(r"\*.*", l)
-                significance = significance[0] if significance else ""
-                coef_table.loc[coef_table["Variable"] == coef, "significance"] = (
-                    significance
-                )
+#     coef_table = pd.DataFrame(columns=["Time", "Variable", "Estimate", "significance"])
+#     with open(SUMMARY_DIR + f, "r") as infile:
+#         s = infile.read().split("\n")
+#     # remove all lines between 'Correlation of Fixed Effects:' and 'optimizer'
+#     # to prevent parsing errors.
+#     start_idx = None
+#     end_idx = None
+#     for i, l in enumerate(s):
+#         if "Correlation of Fixed Effects:" in l:
+#             start_idx = i
+#         if "optimizer" in l and start_idx is not None and end_idx is None:
+#             end_idx = i
+#     if start_idx is not None and end_idx is not None:
+#         s = s[:start_idx] + s[end_idx + 1 :]
+#     # [l for l in s]
+#     for l in s:
+#         if l.startswith(tuple(vars_of_interest)) and bool(re.findall(r"[\d]{3}", l)):
+#             # test if all info on single line or if it overflowed:
+#             if len(l.split()) == 5:
+#                 coef = l.split()[0]
+#                 estimate = l.split()[1]
+#                 significance = re.findall(r"\*.*", l)
+#                 significance = significance[0] if significance else ""
+#                 coef_table = pd.concat(
+#                     [
+#                         coef_table,
+#                         pd.DataFrame.from_records(
+#                             [
+#                                 {
+#                                     "Time": time_period_v,
+#                                     "Variable": coef,
+#                                     "Estimate": estimate,
+#                                     "significance": significance,
+#                                 }
+#                             ]
+#                         ),
+#                     ],
+#                     ignore_index=True,
+#                 )
+#             elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 3:  # p-val missing from end
+#                 coef = l.split()[0]
+#                 estimate = l.split()[1]
+#                 coef_table = pd.concat(
+#                     [
+#                         coef_table,
+#                         pd.DataFrame.from_records(
+#                             [
+#                                 {
+#                                     "Time": time_period_v,
+#                                     "Variable": coef,
+#                                     "Estimate": estimate,
+#                                 }
+#                             ]
+#                         ),
+#                     ],
+#                     ignore_index=True,
+#                 )
+#             elif len(re.findall(r"[\d]{1}\.[\d]*", l)) == 1:  # variable and p-val
+#                 coef = l.split()[0]
+#                 # significance = re.findall(r"[\d]{1}\.[\d]*", l)[0]
+#                 significance = re.findall(r"\*.*", l)
+#                 significance = significance[0] if significance else ""
+#                 coef_table.loc[coef_table["Variable"] == coef, "significance"] = (
+#                     significance
+#                 )
 
-    results_table = pd.concat([results_table, coef_table], ignore_index=True)
+#     results_table = pd.concat([results_table, coef_table], ignore_index=True)
 
-# results_table["Variable"] = results_table["Variable"].str.replace("_0_mo", "_X_mo_avg")
-# results_table["Variable"] = results_table["Variable"].str.replace("_3_mo", "_X_mo")
-# results_table["Variable"] = results_table["Variable"].str.replace("_6_mo", "_X_mo")
-# results_table["Variable"] = results_table["Variable"].str.replace("_9_mo", "_X_mo")
+# # results_table["Variable"] = results_table["Variable"].str.replace("_0_mo", "_X_mo_avg")
+# # results_table["Variable"] = results_table["Variable"].str.replace("_3_mo", "_X_mo")
+# # results_table["Variable"] = results_table["Variable"].str.replace("_6_mo", "_X_mo")
+# # results_table["Variable"] = results_table["Variable"].str.replace("_9_mo", "_X_mo")
 
-results_table["Estimate"] = results_table["Estimate"].astype(float)
-# results_table["p_value"] = results_table["p_value"].astype(float)
-results_table["Estimate"] = results_table["Estimate"].round(4)
-results_table["Estimate"] = results_table["Estimate"].astype(str)
-results_table["Estimate"] = results_table["Estimate"] + results_table["significance"]
+# results_table["Estimate"] = results_table["Estimate"].astype(float)
+# # results_table["p_value"] = results_table["p_value"].astype(float)
+# results_table["Estimate"] = results_table["Estimate"].round(4)
+# results_table["Estimate"] = results_table["Estimate"].astype(str)
+# results_table["Estimate"] = results_table["Estimate"] + results_table["significance"]
 
-results_table.drop(columns="significance", inplace=True)
-results_table["Variable"].unique()
+# results_table.drop(columns="significance", inplace=True)
+# results_table["Variable"].unique()
 
-var_order = [
-    "(Intercept)",
-    "consumption_pd",
-    "sex_id",
-    climate_var_interest,
-    "total_precipitation_prev_0_mo",
-    # "birth_year",
-]
+# var_order = [
+#     "(Intercept)",
+#     "consumption_pd",
+#     "sex_id",
+#     climate_var_interest,
+#     "total_precipitation_prev_0_mo",
+#     # "birth_year",
+# ]
 
-results_table["Variable"] = pd.Categorical(
-    results_table["Variable"], categories=var_order, ordered=True
-)
+# results_table["Variable"] = pd.Categorical(
+#     results_table["Variable"], categories=var_order, ordered=True
+# )
 
-results_table.sort_values(by=["Variable", "Time"], inplace=True)
-results_table_wide = results_table.pivot_table(
-    index=["Variable"], columns=["Time"], values="Estimate", aggfunc="first"
-)
-results_table_wide.reset_index(inplace=True)
+# results_table.sort_values(by=["Variable", "Time"], inplace=True)
+# results_table_wide = results_table.pivot_table(
+#     index=["Variable"], columns=["Time"], values="Estimate", aggfunc="first"
+# )
+# results_table_wide.reset_index(inplace=True)
 
-results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
+# results_table_wide.to_csv(PLOT_PATH + coef_file_name, index=False)
 
 ################################################################################
 
 # 2. Make scatter plots with fit overlaying ####################################################
 
 # reload latest
-model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_q95_mgcv_summary.parquet")
+# model1 = pd.read_parquet(RESULTS_PATH + "predictions_nnm_1_mo_q95_mgcv_summary.parquet")
 
-# fixed consumption df (varying q95)
-df_q95_only = pd.read_parquet(
-    RESULTS_PATH + "predictions_fixed_consumption_nnm_1_mo_q95_mgcv_summary.parquet"
+# fixed consumption df (varying do30)
+df_do30_only = pd.read_parquet(
+    RESULTS_PATH + "predictions_fixed_consumption_nnm_1_mo_do30_scam_summary.parquet"
 )
 
-# fixed q95 df (varying consumption)
+# fixed do30 df (varying consumption)
 df_consumption_only = pd.read_parquet(
-    RESULTS_PATH + "predictions_fixed_q95_nnm_1_mo_q95_mgcv_summary.parquet"
+    RESULTS_PATH + "predictions_fixed_do30_nnm_1_mo_do30_scam_summary.parquet"
 )
 
 # offset amount constant
 OFFSET = 1e-3
 
-# get average child_mortality, consumption_pd, 'q95_prev_0_mo'
+# get average child_mortality, consumption_pd, 'days_over_30C_prev_0_mo'
 model_grouped_psu = (
     model1.groupby("psu")[
         [
             "child_mortality",
             "consumption_pd",
-            "q95_prev_0_mo",
+            "days_over_30C_prev_0_mo",
         ]
     ]
     .mean()
@@ -646,7 +649,7 @@ data_raw = data_raw.dropna(
         "ihme_loc_id",
         "child_mortality",
         "consumption_pd",
-        "q95_prev_0_mo",
+        "days_over_30C_prev_0_mo",
     ]
 )
 data_raw["ihme_loc_id"] = data_raw["ihme_loc_id"].astype(str)
@@ -657,7 +660,7 @@ df_grouped_country_year = (
         [
             "child_mortality",
             "consumption_pd",
-            "q95_prev_0_mo",
+            "days_over_30C_prev_0_mo",
         ]
     ]
     .mean()
@@ -667,16 +670,17 @@ df_grouped_country_year = df_grouped_country_year.dropna()
 df_grouped_country_year["birth_year"].max()
 
 
-# 1.a Plot q95 scatters without any data transformation
-model_grouped_psu_q95 = model_grouped_psu.copy()
-model_grouped_psu_q95.sort_values(by=["q95_prev_0_mo"], inplace=True)
+# 1.a Plot do30 scatters without any data transformation
+model_grouped_psu_do30 = model_grouped_psu.copy()
+model_grouped_psu_do30.sort_values(by=["days_over_30C_prev_0_mo"], inplace=True)
+
 
 fig, ax = plt.subplots(figsize=(10, 6))
 
 # Plot the density of data points using hist2d
 hist = ax.hist2d(
-    model_grouped_psu_q95["q95_prev_0_mo"],
-    model_grouped_psu_q95["child_mortality"],
+    model_grouped_psu_do30["days_over_30C_prev_0_mo"],
+    model_grouped_psu_do30["child_mortality"],
     bins=60,
     norm=mcolors.LogNorm(),
 )
@@ -687,34 +691,38 @@ cbar.set_label("Density")
 
 # Overlay the red line for pred_fixed_consumption
 ax.plot(
-    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
-    df_q95_only.query("statistic=='mean_consumption_pd'")["pred_fixed_consumption"],
+    df_do30_only.query("statistic=='mean_consumption_pd'")["days_over_30C_prev_0_mo"],
+    df_do30_only.query("statistic=='mean_consumption_pd'")["pred_fixed_consumption"],
     color="red",
-    label="Predictions holding all\nvars at avg except q95",
+    label="Predictions holding all\nvars at avg except days over 30C",
     linewidth=2,
 )
 
 # Add a lightly-shaded red band for lower and upper bounds
 ax.fill_between(
-    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
-    df_q95_only.query("statistic=='lower_consumption_pd'")["pred_fixed_consumption"],
-    df_q95_only.query("statistic=='upper_consumption_pd'")["pred_fixed_consumption"],
+    df_do30_only.query("statistic=='mean_consumption_pd'")["days_over_30C_prev_0_mo"],
+    df_do30_only.query("statistic=='lower_consumption_pd'")["pred_fixed_consumption"],
+    df_do30_only.query("statistic=='upper_consumption_pd'")["pred_fixed_consumption"],
     color="red",
     alpha=0.2,  # Transparency for the shaded region
     label="CI made with upper/lower consumption_pd",
 )
 
 # Set x-axis ticks to integers
-x_min = int(model_grouped_psu_q95["q95_prev_0_mo"].min())
-x_max = int(model_grouped_psu_q95["q95_prev_0_mo"].max())
+x_min = int(model_grouped_psu_do30["days_over_30C_prev_0_mo"].min())
+x_max = int(model_grouped_psu_do30["days_over_30C_prev_0_mo"].max())
 ax.set_xticks(range(x_min, x_max + 1))
 
+# Add y-axis ticks and labels on both sides
+ax.tick_params(axis="y", which="both", direction="in", right=True, labelright=True)
+
+# Increase the frequency of y-axis ticks
+ax.yaxis.set_major_locator(MultipleLocator(0.05))  # Adjust the value as needed
+
 # Add labels, title, and legend
-ax.set_xlabel("Days over 95th Percentile during Birth Month", fontsize=12)
+ax.set_xlabel("Days over 30C during Birth Month", fontsize=12)
 ax.set_ylabel("Child Mortality", fontsize=12)
-ax.set_title(
-    "Child Mortality vs Days over 95th Percentile (no transformation)", fontsize=14
-)
+ax.set_title("Child Mortality vs Days over 30C (no transformation)", fontsize=14)
 ax.legend()
 
 # Show the plot
@@ -722,11 +730,11 @@ plt.tight_layout()
 plt.show()
 
 # 1.b log-transform child-mortality
-model_grouped_psu_q95["log_mortality"] = np.log(
-    model_grouped_psu_q95["child_mortality"] + OFFSET
+model_grouped_psu_do30["log_mortality"] = np.log(
+    model_grouped_psu_do30["child_mortality"] + OFFSET
 )
-df_q95_only["log_pred_fixed_consumption"] = np.log(
-    df_q95_only["pred_fixed_consumption"] + OFFSET
+df_do30_only["log_pred_fixed_consumption"] = np.log(
+    df_do30_only["pred_fixed_consumption"] + OFFSET
 )
 
 
@@ -734,8 +742,8 @@ fig, ax = plt.subplots(figsize=(10, 6))
 
 # Plot the density of data points using hist2d
 hist = ax.hist2d(
-    model_grouped_psu_q95["q95_prev_0_mo"],
-    model_grouped_psu_q95["log_mortality"],
+    model_grouped_psu_do30["days_over_30C_prev_0_mo"],
+    model_grouped_psu_do30["log_mortality"],
     bins=60,
     norm=mcolors.LogNorm(),
 )
@@ -746,21 +754,23 @@ cbar.set_label("Density")
 
 # Overlay the red line for pred_fixed_consumption
 ax.plot(
-    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
-    df_q95_only.query("statistic=='mean_consumption_pd'")["log_pred_fixed_consumption"],
+    df_do30_only.query("statistic=='mean_consumption_pd'")["days_over_30C_prev_0_mo"],
+    df_do30_only.query("statistic=='mean_consumption_pd'")[
+        "log_pred_fixed_consumption"
+    ],
     color="red",
-    label="Log predictions holding all\nvars at avg except q95",
+    label="Log predictions holding all\nvars at avg except days over 30C",
     linewidth=2,
 )
 
 
 # Add a lightly-shaded red band for lower and upper bounds
 ax.fill_between(
-    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
-    df_q95_only.query("statistic=='lower_consumption_pd'")[
+    df_do30_only.query("statistic=='mean_consumption_pd'")["days_over_30C_prev_0_mo"],
+    df_do30_only.query("statistic=='lower_consumption_pd'")[
         "log_pred_fixed_consumption"
     ],
-    df_q95_only.query("statistic=='upper_consumption_pd'")[
+    df_do30_only.query("statistic=='upper_consumption_pd'")[
         "log_pred_fixed_consumption"
     ],
     color="red",
@@ -769,16 +779,21 @@ ax.fill_between(
 )
 
 # Set x-axis ticks to integers
-x_min = int(model_grouped_psu_q95["q95_prev_0_mo"].min())
-x_max = int(model_grouped_psu_q95["q95_prev_0_mo"].max())
+x_min = int(model_grouped_psu_do30["days_over_30C_prev_0_mo"].min())
+x_max = int(model_grouped_psu_do30["days_over_30C_prev_0_mo"].max())
 ax.set_xticks(range(x_min, x_max + 1))
 
+# Add y-axis ticks and labels on both sides
+ax.tick_params(axis="y", which="both", direction="in", right=True, labelright=True)
+
+# Increase the frequency of y-axis ticks
+ax.yaxis.set_major_locator(MultipleLocator(0.5))  # Adjust the value as needed
+
+
 # Add labels, title, and legend
-ax.set_xlabel("Days over 95th Percentile during Birth Month", fontsize=12)
+ax.set_xlabel("Days over 30C during Birth Month", fontsize=12)
 ax.set_ylabel("Log Child Mortality", fontsize=12)
-ax.set_title(
-    "Child Mortality vs Days over 95th Percentile (log-transformed)", fontsize=14
-)
+ax.set_title("Child Mortality vs Days over 30C (log-transformed)", fontsize=14)
 ax.legend()
 
 # Show the plot
@@ -786,44 +801,44 @@ plt.tight_layout()
 plt.show()
 
 # 1.c logit-transform child-mortality
-model_grouped_psu_q95["logit_mortality"] = np.log(
-    (model_grouped_psu_q95["child_mortality"] + OFFSET)
-    / (1 - model_grouped_psu_q95["child_mortality"] + OFFSET)
+model_grouped_psu_do30["logit_mortality"] = np.log(
+    (model_grouped_psu_do30["child_mortality"] + OFFSET)
+    / (1 - model_grouped_psu_do30["child_mortality"] + OFFSET)
 )
 
-df_q95_only["logit_pred_fixed_consumption"] = np.log(
-    (df_q95_only["pred_fixed_consumption"] + OFFSET)
-    / (1 - df_q95_only["pred_fixed_consumption"] + OFFSET)
+df_do30_only["logit_pred_fixed_consumption"] = np.log(
+    (df_do30_only["pred_fixed_consumption"] + OFFSET)
+    / (1 - df_do30_only["pred_fixed_consumption"] + OFFSET)
 )
 
 fig, ax = plt.subplots(figsize=(10, 6))
 
 # Plot the density of data points using hist2d
 hist = ax.hist2d(
-    model_grouped_psu_q95["q95_prev_0_mo"],
-    model_grouped_psu_q95["logit_mortality"],
+    model_grouped_psu_do30["days_over_30C_prev_0_mo"],
+    model_grouped_psu_do30["logit_mortality"],
     bins=60,
     norm=mcolors.LogNorm(),
 )
 
 # Overlay the red line for logit_pred_fixed_consumption
 ax.plot(
-    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
-    df_q95_only.query("statistic=='mean_consumption_pd'")[
+    df_do30_only.query("statistic=='mean_consumption_pd'")["days_over_30C_prev_0_mo"],
+    df_do30_only.query("statistic=='mean_consumption_pd'")[
         "logit_pred_fixed_consumption"
     ],
     color="red",
-    label="Logit predictions holding all\nvars at avg except q95",
+    label="Logit predictions holding all\nvars at avg except days over 30C",
     linewidth=2,
 )
 
 # Add a lightly-shaded red band for lower and upper bounds
 ax.fill_between(
-    df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
-    df_q95_only.query("statistic=='lower_consumption_pd'")[
+    df_do30_only.query("statistic=='mean_consumption_pd'")["days_over_30C_prev_0_mo"],
+    df_do30_only.query("statistic=='lower_consumption_pd'")[
         "logit_pred_fixed_consumption"
     ],
-    df_q95_only.query("statistic=='upper_consumption_pd'")[
+    df_do30_only.query("statistic=='upper_consumption_pd'")[
         "logit_pred_fixed_consumption"
     ],
     color="red",
@@ -836,18 +851,137 @@ cbar = plt.colorbar(hist[3], ax=ax)
 cbar.set_label("Density")
 
 # Set x-axis ticks to integers
-x_min = int(model_grouped_psu_q95["q95_prev_0_mo"].min())
-x_max = int(model_grouped_psu_q95["q95_prev_0_mo"].max())
+x_min = int(model_grouped_psu_do30["days_over_30C_prev_0_mo"].min())
+x_max = int(model_grouped_psu_do30["days_over_30C_prev_0_mo"].max())
 ax.set_xticks(range(x_min, x_max + 1))
 
+# Add y-axis ticks and labels on both sides
+ax.tick_params(axis="y", which="both", direction="in", right=True, labelright=True)
+
+# Increase the frequency of y-axis ticks
+ax.yaxis.set_major_locator(MultipleLocator(0.5))  # Adjust the value as needed
+
 # Add labels, title, and legend
-ax.set_xlabel("Days over 95th Percentile during Birth Month", fontsize=12)
+ax.set_xlabel("Days over 30C during Birth Month", fontsize=12)
 ax.set_ylabel("Logit Child Mortality", fontsize=12)
-ax.set_title(
-    "Child Mortality vs Days over 95th Percentile (logit-transformed)", fontsize=14
-)
+ax.set_title("Child Mortality vs Days over 30C (logit-transformed)", fontsize=14)
 ax.legend()
 
+# Show the plot
+plt.tight_layout()
+plt.show()
+
+# 1.d group by country-year instead of cluster, no transformation
+
+df_grouped_country_year.sort_values(by=["days_over_30C_prev_0_mo"], inplace=True)
+
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+# Plot the density of data points using hist2d
+hist = ax.hist2d(
+    df_grouped_country_year["days_over_30C_prev_0_mo"],
+    df_grouped_country_year["child_mortality"],
+    bins=60,
+    norm=mcolors.LogNorm(),
+)
+
+# Add a colorbar to show density
+cbar = plt.colorbar(hist[3], ax=ax)
+cbar.set_label("Density")
+
+# Overlay the red line for pred_fixed_consumption
+ax.plot(
+    df_do30_only.query("statistic=='mean_consumption_pd'")["days_over_30C_prev_0_mo"],
+    df_do30_only.query("statistic=='mean_consumption_pd'")["pred_fixed_consumption"],
+    color="red",
+    label="Predictions holding all\nvars at avg except days over 30C",
+    linewidth=2,
+)
+
+# Add a lightly-shaded red band for lower and upper bounds
+ax.fill_between(
+    df_do30_only.query("statistic=='mean_consumption_pd'")["days_over_30C_prev_0_mo"],
+    df_do30_only.query("statistic=='lower_consumption_pd'")["pred_fixed_consumption"],
+    df_do30_only.query("statistic=='upper_consumption_pd'")["pred_fixed_consumption"],
+    color="red",
+    alpha=0.2,  # Transparency for the shaded region
+    label="CI made with upper/lower consumption_pd",
+)
+
+# Set x-axis ticks to integers
+x_min = int(df_grouped_country_year["days_over_30C_prev_0_mo"].min())
+x_max = int(df_grouped_country_year["days_over_30C_prev_0_mo"].max())
+ax.set_xticks(range(x_min, x_max + 1))
+
+# Add y-axis ticks and labels on both sides
+ax.tick_params(axis="y", which="both", direction="in", right=True, labelright=True)
+
+# Increase the frequency of y-axis ticks
+ax.yaxis.set_major_locator(MultipleLocator(0.05))  # Adjust the value as needed
+
+# Add labels, title, and legend
+ax.set_xlabel("Days over 30C during Birth Month", fontsize=12)
+ax.set_ylabel("Child Mortality", fontsize=12)
+ax.set_title("Child Mortality vs Days over 30C (no transformation)", fontsize=14)
+ax.legend()
+
+# Show the plot
+plt.tight_layout()
+plt.show()
+
+# 1.e group by country-year instead of cluster, log transformation
+
+df_grouped_country_year["log_mortality"] = np.log(
+    df_grouped_country_year["child_mortality"] + OFFSET
+)
+fig, ax = plt.subplots(figsize=(10, 6))
+# Plot the density of data points using hist2d
+hist = ax.hist2d(
+    df_grouped_country_year["days_over_30C_prev_0_mo"],
+    df_grouped_country_year["log_mortality"],
+    bins=60,
+    norm=mcolors.LogNorm(),
+)
+# Add a colorbar to show density
+cbar = plt.colorbar(hist[3], ax=ax)
+cbar.set_label("Density")
+# Overlay the red line for log_pred_fixed_consumption
+ax.plot(
+    df_do30_only.query("statistic=='mean_consumption_pd'")["days_over_30C_prev_0_mo"],
+    df_do30_only.query("statistic=='mean_consumption_pd'")[
+        "log_pred_fixed_consumption"
+    ],
+    color="red",
+    label="Log predictions holding all\nvars at avg except days over 30C",
+    linewidth=2,
+)
+# Add a lightly-shaded red band for lower and upper bounds
+ax.fill_between(
+    df_do30_only.query("statistic=='mean_consumption_pd'")["days_over_30C_prev_0_mo"],
+    df_do30_only.query("statistic=='lower_consumption_pd'")[
+        "log_pred_fixed_consumption"
+    ],
+    df_do30_only.query("statistic=='upper_consumption_pd'")[
+        "log_pred_fixed_consumption"
+    ],
+    color="red",
+    alpha=0.2,  # Transparency for the shaded region
+    label="CI made with upper/lower consumption_pd",
+)
+# Set x-axis ticks to integers
+x_min = int(df_grouped_country_year["days_over_30C_prev_0_mo"].min())
+x_max = int(df_grouped_country_year["days_over_30C_prev_0_mo"].max())
+ax.set_xticks(range(x_min, x_max + 1))
+# Add y-axis ticks and labels on both sides
+ax.tick_params(axis="y", which="both", direction="in", right=True, labelright=True)
+# Increase the frequency of y-axis ticks
+ax.yaxis.set_major_locator(MultipleLocator(0.5))  # Adjust the value as needed
+# Add labels, title, and legend
+ax.set_xlabel("Days over 30C during Birth Month", fontsize=12)
+ax.set_ylabel("Log Child Mortality", fontsize=12)
+ax.set_title("Child Mortality vs Days over 30C (log-transformed)", fontsize=14)
+ax.legend()
 # Show the plot
 plt.tight_layout()
 plt.show()
@@ -904,8 +1038,8 @@ plt.show()
 model_grouped_psu_consumption["log_mortality"] = np.log(
     model_grouped_psu_consumption["child_mortality"] + OFFSET
 )
-df_consumption_only["log_pred_fixed_q95"] = np.log(
-    df_consumption_only["pred_fixed_q95"] + OFFSET
+df_consumption_only["log_pred_fixed_do30_prev_0_mo"] = np.log(
+    df_consumption_only["pred_fixed_do30"] + OFFSET
 )
 
 fig, ax = plt.subplots(figsize=(10, 6))
@@ -958,9 +1092,9 @@ model_grouped_psu_consumption["logit_mortality"] = np.log(
     (model_grouped_psu_consumption["child_mortality"] + OFFSET)
     / (1 - model_grouped_psu_consumption["child_mortality"] + OFFSET)
 )
-df_consumption_only["logit_pred_fixed_q95"] = np.log(
-    (df_consumption_only["pred_fixed_q95"] + OFFSET)
-    / (1 - df_consumption_only["pred_fixed_q95"] + OFFSET)
+df_consumption_only["logit_pred_fixed_do30_prev_0_mo"] = np.log(
+    (df_consumption_only["pred_fixed_do30"] + OFFSET)
+    / (1 - df_consumption_only["pred_fixed_do30"] + OFFSET)
 )
 
 fig, ax = plt.subplots(figsize=(10, 6))
@@ -1004,10 +1138,102 @@ ax.legend()
 # Show the plot
 plt.tight_layout()
 
+# 2.d Plot consumption scatters without any data transformation, grouped by country-year
+model_grouped_country_year_consumption = df_grouped_country_year.copy()
+model_grouped_country_year_consumption.sort_values("consumption_pd", inplace=True)
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+# Plot the density of data points using hist2d
+hist = ax.hist2d(
+    model_grouped_country_year_consumption["consumption_pd"],
+    model_grouped_country_year_consumption["child_mortality"],
+    bins=60,
+    norm=mcolors.LogNorm(),
+)
+
+# Add a colorbar to show density
+cbar = plt.colorbar(hist[3], ax=ax)
+cbar.set_label("Density")
+
+# Overlay the red line for pred_fixed_do30
+ax.plot(
+    df_consumption_only.query("statistic=='mean_do30'")["consumption_pd"],
+    df_consumption_only.query("statistic=='mean_do30'")["pred_fixed_do30"],
+    color="red",
+    label="Predictions holding all\nvars at avg except consumption",
+    linewidth=2,
+)
+
+
+# Add a lightly-shaded red band for lower and upper bounds
+ax.fill_between(
+    df_consumption_only.query("statistic=='mean_do30'")["consumption_pd"],
+    df_consumption_only.query("statistic=='lower_do30'")["pred_fixed_do30"],
+    df_consumption_only.query("statistic=='upper_do30'")["pred_fixed_do30"],
+    color="red",
+    alpha=0.2,  # Transparency for the shaded region
+    label="CI made with upper/lower do30",
+)
+
+# Add labels, title, and legend
+ax.set_xlabel("Consumption per day", fontsize=12)
+ax.set_ylabel("Child Mortality", fontsize=12)
+ax.set_title("Child Mortality vs Consumption per day (no transformation)", fontsize=14)
+ax.legend()
+
+# Show the plot
+plt.tight_layout()
+plt.show()
+
+# 2.e. log-transform child-mortality, grouped by country-year
+model_grouped_country_year_consumption["log_mortality"] = np.log(
+    model_grouped_country_year_consumption["child_mortality"] + OFFSET
+)
+df_consumption_only["log_pred_fixed_do30"] = np.log(
+    df_consumption_only["pred_fixed_do30"] + OFFSET
+)
+fig, ax = plt.subplots(figsize=(10, 6))
+# Plot the density of data points using hist2d
+hist = ax.hist2d(
+    model_grouped_country_year_consumption["consumption_pd"],
+    model_grouped_country_year_consumption["log_mortality"],
+    bins=60,
+    norm=mcolors.LogNorm(),
+)
+# Add a colorbar to show density
+cbar = plt.colorbar(hist[3], ax=ax)
+cbar.set_label("Density")
+# Overlay the red line for log_pred_fixed_do30
+ax.plot(
+    df_consumption_only.query("statistic=='mean_do30'")["consumption_pd"],
+    df_consumption_only.query("statistic=='mean_do30'")["log_pred_fixed_do30"],
+    color="red",
+    label="Log predictions holding all\nvars at avg except consumption",
+    linewidth=2,
+)
+# Add a lightly-shaded red band for lower and upper bounds
+ax.fill_between(
+    df_consumption_only.query("statistic=='mean_do30'")["consumption_pd"],
+    df_consumption_only.query("statistic=='lower_do30'")["log_pred_fixed_do30"],
+    df_consumption_only.query("statistic=='upper_do30'")["log_pred_fixed_do30"],
+    color="red",
+    alpha=0.2,  # Transparency for the shaded region
+    label="CI made with upper/lower do30",
+)
+# Add labels, title, and legend
+ax.set_xlabel("Consumption per day", fontsize=12)
+ax.set_ylabel("Log Child Mortality", fontsize=12)
+ax.set_title("Child Mortality vs Consumption per day (log-transformed)", fontsize=14)
+ax.legend()
+# Show the plot
+plt.tight_layout()
+plt.show()
+
 # Save to logged versions to PDF for presentation
 # Save to PDF
 # Define the PDF path
-pdf_path = os.path.join(PLOT_PATH, "scam_plots_logged.pdf")
+pdf_path = os.path.join(PLOT_PATH, "scam_do30_psu_grouped_plots_logged.pdf")
 
 # Open a PDF to save the plots
 with PdfPages(pdf_path) as pdf:
@@ -1016,15 +1242,15 @@ with PdfPages(pdf_path) as pdf:
 
     # Plot 1.b (Log-transformed Mortality)
     ax = axes[0]
-    model_grouped_psu_q95["log_mortality"] = np.log(
-        model_grouped_psu_q95["child_mortality"] + OFFSET
+    model_grouped_psu_do30["log_mortality"] = np.log(
+        model_grouped_psu_do30["child_mortality"] + OFFSET
     )
-    df_q95_only["log_pred_fixed_consumption"] = np.log(
-        df_q95_only["pred_fixed_consumption"] + OFFSET
+    df_do30_only["log_pred_fixed_consumption"] = np.log(
+        df_do30_only["pred_fixed_consumption"] + OFFSET
     )
     hist = ax.hist2d(
-        model_grouped_psu_q95["q95_prev_0_mo"],
-        model_grouped_psu_q95["log_mortality"],
+        model_grouped_psu_do30["days_over_30C_prev_0_mo"],
+        model_grouped_psu_do30["log_mortality"],
         bins=60,
         norm=mcolors.LogNorm(),
     )
@@ -1032,22 +1258,26 @@ with PdfPages(pdf_path) as pdf:
     cbar.set_label("Density")
     # Overlay the red line for pred_fixed_consumption
     ax.plot(
-        df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
-        df_q95_only.query("statistic=='mean_consumption_pd'")[
+        df_do30_only.query("statistic=='mean_consumption_pd'")[
+            "days_over_30C_prev_0_mo"
+        ],
+        df_do30_only.query("statistic=='mean_consumption_pd'")[
             "log_pred_fixed_consumption"
         ],
         color="red",
-        label="Log predictions holding all\nvars at avg except q95",
+        label="Log predictions holding all\nvars at avg except days over 30",
         linewidth=2,
     )
 
     # Add a lightly-shaded red band for lower and upper bounds
     ax.fill_between(
-        df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
-        df_q95_only.query("statistic=='lower_consumption_pd'")[
+        df_do30_only.query("statistic=='mean_consumption_pd'")[
+            "days_over_30C_prev_0_mo"
+        ],
+        df_do30_only.query("statistic=='lower_consumption_pd'")[
             "log_pred_fixed_consumption"
         ],
-        df_q95_only.query("statistic=='upper_consumption_pd'")[
+        df_do30_only.query("statistic=='upper_consumption_pd'")[
             "log_pred_fixed_consumption"
         ],
         color="red",
@@ -1055,10 +1285,10 @@ with PdfPages(pdf_path) as pdf:
         label="CI made with upper/lower consumption_pd",
     )
 
-    ax.set_xlabel("Days over 95th Percentile during Birth Month", fontsize=12)
+    ax.set_xlabel("Days over 30C during Birth Month", fontsize=12)
     ax.set_ylabel("Log Mortality", fontsize=12)
     ax.set_title(
-        "Marginal Effect of Days over 95th Percentile",
+        "Marginal Effect of Days over 30C",
         fontsize=14,
     )
     ax.legend(loc="lower right")
@@ -1068,8 +1298,8 @@ with PdfPages(pdf_path) as pdf:
     model_grouped_psu_consumption["log_mortality"] = np.log(
         model_grouped_psu_consumption["child_mortality"] + OFFSET
     )
-    df_consumption_only["log_pred_fixed_q95"] = np.log(
-        df_consumption_only["pred_fixed_q95"] + OFFSET
+    df_consumption_only["log_do30_prev_0_mo"] = np.log(
+        df_consumption_only["pred_fixed_do30"] + OFFSET
     )
     hist = ax.hist2d(
         model_grouped_psu_consumption["consumption_pd"],
@@ -1079,10 +1309,12 @@ with PdfPages(pdf_path) as pdf:
     )
     cbar = plt.colorbar(hist[3], ax=ax)
     cbar.set_label("Density")
-    # Overlay the red line for log_pred_fixed_q95
+    # Overlay the red line for log_pred_fixed_do30_prev_0_mo
     ax.plot(
-        df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
-        df_consumption_only.query("statistic=='mean_q95'")["log_pred_fixed_q95"],
+        df_consumption_only.query("statistic=='mean_do30'")["consumption_pd"],
+        df_consumption_only.query("statistic=='mean_do30'")[
+            "log_pred_fixed_do30_prev_0_mo"
+        ],
         color="red",
         label="Log predictions holding all\nvars at avg except consumption",
         linewidth=2,
@@ -1090,12 +1322,16 @@ with PdfPages(pdf_path) as pdf:
 
     # Add a lightly-shaded red band for lower and upper bounds
     ax.fill_between(
-        df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
-        df_consumption_only.query("statistic=='lower_q95'")["log_pred_fixed_q95"],
-        df_consumption_only.query("statistic=='upper_q95'")["log_pred_fixed_q95"],
+        df_consumption_only.query("statistic=='mean_do30'")["consumption_pd"],
+        df_consumption_only.query("statistic=='lower_do30'")[
+            "log_pred_fixed_do30_prev_0_mo"
+        ],
+        df_consumption_only.query("statistic=='upper_do30'")[
+            "log_pred_fixed_do30_prev_0_mo"
+        ],
         color="red",
         alpha=0.2,  # Transparency for the shaded region
-        label="CI made with upper/lower q95",
+        label="CI made with upper/lower do30_prev_0_mo",
     )
     ax.set_xlabel("Consumption per day", fontsize=12)
     ax.set_ylabel("Log Mortality", fontsize=12)
@@ -1108,9 +1344,11 @@ with PdfPages(pdf_path) as pdf:
 
 print(f"PDF saved to {pdf_path}")
 
+
 ## Repeat above but for 1.d. and 2.d., i.e. country-year grouped
+
 # Define the PDF path
-pdf_path = os.path.join(PLOT_PATH, "scam_q95_country_year_grouped_plots_logged.pdf")
+pdf_path = os.path.join(PLOT_PATH, "scam_do30_country_year_grouped_plots_logged.pdf")
 
 # Open a PDF to save the plots
 with PdfPages(pdf_path) as pdf:
@@ -1122,11 +1360,11 @@ with PdfPages(pdf_path) as pdf:
     df_grouped_country_year["log_mortality"] = np.log(
         df_grouped_country_year["child_mortality"] + OFFSET
     )
-    df_q95_only["log_pred_fixed_consumption"] = np.log(
-        df_q95_only["pred_fixed_consumption"] + OFFSET
+    df_do30_only["log_pred_fixed_consumption"] = np.log(
+        df_do30_only["pred_fixed_consumption"] + OFFSET
     )
     hist = ax.hist2d(
-        df_grouped_country_year["q95_prev_0_mo"],
+        df_grouped_country_year["days_over_30C_prev_0_mo"],
         df_grouped_country_year["log_mortality"],
         bins=60,
         norm=mcolors.LogNorm(),
@@ -1135,22 +1373,26 @@ with PdfPages(pdf_path) as pdf:
     cbar.set_label("Density")
     # Overlay the red line for pred_fixed_consumption
     ax.plot(
-        df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
-        df_q95_only.query("statistic=='mean_consumption_pd'")[
+        df_do30_only.query("statistic=='mean_consumption_pd'")[
+            "days_over_30C_prev_0_mo"
+        ],
+        df_do30_only.query("statistic=='mean_consumption_pd'")[
             "log_pred_fixed_consumption"
         ],
         color="red",
-        label="Log predictions holding all\nvars at avg except q95",
+        label="Log predictions holding all\nvars at avg except days over 30",
         linewidth=2,
     )
 
     # Add a lightly-shaded red band for lower and upper bounds
     ax.fill_between(
-        df_q95_only.query("statistic=='mean_consumption_pd'")["q95_prev_0_mo"],
-        df_q95_only.query("statistic=='lower_consumption_pd'")[
+        df_do30_only.query("statistic=='mean_consumption_pd'")[
+            "days_over_30C_prev_0_mo"
+        ],
+        df_do30_only.query("statistic=='lower_consumption_pd'")[
             "log_pred_fixed_consumption"
         ],
-        df_q95_only.query("statistic=='upper_consumption_pd'")[
+        df_do30_only.query("statistic=='upper_consumption_pd'")[
             "log_pred_fixed_consumption"
         ],
         color="red",
@@ -1158,10 +1400,10 @@ with PdfPages(pdf_path) as pdf:
         label="CI made with upper/lower consumption_pd",
     )
 
-    ax.set_xlabel("Days over q95 during Birth Month", fontsize=12)
+    ax.set_xlabel("Days over 30C during Birth Month", fontsize=12)
     ax.set_ylabel("Log Mortality", fontsize=12)
     ax.set_title(
-        "Marginal Effect of Days over q95",
+        "Marginal Effect of Days over 30C",
         fontsize=14,
     )
     ax.legend(loc="lower right")
@@ -1171,8 +1413,8 @@ with PdfPages(pdf_path) as pdf:
     df_grouped_country_year["log_mortality"] = np.log(
         df_grouped_country_year["child_mortality"] + OFFSET
     )
-    df_consumption_only["log_pred_fixed_q95"] = np.log(
-        df_consumption_only["pred_fixed_q95"] + OFFSET
+    df_consumption_only["log_do30_prev_0_mo"] = np.log(
+        df_consumption_only["pred_fixed_do30"] + OFFSET
     )
     hist = ax.hist2d(
         df_grouped_country_year["consumption_pd"],
@@ -1182,10 +1424,12 @@ with PdfPages(pdf_path) as pdf:
     )
     cbar = plt.colorbar(hist[3], ax=ax)
     cbar.set_label("Density")
-    # Overlay the red line for log_pred_fixed_q95
+    # Overlay the red line for log_pred_fixed_do30_prev_0_mo
     ax.plot(
-        df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
-        df_consumption_only.query("statistic=='mean_q95'")["log_pred_fixed_q95"],
+        df_consumption_only.query("statistic=='mean_do30'")["consumption_pd"],
+        df_consumption_only.query("statistic=='mean_do30'")[
+            "log_pred_fixed_do30_prev_0_mo"
+        ],
         color="red",
         label="Log predictions holding all\nvars at avg except consumption",
         linewidth=2,
@@ -1193,12 +1437,16 @@ with PdfPages(pdf_path) as pdf:
 
     # Add a lightly-shaded red band for lower and upper bounds
     ax.fill_between(
-        df_consumption_only.query("statistic=='mean_q95'")["consumption_pd"],
-        df_consumption_only.query("statistic=='lower_q95'")["log_pred_fixed_q95"],
-        df_consumption_only.query("statistic=='upper_q95'")["log_pred_fixed_q95"],
+        df_consumption_only.query("statistic=='mean_do30'")["consumption_pd"],
+        df_consumption_only.query("statistic=='lower_do30'")[
+            "log_pred_fixed_do30_prev_0_mo"
+        ],
+        df_consumption_only.query("statistic=='upper_do30'")[
+            "log_pred_fixed_do30_prev_0_mo"
+        ],
         color="red",
         alpha=0.2,  # Transparency for the shaded region
-        label="CI made with upper/lower q95",
+        label="CI made with upper/lower do30_prev_0_mo",
     )
     ax.set_xlabel("Consumption per day", fontsize=12)
     ax.set_ylabel("Log Mortality", fontsize=12)
@@ -1211,7 +1459,8 @@ with PdfPages(pdf_path) as pdf:
 
 print(f"PDF saved to {pdf_path}")
 
-# Save to PDF
+
+# Save all version results to PDF
 # Define the PDF path
 pdf_path = os.path.join(PLOT_PATH, "scam_plots_combined_v2.pdf")
 

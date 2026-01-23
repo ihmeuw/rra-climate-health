@@ -163,7 +163,6 @@ model <- scam(
 saveRDS(model, file = paste0(model_objects_dir, summary_file,".rds"))
 
 # Read model back in
-# summary_file <- "nnm_1_mo_q95_mgcv_summary"
 # model = readRDS(file = paste0(model_objects_dir, summary_file,".rds"))
 
 summary(model)
@@ -337,7 +336,6 @@ df_avg_psu[,s_days_over_30C_contribution_lower:=s_days_over_30C_contribution-1.9
 
 # make additional predictions trying to hold rest of other variables flat
 
-
 # # Save predictions to parquet
 write_parquet(df_avg_psu, paste0(results_dir, "predictions_", summary_file, ".parquet"))
 
@@ -398,6 +396,8 @@ table(df_fixed_consumption$consumption_pd)
 
 # pred_fixed_consumption <- predict(model, newdata = df_fixed_consumption, type = "response", re.form = NA)
 df_fixed_consumption$pred_fixed_consumption <- predict(model, newdata = df_fixed_consumption, type = "response")
+df_fixed_consumption$linear_predictor <- predict(model, newdata = df_fixed_consumption, type = "link")
+range(df_fixed_consumption$linear_predictor)
 
 # sanity check
 all(diff(df_fixed_consumption$pred_fixed_consumption) >= 0) # TRUE
@@ -517,6 +517,7 @@ p_do30 <- ggplot(plot_data, aes(x = days_over_30C, y = spline_contribution_do30)
     x = "days_over_30C",
     y = "Spline Contribution"
   ) +
+  ylim(-0.05, 0.2)+
   theme_minimal() +
   theme(
     plot.title = element_text(size = 30),
@@ -563,6 +564,8 @@ p_consumption <- ggplot(plot_data, aes(x = consumption_pd, y = spline_contributi
                "Spline"="blue") 
   ) +
   scale_x_continuous(breaks = seq(0, max(plot_data$consumption_pd, na.rm = TRUE), by = 30)) +
+  ylim(-1.2, 0.4)+
+  scale_y_continuous(breaks = round(seq(-1.2, 0.4, by = 0.4), 1)) +
   theme_minimal()+
   theme(
     plot.title = element_text(size = 30),

@@ -595,6 +595,100 @@ ggsave(
   dpi = 300              # Set resolution for better quality
 )
 
+## Make versions of above with y-min to plot side-by-side with do30
+
+# plot q95
+p_q95 <- ggplot(plot_data, aes(x = q95_prev_0_mo, y = spline_contribution_q95)) +
+  geom_line(aes(color = "Spline")) +
+  geom_ribbon(aes(ymin = q95_lower_ci, ymax = q95_upper_ci), alpha = 0.2, fill = "blue") +
+  geom_abline(
+    aes(color = "Slope from linear model",
+        slope = linear_q95,
+        intercept = -0.002559393), # min(plot_data$spline_contribution_q95)
+    linetype = "dashed"
+  ) +
+  scale_color_manual(
+    name = "Legend",  # Legend title
+    values = c("Slope from linear model" = "red",
+               "Spline"="blue") 
+  ) +
+  labs(
+    title = "Spline Contribution for q95_prev_0_mo",
+    x = "q95_prev_0_mo",
+    y = "Spline Contribution"
+  ) +
+  ylim(-0.05, 0.2)+
+  theme_minimal()+
+  theme(
+    plot.title = element_text(size = 30),
+    axis.title.x = element_text(size = 26),
+    axis.title.y = element_text(size = 26),
+    axis.text.x = element_text(size = 20),
+    axis.text.y = element_text(size = 20),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = c(0.8, 0.1),  # Position legend inside the plot (x, y)
+    legend.background = element_rect(fill = "white", color = "black", size = 0.5),  # Add a background box
+    legend.key = element_rect(fill = "white")  # Ensure legend keys have a white background 
+  )
+
+ggsave(
+  filename = paste0(plot_dir, summary_file, "_q95_with_linear_ylim.png"),
+  plot = p_q95,
+  bg = "white",          # Set background to white
+  width = 10,             # Adjust width (in inches)
+  height = 8,            # Adjust height (in inches)
+  dpi = 300              # Set resolution for better quality
+)
+
+# plot consumption
+p_consumption <- ggplot(plot_data, aes(x = consumption_pd, y = spline_contribution_consumption_pd)) +
+  geom_line(aes(color = "Spline")) +
+  geom_ribbon(aes(ymin = c_lower_ci, ymax = c_upper_ci), alpha = 0.2, fill = "blue") +
+  labs(
+    title = "Spline Contribution for consumption_pd\n(from q95 model)",
+    x = "consumption_pd",
+    y = "Spline Contribution"
+  ) +
+  geom_abline(
+    aes(
+      slope = consumption_linear, 
+      intercept = 0.3094057, # max(plot_data$spline_contribution_consumption_pd)
+      color = "Slope from linear model"), 
+    linetype = "dashed"
+  ) +
+  scale_color_manual(
+    name = "Legend",  # Legend title
+    values = c("Slope from linear model" = "red",
+               "Spline"="blue") 
+  ) +
+  scale_x_continuous(breaks = seq(0, max(plot_data$consumption_pd, na.rm = TRUE), by = 30)) + 
+  ylim(-1.2, 0.4)+
+  scale_y_continuous(breaks = round(seq(-1.2, 0.4, by = 0.4), 1)) +
+  theme_minimal()+
+  theme(
+    plot.title = element_text(size = 30),
+    axis.title.x = element_text(size = 26),
+    axis.title.y = element_text(size = 26),
+    axis.text.x = element_text(size = 20),
+    axis.text.y = element_text(size = 20),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = c(0.8, 0.8),  # Position legend inside the plot (x, y)
+    legend.background = element_rect(fill = "white", color = "black", size = 0.5),  # Add a background box
+    legend.key = element_rect(fill = "white")  # Ensure legend keys have a white background
+  )
+
+
+ggsave(
+  filename = paste0(plot_dir, summary_file, "_consumption_with_linear_ylim.png"),
+  plot = p_consumption,
+  bg = "white",          # Set background to white
+  width = 10,             # Adjust width (in inches)
+  height = 8,            # Adjust height (in inches)
+  dpi = 300              # Set resolution for better quality
+)
+
 # Make histograms of data density for q95 and consumption_pd
 
 
