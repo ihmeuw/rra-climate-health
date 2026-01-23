@@ -664,6 +664,9 @@ df_grouped_country_year = (
         ]
     ]
     .mean()
+    .assign(
+        indv_count=data_raw.groupby(["birth_year", "ihme_loc_id"])["indv_id"].nunique()
+    )
     .reset_index()
 )
 df_grouped_country_year = df_grouped_country_year.dropna()
