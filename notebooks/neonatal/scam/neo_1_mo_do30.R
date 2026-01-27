@@ -116,7 +116,7 @@ df_model <- na.omit(df_model)
 # df_sample <- df_model[indv_id %in% sampled_indv]
 
 #==============================================================================
-# SECTION 2: FIT MODEL ON ALL AGES
+# SECTION 2: FIT MODEL 
 #==============================================================================
 
 
@@ -398,6 +398,8 @@ table(df_fixed_consumption$consumption_pd)
 df_fixed_consumption$pred_fixed_consumption <- predict(model, newdata = df_fixed_consumption, type = "response")
 df_fixed_consumption$linear_predictor <- predict(model, newdata = df_fixed_consumption, type = "link")
 range(df_fixed_consumption$linear_predictor)
+
+write.csv(df_fixed_consumption,paste0(results_dir, "single_var_spline_test_", summary_file, ".csv"))
 
 # sanity check
 all(diff(df_fixed_consumption$pred_fixed_consumption) >= 0) # TRUE
