@@ -16,9 +16,10 @@ from copy import deepcopy
 from rra_climate_health import cli_options as clio
 from rra_climate_health import utils
 from rra_climate_health.data import DEFAULT_ROOT, ClimateMalnutritionData
-from rra_climate_health.inference.inference_diagnostics import (
-    create_inference_diagnostics_report,
-)
+
+# from rra_climate_health.inference.inference_diagnostics import (
+#     create_inference_diagnostics_report,
+# ) # not used currently and throws error
 from rra_climate_health.model_specification import (
     ModelSpecification,
     PredictorSpecification,

@@ -105,6 +105,7 @@ cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "co
 df_model <- neo_df[, ..cols]
 
 df_model <- na.omit(df_model)
+
 # get sample
 # indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
 # indv_counts <- indv_dt[, .N, by = ihme_loc_id]
@@ -215,56 +216,60 @@ write.table(
 )
 
 
-
-# cat("================================================================================\n", file = summary_file_path, append = TRUE)
-# cat("CLUSTER-SPECIFIC RANDOM EFFECTS ESTIMATES\n", file = summary_file_path, append = TRUE)
-# cat("================================================================================\n\n", file = summary_file_path, append = TRUE)
-# re_output <- capture.output(print(re_df, row.names = FALSE))
-# cat(paste(re_output, collapse = "\n"), file = summary_file_path, append = TRUE)
-# 
-# # Also save frailty estimates as a separate CSV for easier access
-# write.csv(re_df, paste0(model_summary_dir, "re_estimates_", summary_file, ".csv"), row.names = FALSE)
-# 
 # # save coefficients in required inference format:
 # 
 # # example format
 # # coefficients
 # ex_coef <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_coefs.parquet")
-# 
+# ex_coef <- read_parquet(paste0(inference_objects_dir,"nnm_1_mo_q95_coefs.parquet"))
+
+
 # # random effects
 # ex_re <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_ranef.parquet")
-# 
+# ex_re <- read_parquet(paste0(inference_objects_dir,"nnm_1_mo_q95_ranef.parquet"))
+
 # inf_coef <- copy(ex_coef)[.I==0]
 # 
-# coefficients <- fixef(model)
-# 
-# # Convert coefficients to a dataframe
-# inf_coef <- data.frame(
-#   index = names(coefficients),
-#   Estimate = coefficients
-# )
-# inf_coef <- setDT(copy(inf_coef))
-# 
-# # rename vars as expected format
-# required <- c('(Intercept)','consumption_pd','q95_prev_0_mo','total_precipitation_prev_0_mo','C(sex_id)1','C(birth_year)2022')
-# inf_coef[index=='sex_id',index:='C(sex_id)1']
-# inf_coef[index=='birth_year2022',index:='C(birth_year)2022']
-# inf_coef <- inf_coef[index %in% required]
-# rownames(inf_coef) <- inf_coef$index
-# inf_coef$index <- NULL
-# 
-# outfile_coef <- gsub("_summary","_coefs.csv",summary_file)
-# write.csv(inf_coef,paste0(inference_objects_dir,outfile),row.names=TRUE)
-# print(paste0(inference_objects_dir,outfile_coef))
-# 
-# inf_re <- copy(re_df)
-# setnames(inf_re,old=c("random_effects","ihme_loc_id"),new=c("X.Intercept.","index"))
-# rownames(inf_re) <- inf_re$index
-# inf_re$index <- NULL
-# outfile_re <- gsub("_summary","_ranef.csv",summary_file)
-# write.csv(inf_re,paste0(inference_objects_dir,outfile),row.names = TRUE)
-# print(paste0(inference_objects_dir,outfile_re))
-# 
+coefficients <- copy(coefs)
+setDT(coefficients)
+var_list <- c("(Intercept)","sex_id","total_precipitation_prev_0_mo","birth_year2022")
+coefficients <- coefficients[variable %in% var_list]
+
+setnames(coefficients,old=c("variable","coefficient"),new=c("__index_level_0__","Estimate"))
+coefficients <- coefficients[,.(Estimate,`__index_level_0__`)]
+
+inf_coef <- copy(coefficients)
+
+# rename vars as expected format
+inf_coef[`__index_level_0__`=='sex_id',`__index_level_0__`:='C(sex_id)1']
+inf_coef[`__index_level_0__`=='birth_year2022',`__index_level_0__`:='C(birth_year)2022']
+rownames(inf_coef) <- inf_coef$`__index_level_0__`
+inf_coef$`__index_level_0__` <- NULL
+
+outfile_coef <- gsub("_summary","_coefs.csv",summary_file)
+write.csv(inf_coef,paste0(inference_objects_dir,outfile_coef),row.names=TRUE)
+print(paste0(inference_objects_dir,outfile_coef))
+
+# test conversion
+inf_coef_parquet <- read_parquet(paste0(inference_objects_dir,gsub("csv","parquet",outfile_coef)))
+
+# save out random effects
+re_df <- copy(coefs)
+setnames(re_df,old="variable",new="ihme_loc_id")
+re_df <- merge(re_df,random_effect_mapping,by=c("ihme_loc_id"),all.y=TRUE)
+re_df$variable <- NULL
+inf_re <- copy(re_df)
+setnames(inf_re,old=c("coefficient","ihme_loc_id"),new=c("X.Intercept.","index"))
+
+rownames(inf_re) <- inf_re$index
+inf_re$index <- NULL
+outfile_re <- gsub("_summary","_ranef.csv",summary_file)
+write.csv(inf_re,paste0(inference_objects_dir,outfile_re),row.names = TRUE)
+print(paste0(inference_objects_dir,outfile_re))
+
+# test conversion
+inf_re_parquet <- read_parquet(paste0(inference_objects_dir,gsub("csv","parquet",outfile_re)))
+
 #==============================================================================
 # SECTION 3: PREDICT MODEL FOR NEONATAL ON AVG BIRTH YEAR, SEX, PRECIPITATION
 #==============================================================================
@@ -273,6 +278,8 @@ df_avg <- copy(df_model)
 
 df_avg$pred_me <- predict(model, newdata = df_avg, type = "response", re.form = NULL)
 
+# save df_model as input data:
+write_parquet(df_avg,paste0(results_dir, "predictions_me_only_", summary_file, ".parquet"))
 
 # # # override existing variables to be able to use predict function from package
 df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0),

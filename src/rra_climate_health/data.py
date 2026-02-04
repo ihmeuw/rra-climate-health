@@ -54,7 +54,7 @@ class ClimateMalnutritionData:
     def load_training_data(self, version: str) -> pd.DataFrame:
         path = self.training_data / version / "data.parquet"
         return pd.read_parquet(path)
-    
+
     def load_training_data_types(self, version: str):
         training_data = self.load_training_data(version)
         return training_data.dtypes.copy()
@@ -68,7 +68,9 @@ class ClimateMalnutritionData:
         transformed_data = {}
         var_info = {}
         for var, transform_spec in model_spec.transform_map.items():
-            transformed, transformer = transform_column(raw_model_data, var, transform_spec)
+            transformed, transformer = transform_column(
+                raw_model_data, var, transform_spec
+            )
             transformed_data[var] = transformed
             var_info[var] = {
                 "transformer": transformer,
@@ -85,9 +87,9 @@ class ClimateMalnutritionData:
             grid_spec["grid_definition_categorical"] = (
                 df[grid_vars + ["grid_cell"]].drop_duplicates().sort_values(grid_vars)
             )
-            grid_spec["grid_definition"] = grid_spec["grid_definition_categorical"].astype(
-                str
-            )
+            grid_spec["grid_definition"] = grid_spec[
+                "grid_definition_categorical"
+            ].astype(str)
             var_info["grid_cell"] = grid_spec
 
         for random_effect in model_spec.random_effects:
@@ -154,7 +156,7 @@ class ClimateMalnutritionData:
         touch(model_filepath, exist_ok=True)
         with model_filepath.open("wb") as f:
             pickle.dump(model, f)
-        
+
         coefs_filepath = model_root / (model_filename_base + "_coefs.parquet")
         touch(coefs_filepath, exist_ok=True)
         model.coefs.to_parquet(coefs_filepath)
@@ -163,7 +165,6 @@ class ClimateMalnutritionData:
         touch(random_effects_filepath, exist_ok=True)
         model.ranef.to_parquet(random_effects_filepath)
 
-    
     def load_model_family(
         self,
         version: str,
@@ -241,15 +242,13 @@ class ClimateMalnutritionData:
             model_coefs_filepath = model_id_dir / f"{submodel_str}_coefs.parquet"
             model_ranef_filepath = model_id_dir / f"{submodel_str}_ranef.parquet"
             if model_coefs_filepath.exists() and model_ranef_filepath.exists():
-                model_coefs = pd.read_parquet(model_coefs_filepath)['Estimate']
+                model_coefs = pd.read_parquet(model_coefs_filepath)["Estimate"]
                 model_ranef = pd.read_parquet(model_ranef_filepath)
                 return model_coefs, model_ranef
         message = f"Model coefficients for sub model {submodel}  at {model_coefs_filepath} not found."
         raise FileNotFoundError(message)
 
-
-    def load_model_variable_info(
-        self, version: str) -> dict[str, typing.Any]:
+    def load_model_variable_info(self, version: str) -> dict[str, typing.Any]:
         model_spec = self.load_model_specification(version)
         full_training_data = self.load_training_data(model_spec.version.training_data)
         full_training_data = full_training_data.reset_index(drop=True)
@@ -263,13 +262,15 @@ class ClimateMalnutritionData:
     def results(self) -> Path:
         return self.root / "results"
 
-    def new_results_version(self, 
+    def new_results_version(
+        self,
         model_version: str,
         age_groups: list[int],
         sex_ids: list[int],
-        years: list[int], 
+        years: list[int],
         scenarios: list[str],
-        draws: int) -> str:
+        draws: int,
+    ) -> str:
         run_directory = get_run_directory(self.results)
         mkdir(run_directory)
         # create results specification file
@@ -282,7 +283,7 @@ class ClimateMalnutritionData:
                 age_groups=age_groups,
                 scenarios=scenarios,
                 years=years,
-                sex_ids = sex_ids,
+                sex_ids=sex_ids,
             )
         )
         return run_directory.name
@@ -326,10 +327,14 @@ class ClimateMalnutritionData:
         sex_id: str | int,
         draw: int,
     ) -> None:
-        path = self.results / model_version / f"{year}_{scenario}_{sex_id}_{age_group_id}_{draw}.parquet"
+        path = (
+            self.results
+            / model_version
+            / f"{year}_{scenario}_{sex_id}_{age_group_id}_{draw}.parquet"
+        )
         touch(path, exist_ok=True)
         results.to_parquet(path)
-    
+
     def load_results_table(
         self,
         model_version: str,
@@ -345,8 +350,11 @@ class ClimateMalnutritionData:
                 for age_group_id in age_group_ids:
                     for sex_id in sex_ids:
                         for draw in range(0, draws):
-                            path = self.results / model_version / \
-                                f"{year}_{scenario}_{sex_id}_{age_group_id}_{draw}.parquet"
+                            path = (
+                                self.results
+                                / model_version
+                                / f"{year}_{scenario}_{sex_id}_{age_group_id}_{draw}.parquet"
+                            )
                             dfs.append(pd.read_parquet(path))
         return pd.concat(dfs)
 
@@ -372,18 +380,42 @@ class ClimateMalnutritionData:
 
     def load_ldi_distributions(self, geospecificity: str, version: str) -> pd.DataFrame:
         if geospecificity != "national" and geospecificity != "admin2":
-            error_message = f"geospecificity must be 'national' or 'admin2', not {geospecificity}"
+            error_message = (
+                f"geospecificity must be 'national' or 'admin2', not {geospecificity}"
+            )
             raise ValueError(error_message)
 
-        path = self.shared_inputs / "ldi" / version / f"{geospecificity}_estimates.parquet"
+        path = (
+            self.shared_inputs / "ldi" / version / f"{geospecificity}_estimates.parquet"
+        )
         return pd.read_parquet(path)
 
-    def ldi_raster_path(self, scenario: int | str, year: int | str, percentile: float | str, version: str) -> Path:
-        return self.shared_inputs / "ldi_raster" / version / str(scenario) / f"{year}_{percentile}.tif"
+    def ldi_raster_path(
+        self,
+        scenario: int | str,
+        year: int | str,
+        percentile: float | str,
+        version: str,
+    ) -> Path:
+        return (
+            self.shared_inputs
+            / "ldi_raster"
+            / version
+            / str(scenario)
+            / f"{year}_{percentile}.tif"
+        )
 
-    def load_ldi_raster(self, scenario: int | str, year: int | str, percentile: float | str, version: str) -> rt.RasterArray:
+    def load_ldi_raster(
+        self,
+        scenario: int | str,
+        year: int | str,
+        percentile: float | str,
+        version: str,
+    ) -> rt.RasterArray:
         # Temporary: we don't actually use the scenarios for income/consumption so just use reference/4.5
-        return rt.load_raster(self.ldi_raster_path(0, year, percentile, version)).astype(np.float32)
+        return rt.load_raster(
+            self.ldi_raster_path(0, year, percentile, version)
+        ).astype(np.float32)
 
     def save_ldi_raster(
         self,
@@ -403,7 +435,9 @@ class ClimateMalnutritionData:
     def load_rasterized_variable(
         self, variable: str, year: int | str
     ) -> rt.RasterArray:
-        return rt.load_raster(self.rasterized_variable_path(variable, year)).astype(np.float32)
+        return rt.load_raster(self.rasterized_variable_path(variable, year)).astype(
+            np.float32
+        )
 
     def save_rasterized_variable_raster(
         self,
@@ -414,14 +448,17 @@ class ClimateMalnutritionData:
         path = self.rasterized_variable_path(variable_name, year)
         mkdir(path.parent, parents=True, exist_ok=True)
         save_raster(variable_raster, path)
-    
+
     def rasterized_intercept_path(self, model_version: str) -> Path:
         return self.models / model_version / "intercept" / "intercept.tif"
 
     def load_rasterized_intercept(
-        self, model_version: str,
+        self,
+        model_version: str,
     ) -> rt.RasterArray:
-        return rt.load_raster(self.rasterized_intercept_path(model_version)).astype(np.float32)
+        return rt.load_raster(self.rasterized_intercept_path(model_version)).astype(
+            np.float32
+        )
 
     def save_rasterized_intercept(
         self,
@@ -434,7 +471,11 @@ class ClimateMalnutritionData:
         save_raster(variable_raster, path, **kwargs)
 
     def load_elevation(self) -> rt.RasterArray:
-        return rt.load_raster(self.shared_inputs / "GLOBE_DEM_MOSAIC_Y2016M02D09.TIF").set_no_data_value(-32768).astype(np.float32)
+        return (
+            rt.load_raster(self.shared_inputs / "GLOBE_DEM_MOSAIC_Y2016M02D09.TIF")
+            .set_no_data_value(-32768)
+            .astype(np.float32)
+        )
 
     #########################
     # Upstream paths we own #
@@ -444,6 +485,7 @@ class ClimateMalnutritionData:
     _RAW_DATA_ROOT = _POP_DATA_ROOT / "01-raw-data"
     _PROCESSED_DATA_ROOT = _POP_DATA_ROOT / "02-processed-data"
     _CLIMATE_DATA_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
+    # _CLIMATE_DATA_ROOT = Path("/mnt/share/erf/climate_downscale/results/monthly")
 
     def save_lbd_admin2_shapes(self, gdf: gpd.GeoDataFrame) -> None:
         path = self._PROCESSED_DATA_ROOT / "ihme" / "lbd_admin2.parquet"
@@ -489,7 +531,7 @@ class ClimateMalnutritionData:
             / "1km_template.tif"
         )
         return rt.load_raster(path).astype(np.float32)
-    
+
     def load_raster_template_spec(self) -> dict[str, typing.Any]:
         raster_template = self.load_raster_template()
         return {
@@ -508,13 +550,15 @@ class ClimateMalnutritionData:
         return rt.load_raster(path).set_no_data_value(np.nan).astype(np.float32)
 
     def load_climate_raster(
-        self, variable: str, scenario: str, year: int | str, draw: int,
+        self,
+        variable: str,
+        scenario: str,
+        year: int | str,
+        draw: int,
     ) -> xr.DataArray:
         if scenario == "constant_climate":
             scenario = "ssp245"
-        path = (
-            self._CLIMATE_DATA_ROOT / scenario / variable / f"{draw:03}.nc"
-        )
+        path = self._CLIMATE_DATA_ROOT / scenario / variable / f"{draw:03}.nc"
         return xr.open_dataset(path).sel(year=year)["value"]
 
 

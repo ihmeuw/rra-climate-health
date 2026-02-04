@@ -140,45 +140,9 @@ test_df$V1 <- NULL
 summary(test_df)
 
 #==============================================================================
-# SECTION 2: GET NON-SPLINE TERMS
+# SECTION 2: GET TERMS COEFFICIENTS
 #==============================================================================
 
-coef_names <- names(coef(model))
-coefs <- data.table(
-  variable = coef_names,
-  coefficient = coef(model)
-)
-
-# Extract linear coefficients
-linear_coefs <- copy(coefs)
-linear_coefs <- linear_coefs[-c(consumption_spline_indices,climate_spline_indices,random_effect_indices)]
-
-# get birth year as integer
-birth_years <- grep("(?<=birth_year).*", coefs$variable, value = TRUE, perl = TRUE)
-linear_coefs[,birth_year:=sub("birth_year", "", variable)] 
-
-# get random effects coefficients
-loc_levels <- data.frame(ihme_loc_id = levels(df_model$ihme_loc_id))
-# Extract random effect terms from coefs
-random_effect_terms <- grep("^s\\(ihme_loc_id\\)", coefs$variable, value = TRUE)
-
-# Create a mapping of random effect terms to ihme_loc_id levels
-random_effect_mapping <- data.table(
-  variable = random_effect_terms,
-  ihme_loc_id = loc_levels$ihme_loc_id
-)
-
-# Replace random effect terms in coefs with corresponding ihme_loc_id levels
-coefs <- merge(coefs, random_effect_mapping, by = "variable", all.x = TRUE, sort = FALSE)
-
-# which indices are the random effects from coefs?
-random_effect_indices <- which(coefs$variable %in% random_effect_terms)
-random_effect_coefs <- coefs[random_effect_indices,]
-
-
-#==============================================================================
-# SECTION 3: GET SPLINE TERMS
-#==============================================================================
 
 # Extract smooth terms for consumption and climate
 consumption_smooth <- model$smooth[[1]]  # s(consumption_pd)
@@ -199,9 +163,47 @@ consumption_knots <- consumption_smooth$knots
 consumption_spline_order <- consumption_smooth$m[1]  # Typically 2 for quadratic
 
 
+coef_names <- names(coef(model))
+coefs <- data.table(
+  variable = coef_names,
+  coefficient = coef(model)
+)
+
+
+# get random effects coefficients
+loc_levels <- data.frame(ihme_loc_id = levels(df_model$ihme_loc_id))
+# Extract random effect terms from coefs
+random_effect_terms <- grep("^s\\(ihme_loc_id\\)", coefs$variable, value = TRUE)
+
+# Create a mapping of random effect terms to ihme_loc_id levels
+random_effect_mapping <- data.table(
+  variable = random_effect_terms,
+  ihme_loc_id = loc_levels$ihme_loc_id
+)
+
+# Replace random effect terms in coefs with corresponding ihme_loc_id levels
+coefs <- merge(coefs, random_effect_mapping, by = "variable", all.x = TRUE, sort = FALSE)
+
+# which indices are the random effects from coefs?
+random_effect_indices <- which(coefs$variable %in% random_effect_terms)
+random_effect_coefs <- coefs[random_effect_indices,]
+
+# Extract linear coefficients
+linear_coefs <- copy(coefs)
+linear_coefs <- linear_coefs[-c(consumption_spline_indices,climate_spline_indices,random_effect_indices)]
+
+# get birth year as integer
+birth_years <- grep("(?<=birth_year).*", coefs$variable, value = TRUE, perl = TRUE)
+linear_coefs[,birth_year:=sub("birth_year", "", variable)] 
+
+# get intercept
+intercept <- linear_coefs[variable == "(Intercept)", coefficient]
+
 #==============================================================================
 # SECTION 4: MANUAL BASIS FUNCTION CALCULATION
 #==============================================================================
+
+# Section no longer relevant for predictions
 
 calculate_basis_ispline <- function(x, knots, degree, num_coefs) {
   # Calculate B-spline basis functions first
@@ -340,15 +342,11 @@ model_smooth_consumption <- predict(model, newdata = test_df, type = "terms")[, 
 #------------------------------------------------------------------------------
 # 8.1: Create fine grid for climate smooth (days_over_30C_prev_0_mo)
 #------------------------------------------------------------------------------
-
 # Determine the range from training data
 climate_range <- range(df_model$days_over_30C_prev_0_mo, na.rm = TRUE)
 
 # Create a fine grid (1000 points should be sufficient for interpolation)
 climate_grid <- seq(climate_range[1], climate_range[2], length.out = 1000)
-
-birth_year_dist <- table(df_model$birth_year) / nrow(df_model)
-ihme_loc_id_dist <- table(df_model$ihme_loc_id) / nrow(df_model)
 
 # Create dummy dataframe with climate grid
 # Use median/mode values for other variables
@@ -357,11 +355,12 @@ dummy_climate <- data.frame(
   consumption_pd = median(df_model$consumption_pd, na.rm = TRUE),
   total_precipitation_prev_0_mo = median(df_model$total_precipitation_prev_0_mo, na.rm = TRUE),
   sex_id = 0,  # Use baseline
-  birth_year = factor(levels(df_model$birth_year)[1], levels = levels(df_model$birth_year)),
-  ihme_loc_id = factor(levels(df_model$ihme_loc_id)[1], levels = levels(df_model$ihme_loc_id))
+  birth_year = factor("2022", levels = levels(df_model$birth_year)),  # Year 2022
+  ihme_loc_id = factor(levels(df_model$ihme_loc_id)[1], levels = levels(df_model$ihme_loc_id))  # Will use 0 effect by excluding from prediction
 )
 
 # Get smooth term predictions for this grid
+# Use type="terms" and extract only the climate smooth to get centered contribution
 pred_terms_climate <- predict(model, newdata = dummy_climate, type = "terms")
 climate_smooth_values <- pred_terms_climate[, "s(days_over_30C_prev_0_mo)"]
 
@@ -371,16 +370,12 @@ climate_lookup <- data.table(
   smooth_contribution = climate_smooth_values
 )
 
-cat("Climate lookup table dimensions:", dim(climate_lookup), "\n")
-cat("Climate smooth range:", range(climate_lookup$smooth_contribution), "\n\n")
-
 #------------------------------------------------------------------------------
 # 8.2: Create fine grid for consumption smooth (consumption_pd)
 #------------------------------------------------------------------------------
 
 # Determine the range from training data
 consumption_range <- range(df_model$consumption_pd, na.rm = TRUE)
-cat("Consumption variable range:", consumption_range, "\n")
 
 # Create a fine grid
 consumption_grid <- seq(consumption_range[1], consumption_range[2], length.out = 1000)
@@ -391,8 +386,8 @@ dummy_consumption <- data.frame(
   consumption_pd = consumption_grid,
   total_precipitation_prev_0_mo = median(df_model$total_precipitation_prev_0_mo, na.rm = TRUE),
   sex_id = 0,
-  birth_year = factor(levels(df_model$birth_year)[1], levels = levels(df_model$birth_year)),
-  ihme_loc_id = factor(levels(df_model$ihme_loc_id)[1], levels = levels(df_model$ihme_loc_id))
+  birth_year = factor("2022", levels = levels(df_model$birth_year)),  # Year 2022
+  ihme_loc_id = factor(levels(df_model$ihme_loc_id)[1], levels = levels(df_model$ihme_loc_id))  # Will use 0 effect
 )
 
 # Get smooth term predictions
@@ -405,8 +400,6 @@ consumption_lookup <- data.table(
   smooth_contribution = consumption_smooth_values
 )
 
-cat("Consumption lookup table dimensions:", dim(consumption_lookup), "\n")
-cat("Consumption smooth range:", range(consumption_lookup$smooth_contribution), "\n\n")
 
 #------------------------------------------------------------------------------
 # 8.3: Create lookup function for linear interpolation
@@ -429,10 +422,6 @@ interpolate_smooth <- function(x_values, lookup_table, x_col = "x", y_col = "smo
 #------------------------------------------------------------------------------
 # 8.4: Test the lookup table approach on test_df
 #------------------------------------------------------------------------------
-
-cat("========================================\n")
-cat("TESTING LOOKUP TABLE APPROACH\n")
-cat("========================================\n\n")
 
 # Interpolate smooth contributions using lookup tables
 test_df$smooth_climate_lookup <- interpolate_smooth(
@@ -467,25 +456,12 @@ test_df$manual_linear_lookup <- intercept +
 test_df$manual_prob_lookup <- 1 / (1 + exp(-test_df$manual_linear_lookup))
 
 # Validate against actual predictions
-cat("VALIDATION RESULTS:\n")
-cat("-------------------\n")
-cat("Linear predictor match:", 
-    all.equal(test_df$manual_linear_lookup, test_df$pred_linear, tolerance = 1e-4), "\n")
-cat("Probability match:", 
-    all.equal(test_df$manual_prob_lookup, test_df$pred_prob, tolerance = 1e-4), "\n\n")
+range(test_df$manual_linear_lookup)
+range(test_df$pred_linear)
+range(test_df$manual_prob_lookup)
+range(test_df$pred_prob)
 
-cat("Ranges:\n")
-cat("  Lookup linear:", range(test_df$manual_linear_lookup), "\n")
-cat("  Model linear:", range(test_df$pred_linear), "\n")
-cat("  Lookup prob:", range(test_df$manual_prob_lookup), "\n")
-cat("  Model prob:", range(test_df$pred_prob), "\n\n")
 
-# Check interpolation accuracy
-cat("Interpolation error statistics:\n")
-cat("  Climate smooth MAE:", mean(abs(test_df$smooth_climate_lookup - smooth_climate_correct)), "\n")
-cat("  Consumption smooth MAE:", mean(abs(test_df$smooth_consumption_lookup - smooth_consumption_correct)), "\n")
-cat("  Linear predictor MAE:", mean(abs(test_df$manual_linear_lookup - test_df$pred_linear)), "\n")
-cat("  Probability MAE:", mean(abs(test_df$manual_prob_lookup - test_df$pred_prob)), "\n\n")
 
 #------------------------------------------------------------------------------
 # 8.5: Visualize lookup tables and interpolation accuracy
@@ -506,7 +482,7 @@ p1 <- ggplot(climate_lookup, aes(x = days_over_30C_prev_0_mo, y = smooth_contrib
   ) +
   theme_minimal()
 
-ggsave(paste0(results_dir, "climate_lookup_table.png"), p1, width = 10, height = 6)
+# ggsave(paste0(results_dir, "climate_lookup_table.png"), p1, width = 10, height = 6)
 
 # Plot consumption smooth lookup
 p2 <- ggplot(consumption_lookup, aes(x = consumption_pd, y = smooth_contribution)) +
@@ -523,7 +499,7 @@ p2 <- ggplot(consumption_lookup, aes(x = consumption_pd, y = smooth_contribution
   ) +
   theme_minimal()
 
-ggsave(paste0(results_dir, "consumption_lookup_table.png"), p2, width = 10, height = 6)
+# ggsave(paste0(results_dir, "consumption_lookup_table.png"), p2, width = 10, height = 6)
 
 # Plot prediction accuracy
 p3 <- ggplot(test_df, aes(x = pred_prob, y = manual_prob_lookup)) +
@@ -537,243 +513,70 @@ p3 <- ggplot(test_df, aes(x = pred_prob, y = manual_prob_lookup)) +
   theme_minimal() +
   coord_fixed(ratio = 1)
 
-ggsave(paste0(results_dir, "lookup_prediction_accuracy.png"), p3, width = 8, height = 8)
+# ggsave(paste0(results_dir, "lookup_prediction_accuracy.png"), p3, width = 8, height = 8)
 
 #------------------------------------------------------------------------------
 # 8.6: Save all artifacts for deployment
 #------------------------------------------------------------------------------
 
-cat("========================================\n")
-cat("SAVING DEPLOYMENT ARTIFACTS\n")
-cat("========================================\n\n")
-
 # Save lookup tables
 fwrite(climate_lookup, paste0(inference_objects_dir, "climate_smooth_lookup.csv"))
 fwrite(consumption_lookup, paste0(inference_objects_dir, "consumption_smooth_lookup.csv"))
 
-cat("Saved: climate_smooth_lookup.csv\n")
-cat("Saved: consumption_smooth_lookup.csv\n\n")
+# Format and save linear and random effects coefficients
 
-# Save linear coefficients
+# save coefficients in required inference format:
+
+# example format
+# coefficients
+ex_coef <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_coefs.parquet")
+
+# random effects
+ex_re <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_ranef.parquet")
+
+inf_coef <- copy(ex_coef)[.I==0]
+
+coefficients <- fixef(model)
+
+# Convert coefficients to a dataframe
+inf_coef <- data.frame(
+  index = names(coefficients),
+  Estimate = coefficients
+)
+inf_coef <- setDT(copy(inf_coef))
+
+# rename vars as expected format
+required <- c('(Intercept)','consumption_pd','q95_prev_0_mo','total_precipitation_prev_0_mo','C(sex_id)1','C(birth_year)2022')
+inf_coef[index=='sex_id',index:='C(sex_id)1']
+inf_coef[index=='birth_year2022',index:='C(birth_year)2022']
+inf_coef <- inf_coef[index %in% required]
+rownames(inf_coef) <- inf_coef$index
+inf_coef$index <- NULL
+
+outfile_coef <- gsub("_summary","_coefs.csv",summary_file)
+write.csv(inf_coef,paste0(inference_objects_dir,outfile),row.names=TRUE)
+print(paste0(inference_objects_dir,outfile_coef))
+
+inf_re <- copy(re_df)
+setnames(inf_re,old=c("random_effects","ihme_loc_id"),new=c("X.Intercept.","index"))
+rownames(inf_re) <- inf_re$index
+inf_re$index <- NULL
+outfile_re <- gsub("_summary","_ranef.csv",summary_file)
+write.csv(inf_re,paste0(inference_objects_dir,outfile),row.names = TRUE)
+print(paste0(inference_objects_dir,outfile_re))
+
+
+###################################################
+# Save in default format
 fwrite(linear_coefs, paste0(inference_objects_dir, "linear_coefficients.csv"))
-cat("Saved: linear_coefficients.csv\n\n")
+
 
 # Save random effects
 fwrite(random_effect_coefs, paste0(inference_objects_dir, "random_effects.csv"))
-cat("Saved: random_effects.csv\n\n")
 
-# Save the interpolation function as an R script
-interpolate_function_code <- '
-#\' Interpolate smooth contribution from lookup table
-#\' 
-#\' @param x_values Numeric vector of x values to interpolate
-#\' @param lookup_table Data frame with columns for x and y values
-#\' @param x_col Name of x column in lookup_table
-#\' @param y_col Name of y column in lookup_table
-#\' @return Numeric vector of interpolated y values
-interpolate_smooth <- function(x_values, lookup_table, x_col = "x", y_col = "smooth_contribution") {
-  interpolated <- approx(
-    x = lookup_table[[x_col]], 
-    y = lookup_table[[y_col]], 
-    xout = x_values,
-    rule = 2  # Use nearest boundary value for extrapolation
-  )$y
-  
-  return(interpolated)
-}
-'
-
-writeLines(interpolate_function_code, paste0(inference_objects_dir, "interpolate_smooth.R"))
-cat("Saved: interpolate_smooth.R\n\n")
-
-# Create a complete deployment example script
-deployment_example <- paste0('
-# ==============================================================================
-# DEPLOYMENT EXAMPLE: Manual Prediction Using Lookup Tables
-# ==============================================================================
-
-library(data.table)
-
-# Load lookup tables and coefficients
-climate_lookup <- fread("', inference_objects_dir, 'climate_smooth_lookup.csv")
-consumption_lookup <- fread("', inference_objects_dir, 'consumption_smooth_lookup.csv")
-linear_coefs <- fread("', inference_objects_dir, 'linear_coefficients.csv")
-random_effects <- fread("', inference_objects_dir, 'random_effects.csv")
-
-# Load interpolation function
-source("', inference_objects_dir, 'interpolate_smooth.R")
-
-# ==============================================================================
-# Make predictions for new data
-# ==============================================================================
-
-# Example: Your new data
-new_data <- data.frame(
-  days_over_30C_prev_0_mo = c(5, 10, 15, 20),
-  consumption_pd = c(500, 1000, 1500, 2000),
-  total_precipitation_prev_0_mo = c(50, 100, 150, 200),
-  sex_id = c(0, 1, 0, 1),  # 0=male, 1=female
-  birth_year = c("2020", "2020", "2021", "2021"),
-  ihme_loc_id = c("USA", "USA", "GBR", "GBR")
-)
-
-# Step 1: Interpolate smooth contributions
-new_data$smooth_climate <- interpolate_smooth(
-  x_values = new_data$days_over_30C_prev_0_mo,
-  lookup_table = climate_lookup,
-  x_col = "days_over_30C_prev_0_mo",
-  y_col = "smooth_contribution"
-)
-
-new_data$smooth_consumption <- interpolate_smooth(
-  x_values = new_data$consumption_pd,
-  lookup_table = consumption_lookup,
-  x_col = "consumption_pd",
-  y_col = "smooth_contribution"
-)
-
-# Step 2: Get coefficients
-intercept <- linear_coefs[variable == "(Intercept)", coefficient]
-beta_precip <- linear_coefs[variable == "total_precipitation_prev_0_mo", coefficient]
-beta_sex <- linear_coefs[variable == "sex_id", coefficient]
-
-# Step 3: Get birth year effects
-birth_year_effects <- sapply(new_data$birth_year, function(y) {
-  val <- linear_coefs[variable == paste0("birth_year", y), coefficient]
-  if (length(val) == 0) 0 else val
-})
-
-# Step 4: Get random effects
-random_effect_vals <- sapply(new_data$ihme_loc_id, function(loc) {
-  val <- random_effects[ihme_loc_id == loc, coefficient]
-  if (length(val) == 0) 0 else val
-})
-
-# Step 5: Calculate linear predictor
-new_data$linear_predictor <- intercept +
-  new_data$total_precipitation_prev_0_mo * beta_precip +
-  new_data$sex_id * beta_sex +
-  birth_year_effects +
-  new_data$smooth_climate +
-  new_data$smooth_consumption +
-  random_effect_vals
-
-# Step 6: Calculate probability (inverse logit)
-new_data$predicted_probability <- 1 / (1 + exp(-new_data$linear_predictor))
-
-print(new_data)
-')
-
-writeLines(deployment_example, paste0(inference_objects_dir, "deployment_example.R"))
-cat("Saved: deployment_example.R\n\n")
-
-#------------------------------------------------------------------------------
-# 8.7: Create summary document
-#------------------------------------------------------------------------------
-
-summary_doc <- paste0('
-# ==============================================================================
-# MODEL DEPLOYMENT GUIDE
-# ==============================================================================
-
-## Overview
-This model uses Shape Constrained Additive Models (SCAM) with monotonic splines
-that cannot be manually reconstructed using basis functions. Therefore, we use
-pre-computed lookup tables for the smooth terms.
-
-## Files Included
-
-1. **climate_smooth_lookup.csv**: 
-   - Lookup table for days_over_30C_prev_0_mo smooth term
-   - 1000 grid points covering range [', climate_range[1], ', ', climate_range[2], ']
-   - Linear interpolation recommended for values between grid points
-
-2. **consumption_smooth_lookup.csv**: 
-   - Lookup table for consumption_pd smooth term
-   - 1000 grid points covering range [', consumption_range[1], ', ', consumption_range[2], ']
-   - Linear interpolation recommended for values between grid points
-
-3. **linear_coefficients.csv**: 
-   - Contains intercept and coefficients for:
-     * total_precipitation_prev_0_mo (continuous)
-     * sex_id (binary: 0=male, 1=female)
-     * birth_year (factor levels: ', paste(levels(df_model$birth_year), collapse=", "), ')
-
-4. **random_effects.csv**: 
-   - Random intercepts for ihme_loc_id
-   - Countries: ', paste(levels(df_model$ihme_loc_id), collapse=", "), '
-
-5. **interpolate_smooth.R**: 
-   - Helper function for linear interpolation from lookup tables
-
-6. **deployment_example.R**: 
-   - Complete working example of making predictions
-
-## Prediction Formula
-
-linear_predictor = intercept 
-                 + β_precip × total_precipitation_prev_0_mo
-                 + β_sex × sex_id
-                 + β_birth_year[birth_year]
-                 + smooth_climate(days_over_30C_prev_0_mo)
-                 + smooth_consumption(consumption_pd)
-                 + random_effect[ihme_loc_id]
-
-probability = 1 / (1 + exp(-linear_predictor))
-
-## Interpolation Accuracy
-
-Based on validation with test data:
-- Climate smooth MAE: ', mean(abs(test_df$smooth_climate_lookup - smooth_climate_correct)), '
-- Consumption smooth MAE: ', mean(abs(test_df$smooth_consumption_lookup - smooth_consumption_correct)), '
-- Linear predictor MAE: ', mean(abs(test_df$manual_linear_lookup - test_df$pred_linear)), '
-- Probability MAE: ', mean(abs(test_df$manual_prob_lookup - test_df$pred_prob)), '
-
-With 1000 grid points, linear interpolation provides excellent accuracy.
-
-## Important Notes
-
-1. **Extrapolation**: Values outside the training range use the nearest boundary value
-   - Climate range: [', climate_range[1], ', ', climate_range[2], ']
-   - Consumption range: [', consumption_range[1], ', ', consumption_range[2], ']
-
-2. **Missing values**: 
-   - Birth years not in training data → use 0 (absorbed in intercept)
-   - Countries not in training data → use 0 (no random effect)
-
-3. **Factor levels must match exactly**:
-   - sex_id: 0 or 1 (not 1 or 2!)
-   - birth_year: exact strings as in training
-   - ihme_loc_id: exact strings as in training
-
-## Model Information
-
-- Model type: SCAM (Shape Constrained Additive Model)
-- Family: Binomial (logit link)
-- Outcome: Neonatal mortality (binary)
-- Training data version: ', neo_version, '
-- Model date: ', format(Sys.Date(), "%Y-%m-%d"), '
-- Number of training observations: ', nrow(df_model), '
-
-## Contact
-
-For questions about this deployment package, contact the modeling team.
-')
-
-writeLines(summary_doc, paste0(inference_objects_dir, "DEPLOYMENT_GUIDE.txt"))
-cat("Saved: DEPLOYMENT_GUIDE.txt\n\n")
-
-cat("========================================\n")
-cat("DEPLOYMENT PACKAGE COMPLETE!\n")
-cat("========================================\n\n")
-cat("All files saved to:", inference_objects_dir, "\n\n")
-cat("Next steps:\n")
-cat("1. Review DEPLOYMENT_GUIDE.txt for complete documentation\n")
-cat("2. Test deployment_example.R with your own data\n")
-cat("3. Integrate interpolate_smooth.R into your production pipeline\n\n")
 
 #==============================================================================
-# SECTION 7: TROUBLESHOOTING
+# SECTION 7: ARCHIVED TROUBLESHOOTING
 #==============================================================================
 
 
