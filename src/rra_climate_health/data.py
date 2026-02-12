@@ -13,7 +13,7 @@ import xarray as xr
 from rra_tools.shell_tools import mkdir, touch
 
 from rra_climate_health.transforms import transform_column
-from rra_climate_health.model_specification import ModelSpecification
+from rra_climate_health.model_specification import ModelSpecification, ModelType
 from rra_climate_health.results_specification import (
     ResultsSpecification,
     ResultsVersionSpecification,
@@ -93,8 +93,11 @@ class ClimateMalnutritionData:
         for random_effect in model_spec.random_effects:
             if random_effect not in df:
                 df[random_effect] = raw_model_data[random_effect]
+            if model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS:
+                df[random_effect] = df[random_effect].astype('category')
 
         df[model_spec.measure] = raw_model_data[model_spec.measure]
+            
 
         return df, var_info
 
@@ -156,12 +159,12 @@ class ClimateMalnutritionData:
             pickle.dump(model, f)
         
         coefs_filepath = model_root / (model_filename_base + "_coefs.parquet")
-        touch(coefs_filepath, exist_ok=True)
-        model.coefs.to_parquet(coefs_filepath)
+        #touch(coefs_filepath, exist_ok=True)
+        #model.coefs.to_parquet(coefs_filepath)
 
         random_effects_filepath = model_root / (model_filename_base + "_ranef.parquet")
-        touch(random_effects_filepath, exist_ok=True)
-        model.ranef.to_parquet(random_effects_filepath)
+        #touch(random_effects_filepath, exist_ok=True)
+        #model.ranef.to_parquet(random_effects_filepath)
 
     
     def load_model_family(
@@ -183,7 +186,6 @@ class ClimateMalnutritionData:
                     tuple(var_str.split(self.SUBMODEL_VALUE_SEPARATOR))
                     for var_str in filepath.stem.split(self.SUBMODEL_VARIABLE_SEPARATOR)
                 ]
-            print(submodel_def)
             for var_name, var_value in submodel_def:
                 model_dict[var_name] = var_value
 

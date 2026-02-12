@@ -1,10 +1,13 @@
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, Any
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
+class ModelType(StrEnum):
+    LINEAR_MIXED_EFFECTS = "lmer"
+    SPLINE_MIXED_EFFECTS = "scam"
 
 class ScalingStrategy(StrEnum):
     IDENTITY = "identity"
@@ -72,6 +75,10 @@ TransformSpecification: TypeAlias = (
     | CategoricalSpecification
 )
 
+#SplineSpecification: TypeAlias = dict[str, str]
+class SplineSpecification(BaseModel):
+    bs: str
+    k: int | None = None
 
 class OutcomeVariable(StrEnum):
     WASTING = "wasting"
@@ -79,6 +86,7 @@ class OutcomeVariable(StrEnum):
     UNDERWEIGHT = "underweight"
     LOW_BMI = "low_bmi"
     ANEMIA = "anemia"
+    LOW_BIRTH_WEIGHT = "lbw"
 
 
 class PredictorSpecification(BaseModel):
@@ -89,6 +97,7 @@ class PredictorSpecification(BaseModel):
     )
     random_effect: str = ""
     version: str = ""
+    spline: SplineSpecification | None = None
 
     @property
     def raw_variables(self) -> list[str]:
@@ -190,6 +199,7 @@ class ModelSpecification(BaseModel):
     predictors: list[PredictorSpecification] = Field(default_factory=list)
     grid_predictors: GridSpecification | None = None
     extra_terms: list[str] | None = None
+    model_type: ModelType = ModelType.LINEAR_MIXED_EFFECTS
 
     @property
     def random_effects(self) -> list[str]:
@@ -237,6 +247,7 @@ class ModelSpecification(BaseModel):
         predictors += self.predictors
         random_effects: dict[str, list[str]] = {}
         for predictor in predictors:
+            print("Predictor:", predictor.name)
             predictor_repr = "1" if predictor.name == "intercept" else predictor.name
             predictor_repr = (
                 f"C({predictor_repr})"
@@ -249,10 +260,22 @@ class ModelSpecification(BaseModel):
                 else:
                     random_effects[predictor.random_effect] = [predictor_repr]
                 formula += f" {predictor_repr}  +"
+            elif predictor.spline:
+                assert self.model_type == ModelType.SPLINE_MIXED_EFFECTS
+                keywords = f', bs="{predictor.spline.bs}"'
+                if predictor.spline.k is not None:
+                    keywords += f', k={predictor.spline.k}'
+                #keywords = ", ".join(f'{k}="{v}"' for k, v in predictor.spline.items())
+                spline_repr = f"s({predictor_repr}   {keywords})"
+                formula += f" {spline_repr} +"
             else:
                 formula += f" {predictor_repr} +"
         for random_effect, variables in random_effects.items():
-            formula += f" ({' + '.join(variables)} | {random_effect}) +"
+            if self.model_type == ModelType.LINEAR_MIXED_EFFECTS:
+                formula += f" ({' + '.join(variables)} | {random_effect}) +"
+            elif self.model_type == ModelType.SPLINE_MIXED_EFFECTS:
+                assert len(variables) == 1
+                formula += f' s({random_effect}, bs="re") +'
         if self.extra_terms:
             for term in self.extra_terms:
                 formula += f" {term} +"
