@@ -7,12 +7,9 @@
 # TOC:
 # SECTION 0: PACKAGE LOADING AND ENVIRONMENT SETUP
 # SECTION 1: LOADING MODEL AND DATA
-# SECTION 2: GET NON-SPLINE TERMS
-# SECTION 4: MANUAL BASIS FUNCTION CALCULATION
-# SECTION 5: RECREATE PREDICTIONS
-# SECTION 6: VALIDATION AGAINST PACKAGE PREDICTIONS
-# SECTION 7: CREATE LOOKUP TABLES FOR DEPLOYMENT
-# SECTION 8: TROUBLESHOOTING
+# SECTION 2: GET TERMS COEFFICIENTS
+# SECTION 3: CREATE LOOKUP TABLES FOR DEPLOYMENT
+# SECTION 4: MANUAL CALCULATION OF PREDICTIONS & TROUBLESHOOTING
 
 # Key issues/notes -
 # - manual predictions wildly different from predict() 
@@ -143,7 +140,6 @@ summary(test_df)
 # SECTION 2: GET TERMS COEFFICIENTS
 #==============================================================================
 
-
 # Extract smooth terms for consumption and climate
 consumption_smooth <- model$smooth[[1]]  # s(consumption_pd)
 climate_smooth <- model$smooth[[2]]      # s(days_over_30C_prev_0_mo)
@@ -200,10 +196,373 @@ linear_coefs[,birth_year:=sub("birth_year", "", variable)]
 intercept <- linear_coefs[variable == "(Intercept)", coefficient]
 
 #==============================================================================
-# SECTION 4: MANUAL BASIS FUNCTION CALCULATION
+# SECTION 3: CREATE LOOKUP TABLES FOR DEPLOYMENT
 #==============================================================================
 
-# Section no longer relevant for predictions
+# Get smooth terms from predict function
+
+# Compare manual predictions with the model's predict function
+test_df$pred_prob <- predict(model, newdata = test_df, type = "response")
+test_df$pred_linear <- predict(model, newdata = test_df, type = "link")
+
+# Check ranges
+range(test_df$pred_prob)
+range(test_df$pred_linear)
+
+
+# extract predicted smooth terms individually
+model_smooth_climate <- predict(model, newdata = test_df, type = "terms")[, "s(days_over_30C_prev_0_mo)"]
+model_smooth_consumption <- predict(model, newdata = test_df, type = "terms")[, "s(consumption_pd)"]
+
+# Get second derivative approximation based on absolute differences between observations
+model_smooth_climate_df <- data.table(days_over_30C_prev_0_mo = test_df$days_over_30C_prev_0_mo,climate_obs=model_smooth_climate)
+model_smooth_climate_df[,dif := climate_obs - shift(climate_obs, n = 1, type = "lag")]
+model_smooth_climate_df[is.na(dif),dif:=0]
+
+total_dif <- sum(model_smooth_climate_df$dif)
+model_smooth_climate_df[,dif_percent := dif/total_dif]
+sum(model_smooth_climate_df$dif_percent)
+model_smooth_climate_df[,dif_points := round(1000*dif_percent,0)]
+sum(model_smooth_climate_df$dif_points)
+
+## Create fine grid for climate smooth (days_over_30C_prev_0_mo)
+# Determine the range from training data
+climate_range <- range(df_model$days_over_30C_prev_0_mo, na.rm = TRUE)
+
+# Create a fine grid (1000 points should be sufficient for interpolation)
+climate_grid <- seq(climate_range[1], climate_range[2], length.out = 1000)
+
+# Create dummy dataframe with climate grid
+# Use median/mode values for other variables
+dummy_climate <- data.frame(
+  days_over_30C_prev_0_mo = climate_grid,
+  consumption_pd = median(df_model$consumption_pd, na.rm = TRUE),
+  total_precipitation_prev_0_mo = median(df_model$total_precipitation_prev_0_mo, na.rm = TRUE),
+  sex_id = 0,  # Use baseline
+  birth_year = factor("2022", levels = levels(df_model$birth_year)),  # Year 2022
+  ihme_loc_id = factor(levels(df_model$ihme_loc_id)[1], levels = levels(df_model$ihme_loc_id))  # Will use 0 effect by excluding from prediction
+)
+
+# Get smooth term predictions for this grid
+# Use type="terms" and extract only the climate smooth to get centered contribution
+pred_terms_climate <- predict(model, newdata = dummy_climate, type = "terms")
+climate_smooth_values <- pred_terms_climate[, "s(days_over_30C_prev_0_mo)"]
+
+# Create lookup table
+climate_lookup <- data.table(
+  days_over_30C_prev_0_mo = climate_grid,
+  smooth_contribution = climate_smooth_values
+)
+
+# Create fine grid for consumption smooth (consumption_pd)
+
+# Determine the range from training data
+consumption_range <- range(df_model$consumption_pd, na.rm = TRUE)
+
+# Create a fine grid
+consumption_grid <- seq(consumption_range[1], consumption_range[2], length.out = 1000)
+
+# load LDI V5 to get consumption values
+ldi <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/ldi/v5/admin2_estimates.parquet")
+setDT(ldi)
+ldi[,consumption_pd := ldipc/365]
+ldi_consumption_pd <- unique(ldi$consumption_pd)
+
+# Create dummy dataframe with consumption grid
+dummy_consumption <- data.frame(
+  days_over_30C_prev_0_mo = median(df_model$days_over_30C_prev_0_mo, na.rm = TRUE),
+  # consumption_pd = consumption_grid,
+  consumption_pd = ldi_consumption_pd,
+  total_precipitation_prev_0_mo = median(df_model$total_precipitation_prev_0_mo, na.rm = TRUE),
+  sex_id = 0,
+  birth_year = factor("2022", levels = levels(df_model$birth_year)),  # Year 2022
+  ihme_loc_id = factor(levels(df_model$ihme_loc_id)[1], levels = levels(df_model$ihme_loc_id))  # Will use 0 effect
+)
+
+# save out dummy_consumption
+# write.csv(dummy_consumption,paste0(inference_objects_dir,"dummy_consumption.csv"),row.names = FALSE)
+
+# Get smooth term predictions
+pred_terms_consumption <- predict(model, newdata = dummy_consumption, type = "terms")
+consumption_smooth_values <- pred_terms_consumption[, "s(consumption_pd)"]
+
+# Create lookup table
+consumption_lookup <- data.table(
+  # consumption_pd = consumption_grid,
+  consumption_pd = ldi_consumption_pd,
+  smooth_contribution = consumption_smooth_values
+)
+
+write_parquet(consumption_lookup, paste0(inference_objects_dir, "consumption_smooth_lookup.parquet"))
+
+## Create lookup function for linear interpolation
+# Function to interpolate smooth contributions from lookup table
+interpolate_smooth <- function(x_values, lookup_table, x_col = "x", y_col = "smooth_contribution") {
+  # Use approx for linear interpolation
+  # rule=2 means use nearest value for points outside range
+  interpolated <- approx(
+    x = lookup_table[[x_col]], 
+    y = lookup_table[[y_col]], 
+    xout = x_values,
+    rule = 2  # Extrapolate using nearest boundary value
+  )$y
+  
+  return(interpolated)
+}
+
+# Interpolate smooth contributions using lookup tables
+test_df$smooth_climate_lookup <- interpolate_smooth(
+  x_values = test_df$days_over_30C_prev_0_mo,
+  lookup_table = climate_lookup,
+  x_col = "days_over_30C_prev_0_mo",
+  y_col = "smooth_contribution"
+)
+
+test_df$smooth_consumption_lookup <- interpolate_smooth(
+  x_values = test_df$consumption_pd,
+  lookup_table = consumption_lookup,
+  x_col = "consumption_pd",
+  y_col = "smooth_contribution"
+)
+
+# Calculate predictions using lookup tables
+test_df$manual_linear_lookup <- intercept +
+  test_df$total_precipitation_prev_0_mo * linear_coefs[variable=="total_precipitation_prev_0_mo", coefficient] +
+  test_df$sex_id * linear_coefs[variable=="sex_id", coefficient] +
+  sapply(test_df$birth_year, function(y) {
+    val <- linear_coefs[variable == paste0("birth_year", y), coefficient]
+    if (length(val) == 0) 0 else val
+  }) +
+  test_df$smooth_climate_lookup +
+  test_df$smooth_consumption_lookup +
+  sapply(test_df$ihme_loc_id, function(loc) {
+    val <- random_effect_coefs[ihme_loc_id == loc, coefficient]
+    if (length(val) == 0) 0 else val
+  })
+
+test_df$manual_prob_lookup <- 1 / (1 + exp(-test_df$manual_linear_lookup))
+
+# Validate against actual predictions
+range(test_df$manual_linear_lookup)
+range(test_df$pred_linear)
+range(test_df$manual_prob_lookup)
+range(test_df$pred_prob)
+
+
+## Visualize lookup tables and interpolation accuracy
+
+# Plot climate smooth lookup
+p1 <- ggplot(climate_lookup, aes(x = days_over_30C_prev_0_mo, y = smooth_contribution)) +
+  geom_line(color = "blue", linewidth = 1) +
+  geom_point(data = data.frame(
+    days_over_30C_prev_0_mo = test_df$days_over_30C_prev_0_mo,
+    smooth_contribution = test_df$smooth_climate_lookup
+  ), color = "red", alpha = 0.3, size = 0.5) +
+  labs(
+    title = "Climate Smooth Term Lookup Table",
+    subtitle = "Blue line = lookup table, Red points = interpolated test values",
+    x = "Days over 30°C (previous month)",
+    y = "Smooth contribution to log-odds"
+  ) +
+  theme_minimal()
+
+# ggsave(paste0(results_dir, "climate_lookup_table.png"), p1, width = 10, height = 6)
+
+# Plot consumption smooth lookup
+p2 <- ggplot(consumption_lookup, aes(x = consumption_pd, y = smooth_contribution)) +
+  geom_line(color = "blue", linewidth = 1) +
+  geom_point(data = data.frame(
+    consumption_pd = test_df$consumption_pd,
+    smooth_contribution = test_df$smooth_consumption_lookup
+  ), color = "red", alpha = 0.3, size = 0.5) +
+  labs(
+    title = "Consumption Smooth Term Lookup Table",
+    subtitle = "Blue line = lookup table, Red points = interpolated test values",
+    x = "Consumption per capita",
+    y = "Smooth contribution to log-odds"
+  ) +
+  theme_minimal()
+
+# ggsave(paste0(results_dir, "consumption_lookup_table.png"), p2, width = 10, height = 6)
+
+# Plot prediction accuracy
+p3 <- ggplot(test_df, aes(x = pred_prob, y = manual_prob_lookup)) +
+  geom_point(alpha = 0.3) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(
+    title = "Lookup Table Predictions vs Model Predictions",
+    x = "Model predicted probability",
+    y = "Lookup table predicted probability"
+  ) +
+  theme_minimal() +
+  coord_fixed(ratio = 1)
+
+# ggsave(paste0(results_dir, "lookup_prediction_accuracy.png"), p3, width = 8, height = 8)
+
+
+## Save all artifacts for deployment
+
+# Save lookup tables
+fwrite(climate_lookup, paste0(inference_objects_dir, "climate_smooth_lookup.csv"))
+fwrite(consumption_lookup, paste0(inference_objects_dir, "consumption_smooth_lookup.csv"))
+
+# Format and save linear and random effects coefficients
+
+# save coefficients in required inference format:
+
+# example format
+# coefficients
+ex_coef <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_coefs.parquet")
+
+# random effects
+ex_re <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_ranef.parquet")
+
+inf_coef <- copy(ex_coef)[.I==0]
+
+coefficients <- fixef(model)
+
+# Convert coefficients to a dataframe
+inf_coef <- data.frame(
+  index = names(coefficients),
+  Estimate = coefficients
+)
+inf_coef <- setDT(copy(inf_coef))
+
+# rename vars as expected format
+required <- c('(Intercept)','consumption_pd','q95_prev_0_mo','total_precipitation_prev_0_mo','C(sex_id)1','C(birth_year)2022')
+inf_coef[index=='sex_id',index:='C(sex_id)1']
+inf_coef[index=='birth_year2022',index:='C(birth_year)2022']
+inf_coef <- inf_coef[index %in% required]
+rownames(inf_coef) <- inf_coef$index
+inf_coef$index <- NULL
+
+outfile_coef <- gsub("_summary","_coefs.csv",summary_file)
+write.csv(inf_coef,paste0(inference_objects_dir,outfile),row.names=TRUE)
+print(paste0(inference_objects_dir,outfile_coef))
+
+inf_re <- copy(re_df)
+setnames(inf_re,old=c("random_effects","ihme_loc_id"),new=c("X.Intercept.","index"))
+rownames(inf_re) <- inf_re$index
+inf_re$index <- NULL
+outfile_re <- gsub("_summary","_ranef.csv",summary_file)
+write.csv(inf_re,paste0(inference_objects_dir,outfile),row.names = TRUE)
+print(paste0(inference_objects_dir,outfile_re))
+
+
+###################################################
+# Save in default format
+fwrite(linear_coefs, paste0(inference_objects_dir, "linear_coefficients.csv"))
+
+
+# Save random effects
+fwrite(random_effect_coefs, paste0(inference_objects_dir, "random_effects.csv"))
+
+
+#==============================================================================
+# SECTION 4: MANUAL CALCULATION OF PREDICTIONS & TROUBLESHOOTING
+#==============================================================================
+
+# Section unsuccessful - no longer used for predictions
+
+#==============================================================================
+# EXPERIMENT: VERIFY PREDICT AGAINST LP MATRIX
+#==============================================================================
+
+# If lpmatrix works, this is our solution for manual calculation
+# Extract the lpmatrix for the full test_df
+lpmatrix_full <- predict(model, newdata = test_df, type = "lpmatrix")
+
+# First test the whole matrix against predictions
+# Reconstruct link (linear predictor)
+manual_link <- as.vector(lpmatrix_full %*% coef(model))
+
+# Reconstruct response (probability)
+manual_response <- 1 / (1 + exp(-manual_link))
+
+# Get model predictions for comparison
+model_link <- predict(model, newdata = test_df, type = "link")
+model_response <- predict(model, newdata = test_df, type = "response")
+
+range(manual_link)
+# result: [1] -32.616819  -1.102587
+range(model_link)
+# result: [1] -3.437606 -3.273758
+
+range(model_response)
+# result: [1] 0.03114063 0.03648251
+range(manual_response)
+# result: [1] 0.000000000000006834323 0.249255449773025911098
+
+# FAILS
+
+#==============================================================================
+# EXPERIMENT: TRY LEAVING OUT INDIVIDUAL SPLINE COLUMNS
+#==============================================================================
+
+pred_terms <- predict(model, newdata = test_df, type = "terms")
+intercept <- coef(model)["(Intercept)"]
+manual_from_terms <- intercept + rowSums(pred_terms)
+range(manual_from_terms)
+basis_climate <- PredictMat(climate_smooth, test_df)
+
+range(pred_terms$s.days_over_30C_prev_0_mo.)
+# does any combination of columns from basis_climate%*%climate_spline_coefs = pred_terms$s.days_over_30C_prev_0_mo.?
+columns = 1:10
+for (i in 1:10){
+  # drop i column
+  test_bases <- basis_climate[,columns[-i]]
+  test_spline_contribution <- test_bases%*%climate_spline_coefs
+  print(paste0("dropping column ",i))
+  print("range = ")
+  print(range(test_spline_contribution))
+  
+  # test centered
+  center_test <- test_spline_contribution - mean(test_spline_contribution)+mean(pred_terms[, "s.days_over_30C_prev_0_mo."])
+  print("center range=")
+  print(range(center_test))
+  
+}
+# FAILS - no obvious combination of columns from PredictMat result in same predictions 
+
+
+#==============================================================================
+# USE Reconstruct FROM predict(type="terms")
+#==============================================================================
+
+pred_terms <- predict(model, newdata = test_df, type = "terms")
+
+smooth_climate_correct <- pred_terms[, "s(days_over_30C_prev_0_mo)"]
+smooth_consumption_correct <- pred_terms[, "s(consumption_pd)"]
+
+# Rebuild linear predictor
+intercept <- coef(model)["(Intercept)"]
+
+test_df$manual_linear_from_pred_terms <- intercept +
+  test_df$total_precipitation_prev_0_mo * linear_coefs[variable=="total_precipitation_prev_0_mo", coefficient] +
+  test_df$sex_id * linear_coefs[variable=="sex_id", coefficient] +
+  sapply(test_df$birth_year, function(y) {
+    val <- linear_coefs[variable == paste0("birth_year", y), coefficient]
+    if (length(val) == 0) 0 else val
+  }) +
+  smooth_climate_correct +
+  smooth_consumption_correct +
+  sapply(test_df$ihme_loc_id, function(loc) {
+    val <- random_effect_coefs[ihme_loc_id == loc, coefficient]
+    if (length(val) == 0) 0 else val
+  })
+
+test_df$manual_prob_from_pred_terms <- 1 / (1 + exp(-test_df$manual_linear_from_pred_terms))
+
+range(test_df$manual_prob_from_pred_terms)
+range(test_df$pred_prob)
+range(test_df$manual_linear_from_pred_terms)
+
+# PASSES
+
+
+#==============================================================================
+# EXPERIMENT Calculate basis functions
+#==============================================================================
 
 calculate_basis_ispline <- function(x, knots, degree, num_coefs) {
   # Calculate B-spline basis functions first
@@ -271,10 +630,6 @@ cat("Consumption basis dimensions:", dim(basis_functions_consumption), "\n")
 cat("Consumption coefs length:", length(consumption_spline_coefs), "\n")
 
 
-#==============================================================================
-# SECTION 5: RECREATE PREDICTIONS
-#==============================================================================
-
 # Calculate smooth contributions
 smooth_contribution_climate <- basis_functions_climate %*% climate_spline_coefs
 smooth_contribution_consumption <- basis_functions_consumption %*% consumption_spline_coefs
@@ -310,9 +665,8 @@ test_df$manual_linear <- as.vector(smooth_contribution_climate) +
 test_df$manual_prob <- 1 / (1 + exp(-test_df$manual_linear))
 
 
-#==============================================================================
-# SECTION 6: VALIDATION AGAINST PACKAGE PREDICTIONS
-#==============================================================================
+## VALIDATION AGAINST PACKAGE PREDICTIONS
+
 
 # Compare manual predictions with the model's predict function
 test_df$pred_prob <- predict(model, newdata = test_df, type = "response")
@@ -333,252 +687,9 @@ all.equal(test_df$manual_linear, test_df$pred_linear)
 model_smooth_climate <- predict(model, newdata = test_df, type = "terms")[, "s(days_over_30C_prev_0_mo)"]
 model_smooth_consumption <- predict(model, newdata = test_df, type = "terms")[, "s(consumption_pd)"]
 
-
 #==============================================================================
-# SECTION 7: CREATE LOOKUP TABLES FOR DEPLOYMENT
+# EXPERIMENT: TRY PredictMat()
 #==============================================================================
-
-
-#------------------------------------------------------------------------------
-# 8.1: Create fine grid for climate smooth (days_over_30C_prev_0_mo)
-#------------------------------------------------------------------------------
-# Determine the range from training data
-climate_range <- range(df_model$days_over_30C_prev_0_mo, na.rm = TRUE)
-
-# Create a fine grid (1000 points should be sufficient for interpolation)
-climate_grid <- seq(climate_range[1], climate_range[2], length.out = 1000)
-
-# Create dummy dataframe with climate grid
-# Use median/mode values for other variables
-dummy_climate <- data.frame(
-  days_over_30C_prev_0_mo = climate_grid,
-  consumption_pd = median(df_model$consumption_pd, na.rm = TRUE),
-  total_precipitation_prev_0_mo = median(df_model$total_precipitation_prev_0_mo, na.rm = TRUE),
-  sex_id = 0,  # Use baseline
-  birth_year = factor("2022", levels = levels(df_model$birth_year)),  # Year 2022
-  ihme_loc_id = factor(levels(df_model$ihme_loc_id)[1], levels = levels(df_model$ihme_loc_id))  # Will use 0 effect by excluding from prediction
-)
-
-# Get smooth term predictions for this grid
-# Use type="terms" and extract only the climate smooth to get centered contribution
-pred_terms_climate <- predict(model, newdata = dummy_climate, type = "terms")
-climate_smooth_values <- pred_terms_climate[, "s(days_over_30C_prev_0_mo)"]
-
-# Create lookup table
-climate_lookup <- data.table(
-  days_over_30C_prev_0_mo = climate_grid,
-  smooth_contribution = climate_smooth_values
-)
-
-#------------------------------------------------------------------------------
-# 8.2: Create fine grid for consumption smooth (consumption_pd)
-#------------------------------------------------------------------------------
-
-# Determine the range from training data
-consumption_range <- range(df_model$consumption_pd, na.rm = TRUE)
-
-# Create a fine grid
-consumption_grid <- seq(consumption_range[1], consumption_range[2], length.out = 1000)
-
-# Create dummy dataframe with consumption grid
-dummy_consumption <- data.frame(
-  days_over_30C_prev_0_mo = median(df_model$days_over_30C_prev_0_mo, na.rm = TRUE),
-  consumption_pd = consumption_grid,
-  total_precipitation_prev_0_mo = median(df_model$total_precipitation_prev_0_mo, na.rm = TRUE),
-  sex_id = 0,
-  birth_year = factor("2022", levels = levels(df_model$birth_year)),  # Year 2022
-  ihme_loc_id = factor(levels(df_model$ihme_loc_id)[1], levels = levels(df_model$ihme_loc_id))  # Will use 0 effect
-)
-
-# Get smooth term predictions
-pred_terms_consumption <- predict(model, newdata = dummy_consumption, type = "terms")
-consumption_smooth_values <- pred_terms_consumption[, "s(consumption_pd)"]
-
-# Create lookup table
-consumption_lookup <- data.table(
-  consumption_pd = consumption_grid,
-  smooth_contribution = consumption_smooth_values
-)
-
-
-#------------------------------------------------------------------------------
-# 8.3: Create lookup function for linear interpolation
-#------------------------------------------------------------------------------
-
-# Function to interpolate smooth contributions from lookup table
-interpolate_smooth <- function(x_values, lookup_table, x_col = "x", y_col = "smooth_contribution") {
-  # Use approx for linear interpolation
-  # rule=2 means use nearest value for points outside range
-  interpolated <- approx(
-    x = lookup_table[[x_col]], 
-    y = lookup_table[[y_col]], 
-    xout = x_values,
-    rule = 2  # Extrapolate using nearest boundary value
-  )$y
-  
-  return(interpolated)
-}
-
-#------------------------------------------------------------------------------
-# 8.4: Test the lookup table approach on test_df
-#------------------------------------------------------------------------------
-
-# Interpolate smooth contributions using lookup tables
-test_df$smooth_climate_lookup <- interpolate_smooth(
-  x_values = test_df$days_over_30C_prev_0_mo,
-  lookup_table = climate_lookup,
-  x_col = "days_over_30C_prev_0_mo",
-  y_col = "smooth_contribution"
-)
-
-test_df$smooth_consumption_lookup <- interpolate_smooth(
-  x_values = test_df$consumption_pd,
-  lookup_table = consumption_lookup,
-  x_col = "consumption_pd",
-  y_col = "smooth_contribution"
-)
-
-# Calculate predictions using lookup tables
-test_df$manual_linear_lookup <- intercept +
-  test_df$total_precipitation_prev_0_mo * linear_coefs[variable=="total_precipitation_prev_0_mo", coefficient] +
-  test_df$sex_id * linear_coefs[variable=="sex_id", coefficient] +
-  sapply(test_df$birth_year, function(y) {
-    val <- linear_coefs[variable == paste0("birth_year", y), coefficient]
-    if (length(val) == 0) 0 else val
-  }) +
-  test_df$smooth_climate_lookup +
-  test_df$smooth_consumption_lookup +
-  sapply(test_df$ihme_loc_id, function(loc) {
-    val <- random_effect_coefs[ihme_loc_id == loc, coefficient]
-    if (length(val) == 0) 0 else val
-  })
-
-test_df$manual_prob_lookup <- 1 / (1 + exp(-test_df$manual_linear_lookup))
-
-# Validate against actual predictions
-range(test_df$manual_linear_lookup)
-range(test_df$pred_linear)
-range(test_df$manual_prob_lookup)
-range(test_df$pred_prob)
-
-
-
-#------------------------------------------------------------------------------
-# 8.5: Visualize lookup tables and interpolation accuracy
-#------------------------------------------------------------------------------
-
-# Plot climate smooth lookup
-p1 <- ggplot(climate_lookup, aes(x = days_over_30C_prev_0_mo, y = smooth_contribution)) +
-  geom_line(color = "blue", linewidth = 1) +
-  geom_point(data = data.frame(
-    days_over_30C_prev_0_mo = test_df$days_over_30C_prev_0_mo,
-    smooth_contribution = test_df$smooth_climate_lookup
-  ), color = "red", alpha = 0.3, size = 0.5) +
-  labs(
-    title = "Climate Smooth Term Lookup Table",
-    subtitle = "Blue line = lookup table, Red points = interpolated test values",
-    x = "Days over 30°C (previous month)",
-    y = "Smooth contribution to log-odds"
-  ) +
-  theme_minimal()
-
-# ggsave(paste0(results_dir, "climate_lookup_table.png"), p1, width = 10, height = 6)
-
-# Plot consumption smooth lookup
-p2 <- ggplot(consumption_lookup, aes(x = consumption_pd, y = smooth_contribution)) +
-  geom_line(color = "blue", linewidth = 1) +
-  geom_point(data = data.frame(
-    consumption_pd = test_df$consumption_pd,
-    smooth_contribution = test_df$smooth_consumption_lookup
-  ), color = "red", alpha = 0.3, size = 0.5) +
-  labs(
-    title = "Consumption Smooth Term Lookup Table",
-    subtitle = "Blue line = lookup table, Red points = interpolated test values",
-    x = "Consumption per capita",
-    y = "Smooth contribution to log-odds"
-  ) +
-  theme_minimal()
-
-# ggsave(paste0(results_dir, "consumption_lookup_table.png"), p2, width = 10, height = 6)
-
-# Plot prediction accuracy
-p3 <- ggplot(test_df, aes(x = pred_prob, y = manual_prob_lookup)) +
-  geom_point(alpha = 0.3) +
-  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
-  labs(
-    title = "Lookup Table Predictions vs Model Predictions",
-    x = "Model predicted probability",
-    y = "Lookup table predicted probability"
-  ) +
-  theme_minimal() +
-  coord_fixed(ratio = 1)
-
-# ggsave(paste0(results_dir, "lookup_prediction_accuracy.png"), p3, width = 8, height = 8)
-
-#------------------------------------------------------------------------------
-# 8.6: Save all artifacts for deployment
-#------------------------------------------------------------------------------
-
-# Save lookup tables
-fwrite(climate_lookup, paste0(inference_objects_dir, "climate_smooth_lookup.csv"))
-fwrite(consumption_lookup, paste0(inference_objects_dir, "consumption_smooth_lookup.csv"))
-
-# Format and save linear and random effects coefficients
-
-# save coefficients in required inference format:
-
-# example format
-# coefficients
-ex_coef <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_coefs.parquet")
-
-# random effects
-ex_re <- read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/stunting/models/2025_11_07.05/base_model_ranef.parquet")
-
-inf_coef <- copy(ex_coef)[.I==0]
-
-coefficients <- fixef(model)
-
-# Convert coefficients to a dataframe
-inf_coef <- data.frame(
-  index = names(coefficients),
-  Estimate = coefficients
-)
-inf_coef <- setDT(copy(inf_coef))
-
-# rename vars as expected format
-required <- c('(Intercept)','consumption_pd','q95_prev_0_mo','total_precipitation_prev_0_mo','C(sex_id)1','C(birth_year)2022')
-inf_coef[index=='sex_id',index:='C(sex_id)1']
-inf_coef[index=='birth_year2022',index:='C(birth_year)2022']
-inf_coef <- inf_coef[index %in% required]
-rownames(inf_coef) <- inf_coef$index
-inf_coef$index <- NULL
-
-outfile_coef <- gsub("_summary","_coefs.csv",summary_file)
-write.csv(inf_coef,paste0(inference_objects_dir,outfile),row.names=TRUE)
-print(paste0(inference_objects_dir,outfile_coef))
-
-inf_re <- copy(re_df)
-setnames(inf_re,old=c("random_effects","ihme_loc_id"),new=c("X.Intercept.","index"))
-rownames(inf_re) <- inf_re$index
-inf_re$index <- NULL
-outfile_re <- gsub("_summary","_ranef.csv",summary_file)
-write.csv(inf_re,paste0(inference_objects_dir,outfile),row.names = TRUE)
-print(paste0(inference_objects_dir,outfile_re))
-
-
-###################################################
-# Save in default format
-fwrite(linear_coefs, paste0(inference_objects_dir, "linear_coefficients.csv"))
-
-
-# Save random effects
-fwrite(random_effect_coefs, paste0(inference_objects_dir, "random_effects.csv"))
-
-
-#==============================================================================
-# SECTION 7: ARCHIVED TROUBLESHOOTING
-#==============================================================================
-
 
 # monotonicity:
 ## PredictMat tests:
@@ -603,127 +714,4 @@ test_df$manual_predmat_prob <- 1 / (1 + exp(-test_df$manual_predmat_linear))
 range(test_df$manual_predmat_linear)
 range(test_df$manual_predmat_prob)
 
-
-
-#==============================================================================
-# EXPERIMENTS
-#==============================================================================
-
-
-#==============================================================================
-# EXPERIMENT: VERIFY PREDICT AGAINST LP MATRIX
-#==============================================================================
-
-
-
-# If lpmatrix works, this is our solution for manual calculation
-# Extract the lpmatrix for the full test_df
-lpmatrix_full <- predict(model, newdata = test_df, type = "lpmatrix")
-
-# First test the whole matrix against predictions
-# Reconstruct link (linear predictor)
-manual_link <- as.vector(lpmatrix_full %*% coef(model))
-
-# Reconstruct response (probability)
-manual_response <- 1 / (1 + exp(-manual_link))
-
-# Get model predictions for comparison
-model_link <- predict(model, newdata = test_df, type = "link")
-model_response <- predict(model, newdata = test_df, type = "response")
-
-range(manual_link)
-# result: [1] -32.616819  -1.102587
-range(model_link)
-# result: [1] -3.437606 -3.273758
-
-range(model_response)
-# result: [1] 0.03114063 0.03648251
-range(manual_response)
-# result: [1] 0.000000000000006834323 0.249255449773025911098
- 
-# FAILS
-
-# diagnosis
-pred_terms <- predict(model, newdata = test_df, type = "terms")
-intercept <- coef(model)["(Intercept)"]
-manual_from_terms <- intercept + rowSums(pred_terms)
-range(manual_from_terms)
-basis_climate <- PredictMat(climate_smooth, test_df)
-
-range(pred_terms$s.days_over_30C_prev_0_mo.)
-# does any combination of columns from basis_climate%*%climate_spline_coefs = pred_terms$s.days_over_30C_prev_0_mo.?
-columns = 1:10
-for (i in 1:10){
-  # drop i column
-  test_bases <- basis_climate[,columns[-i]]
-  test_spline_contribution <- test_bases%*%climate_spline_coefs
-  print(paste0("dropping column ",i))
-  print("range = ")
-  print(range(test_spline_contribution))
-  
-  # test centered
-  center_test <- test_spline_contribution - mean(test_spline_contribution)+mean(pred_terms[, "s.days_over_30C_prev_0_mo."])
-  print("center range=")
-  print(range(center_test))
-  
-}
-# FAILS - no obvious combination of columns from PredictMat result in same predictions 
-
-# Get model predictions for comparison
-model_link <- predict(model, newdata = test_df_clean, type = "link")
-model_response <- predict(model, newdata = test_df_clean, type = "response")
-
-
-# Extract climate and consumption basis from lpmatrix
-basis_climate_lp <- lpmatrix_full[, climate_spline_indices]
-basis_consumption_lp <- lpmatrix_full[, consumption_spline_indices]
-
-# Test the corrected basis
-smooth_climate_lp <- basis_climate_lp %*% climate_spline_coefs
-smooth_consumption_lp <- basis_consumption_lp %*% consumption_spline_coefs
-
-test_df$manual_linear_lp <- as.vector(smooth_climate_lp) +
-  as.vector(smooth_consumption_lp) +
-  as.vector(linear_contribution) +
-  as.vector(random_effect_contribution)
-
-test_df$manual_prob_lp <- 1 / (1 + exp(-test_df$manual_linear_lp))
-
-range(test_df$manual_prob_lp)
-range(test_df$manual_linear_lp)
-
-# FAILS
-
-#==============================================================================
-# USE Reconstruct FROM predict(type="terms")
-#==============================================================================
-
-pred_terms <- predict(model, newdata = test_df, type = "terms")
-
-smooth_climate_correct <- pred_terms[, "s(days_over_30C_prev_0_mo)"]
-smooth_consumption_correct <- pred_terms[, "s(consumption_pd)"]
-
-# Rebuild linear predictor
-intercept <- coef(model)["(Intercept)"]
-
-test_df$manual_linear_from_pred_terms <- intercept +
-  test_df$total_precipitation_prev_0_mo * linear_coefs[variable=="total_precipitation_prev_0_mo", coefficient] +
-  test_df$sex_id * linear_coefs[variable=="sex_id", coefficient] +
-  sapply(test_df$birth_year, function(y) {
-    val <- linear_coefs[variable == paste0("birth_year", y), coefficient]
-    if (length(val) == 0) 0 else val
-  }) +
-  smooth_climate_correct +
-  smooth_consumption_correct +
-  sapply(test_df$ihme_loc_id, function(loc) {
-    val <- random_effect_coefs[ihme_loc_id == loc, coefficient]
-    if (length(val) == 0) 0 else val
-  })
-
-test_df$manual_prob_from_pred_terms <- 1 / (1 + exp(-test_df$manual_linear_from_pred_terms))
-
-range(test_df$manual_prob_from_pred_terms)
-range(test_df$pred_prob)
-range(test_df$manual_linear_from_pred_terms)
-
-# PASSES
+# Fails

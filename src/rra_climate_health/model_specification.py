@@ -79,6 +79,7 @@ class OutcomeVariable(StrEnum):
     UNDERWEIGHT = "underweight"
     LOW_BMI = "low_bmi"
     ANEMIA = "anemia"
+    NEONATAL_MORTALITY = "child_mortality"
 
 
 class PredictorSpecification(BaseModel):
@@ -101,7 +102,7 @@ class PredictorSpecification(BaseModel):
         if self.transform.type == "binning":
             variables += self.transform.groupby_columns
         return variables
-    
+
     @model_validator(mode="after")
     def fill_scaling_transform_fields(cls, values: "PredictorSpecification"):
         """
@@ -136,7 +137,9 @@ class GridSpecification(BaseModel):
         return v
 
     @model_validator(mode="after")  # type: ignore[arg-type]
-    def check_transform_is_binning(cls, v: "GridSpecification") -> "GridSpecification":  # noqa: N805
+    def check_transform_is_binning(
+        cls, v: "GridSpecification"
+    ) -> "GridSpecification":  # noqa: N805
         if v.x.transform.type != "binning":
             msg = "Grid predictor x must be binned"
             raise ValueError(msg)

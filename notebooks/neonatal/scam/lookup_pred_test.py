@@ -181,6 +181,8 @@ climate_lookup_xr = xr.DataArray(
     },
 )
 
+climate_lookup_xr.to_netcdf(os.path.join(INFERENCE_DIR, "climate_smooth_lookup.nc"))
+
 smooth_contributions = climate_lookup_xr.interp(
     days_over_30C_prev_0_mo=do30,
     method="nearest",  # Use nearest neighbor instead of linear
