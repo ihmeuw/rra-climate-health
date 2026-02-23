@@ -6,7 +6,10 @@ import click
 import pandas as pd
 import rasterra as rt
 from pymer4.models.Lmer import Lmer
-from rpy2.robjects import pandas2ri, packages
+
+from rpy2.robjects import pandas2ri, packages, conversion
+from rpy2.robjects import pandas2ri, default_converter
+from rpy2.robjects.conversion import localconverter
 from rra_tools import jobmon
 
 from rra_climate_health import cli_options as clio
@@ -82,14 +85,18 @@ def model_training_main(
             msg = f"Model {model_spec} did not fit."
             raise ValueError(msg)
     elif model_type == ModelType.SPLINE_MIXED_EFFECTS:
-        pandas2ri.activate()
+        # pandas2ri.activate()
         scam_lib = packages.importr("scam")
         base = packages.importr("base")
         stats = packages.importr("stats")
 
+        # convert pandas to R dataframe
+        with localconverter(default_converter + pandas2ri.converter):
+            r_df = pandas2ri.py2rpy(df)
+
         model = scam_lib.scam(
             stats.as_formula(model_spec.lmer_formula),
-            data=df,
+            data=r_df,
             family=stats.binomial(link="logit"),
         )
         print(base.summary(model))
@@ -101,21 +108,21 @@ def model_training_main(
     cm_data.save_model(model, model_version, submodel)
 
     # Validation
-    target_measure = model_spec.measure.value
-    if year_variable not in df.columns:
-        df[year_variable] = raw_df[year_variable]
-    summary = training_validation.validate_model(
-        df, model_spec, target_measure, year_variable
-    )
-    training_validation.update_results_file(
-        summary, cm_data.models / "validation_results.csv", model_version, submodel
-    )
-    if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS:  # TODO Temporary
-        # Only save intercept raster for full model
-        icept_raster = utils.get_intercept_raster(
-            model_spec, model.coefs, model.ranef, cm_data
-        )
-        cm_data.save_rasterized_intercept(model_version, icept_raster, predictor=1)
+    # target_measure = model_spec.measure.value
+    # if year_variable not in df.columns:
+    #     df[year_variable] = raw_df[year_variable]
+    # summary = training_validation.validate_model(
+    #     df, model_spec, target_measure, year_variable
+    # )
+    # training_validation.update_results_file(
+    #     summary, cm_data.models / "validation_results.csv", model_version, submodel
+    # )
+    # if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS:  # TODO Temporary
+    #     # Only save intercept raster for full model
+    #     icept_raster = utils.get_intercept_raster(
+    #         model_spec, model.coefs, model.ranef, cm_data
+    #     )
+    #     cm_data.save_rasterized_intercept(model_version, icept_raster, predictor=1)
 
 
 @click.command()  # type: ignore[arg-type]
@@ -205,3 +212,15 @@ def model_training(
     )
 
     print("Model training complete. Results can be found at", version_root)
+
+
+if __name__ == "__main__":
+    # Example of calling model_training_main directly
+    model_training_main(
+        output_root=Path(
+            "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition"
+        ),
+        measure="neonatal_mortality",
+        model_version="/ihme/homes/elyeb/repos/rra-climate-health/specifications/neonatal.yaml",
+        submodel=None,
+    )
