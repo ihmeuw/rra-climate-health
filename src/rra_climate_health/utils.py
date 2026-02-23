@@ -93,3 +93,11 @@ def get_intercept_raster(
         msg = "Only location random intercepts are supported"
         raise NotImplementedError(msg)
     return icept_raster
+
+def get_year_variable(df: pd.DataFrame) -> str:
+    prioritized_year_vars = ['year_start', 'int_year', 'year']
+    for var in prioritized_year_vars:
+        if var in df.columns:
+            return var
+    msg = f"None of the prioritized year variables found in dataframe columns: {prioritized_year_vars}"
+    raise ValueError(msg)
