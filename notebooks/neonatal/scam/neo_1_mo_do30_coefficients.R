@@ -31,13 +31,13 @@
 #   which yields the same results as the overall pred(), telling us that the linear 
 #   terms are not the problem, only the spline terms are. 
 
-# Notes from Claude:
-# - The issue is that lpmatrix from scam models doesn't work the same way as in 
-#   mgcv. The scam package uses constrained optimization that modifies the parameter 
-#   space, so the lpmatrix columns don't directly correspond to the model coefficients 
+# # Notes from Claude:
+# - The issue is that lpmatrix from scam models doesn't work the same way as in
+#   mgcv. The scam package uses constrained optimization that modifies the parameter
+#   space, so the lpmatrix columns don't directly correspond to the model coefficients
 #   in a simple multiplicative way.
-# - The fundamental limitation: SCAM's monotonic constraints create a complex non-linear 
-#   transformation that cannot be expressed as simple basis functions × coefficients. 
+# - The fundamental limitation: SCAM's monotonic constraints create a complex non-linear
+#   transformation that cannot be expressed as simple basis functions × coefficients.
 #   You must either use the model object or pre-compute lookup tables.
 # - For deployment without the model object, you need to save a lookup table of 
 #   the smooth contributions at a fine grid of x-values, since you cannot manually 
@@ -268,6 +268,8 @@ setDT(ldi)
 ldi[,consumption_pd := ldipc/365]
 ldi_consumption_pd <- unique(ldi$consumption_pd)
 
+# remove NAs
+
 # Create dummy dataframe with consumption grid
 dummy_consumption <- data.frame(
   days_over_30C_prev_0_mo = median(df_model$days_over_30C_prev_0_mo, na.rm = TRUE),
@@ -278,6 +280,9 @@ dummy_consumption <- data.frame(
   birth_year = factor("2022", levels = levels(df_model$birth_year)),  # Year 2022
   ihme_loc_id = factor(levels(df_model$ihme_loc_id)[1], levels = levels(df_model$ihme_loc_id))  # Will use 0 effect
 )
+
+setDT(dummy_consumption)
+dummy_consumption[is.na(consumption_pd),.N]
 
 # save out dummy_consumption
 # write.csv(dummy_consumption,paste0(inference_objects_dir,"dummy_consumption.csv"),row.names = FALSE)
@@ -292,7 +297,8 @@ consumption_lookup <- data.table(
   consumption_pd = ldi_consumption_pd,
   smooth_contribution = consumption_smooth_values
 )
-
+setDT(consumption_lookup)
+consumption_lookup <- consumption_lookup[!is.na(consumption_pd)]
 write_parquet(consumption_lookup, paste0(inference_objects_dir, "consumption_smooth_lookup.parquet"))
 
 ## Create lookup function for linear interpolation
@@ -311,15 +317,8 @@ interpolate_smooth <- function(x_values, lookup_table, x_col = "x", y_col = "smo
 }
 
 # Interpolate smooth contributions using lookup tables
-test_df$smooth_climate_lookup <- interpolate_smooth(
-  x_values = test_df$days_over_30C_prev_0_mo,
-  lookup_table = climate_lookup,
-  x_col = "days_over_30C_prev_0_mo",
-  y_col = "smooth_contribution"
-)
-
-test_df$smooth_consumption_lookup <- interpolate_smooth(
-  x_values = test_df$consumption_pd,
+dummy_consumption$smooth_consumption_lookup <- interpolate_smooth(
+  x_values = dummy_consumption$consumption_pd,
   lookup_table = consumption_lookup,
   x_col = "consumption_pd",
   y_col = "smooth_contribution"
@@ -348,6 +347,110 @@ range(test_df$pred_linear)
 range(test_df$manual_prob_lookup)
 range(test_df$pred_prob)
 
+# Calculate accuracy loss from using lookup-tables for consumption_pd
+setDT(consumption_lookup)
+consumption_lookup[,manual_prob_lookup := 1 / (1 + exp(-smooth_contribution))]
+range(consumption_lookup$manual_prob_lookup)
+
+# Check loss of accuracy at varying levels of precision of consumption 
+# lookup table. Assume full lookup table is gold standard for accuracy
+
+# round consumption to 4 decimals
+ldi_consumption_pd <- ldi_consumption_pd[!is.na(ldi_consumption_pd)]
+ldi_consumption_pd_4d = round(ldi_consumption_pd,4)
+ldi_consumption_pd_4d <- unique(ldi_consumption_pd_4d)
+length(ldi_consumption_pd) - length(ldi_consumption_pd_4d)
+
+# Create dummy dataframe with consumption grid
+dummy_consumption_4d <- data.frame(
+  days_over_30C_prev_0_mo = median(df_model$days_over_30C_prev_0_mo, na.rm = TRUE),
+  # consumption_pd = consumption_grid,
+  consumption_pd = ldi_consumption_pd_4d,
+  total_precipitation_prev_0_mo = median(df_model$total_precipitation_prev_0_mo, na.rm = TRUE),
+  sex_id = 0,
+  birth_year = factor("2022", levels = levels(df_model$birth_year)),  # Year 2022
+  ihme_loc_id = factor(levels(df_model$ihme_loc_id)[1], levels = levels(df_model$ihme_loc_id))  # Will use 0 effect
+)
+# save out dummy_consumption
+# write.csv(dummy_consumption,paste0(inference_objects_dir,"dummy_consumption.csv"),row.names = FALSE)
+
+# Get smooth term predictions
+pred_terms_consumption_4d <- predict(model, newdata = dummy_consumption_4d, type = "terms")
+consumption_smooth_values_4d <- pred_terms_consumption_4d[, "s(consumption_pd)"]
+
+# Create lookup table based off rounded consumption
+consumption_lookup_4d <- data.table(
+  # consumption_pd = consumption_grid,
+  consumption_pd = ldi_consumption_pd_4d,
+  smooth_contribution = consumption_smooth_values_4d
+)
+
+write_parquet(consumption_lookup_4d, paste0(inference_objects_dir, "consumption_smooth_lookup_4d.parquet"))
+
+# Interpolate smooth contributions using lookup tables
+consumption_lookup$smooth_contribution_4d <- interpolate_smooth(
+  x_values = consumption_lookup$consumption_pd,
+  lookup_table = consumption_lookup_4d,
+  x_col = "consumption_pd",
+  y_col = "smooth_contribution"
+)
+
+consumption_lookup[,manual_prob_lookup_4d := 1 / (1 + exp(-smooth_contribution_4d))]
+range(consumption_lookup$manual_prob_lookup_4d)
+
+
+setDT(consumption_lookup)
+consumption_lookup[,abs_dif := abs(smooth_contribution-smooth_contribution_4d)]
+mean(consumption_lookup$abs_dif) #0.000000000002535693
+formatC(mean(consumption_lookup$abs_dif), format = "e", digits = 2) #2.54e-12
+
+# Repeat test for 2 decimals
+ldi_consumption_pd <- ldi_consumption_pd[!is.na(ldi_consumption_pd)]
+ldi_consumption_pd_2d = round(ldi_consumption_pd,2)
+ldi_consumption_pd_2d <- unique(ldi_consumption_pd_2d)
+length(ldi_consumption_pd) - length(ldi_consumption_pd_2d)
+
+# Create dummy dataframe with consumption grid
+dummy_consumption_2d <- data.frame(
+  days_over_30C_prev_0_mo = median(df_model$days_over_30C_prev_0_mo, na.rm = TRUE),
+  # consumption_pd = consumption_grid,
+  consumption_pd = ldi_consumption_pd_2d,
+  total_precipitation_prev_0_mo = median(df_model$total_precipitation_prev_0_mo, na.rm = TRUE),
+  sex_id = 0,
+  birth_year = factor("2022", levels = levels(df_model$birth_year)),  # Year 2022
+  ihme_loc_id = factor(levels(df_model$ihme_loc_id)[1], levels = levels(df_model$ihme_loc_id))  # Will use 0 effect
+)
+# save out dummy_consumption
+# write.csv(dummy_consumption,paste0(inference_objects_dir,"dummy_consumption.csv"),row.names = FALSE)
+
+# Get smooth term predictions
+pred_terms_consumption_2d <- predict(model, newdata = dummy_consumption_2d, type = "terms")
+consumption_smooth_values_2d <- pred_terms_consumption_2d[, "s(consumption_pd)"]
+
+# Create lookup table based off rounded consumption
+consumption_lookup_2d <- data.table(
+  # consumption_pd = consumption_grid,
+  consumption_pd = ldi_consumption_pd_2d,
+  smooth_contribution = consumption_smooth_values_2d
+)
+
+write_parquet(consumption_lookup_2d, paste0(inference_objects_dir, "consumption_smooth_lookup_2d.parquet"))
+
+# Interpolate smooth contributions using lookup tables
+consumption_lookup$smooth_contribution_2d <- interpolate_smooth(
+  x_values = consumption_lookup$consumption_pd,
+  lookup_table = consumption_lookup_2d,
+  x_col = "consumption_pd",
+  y_col = "smooth_contribution"
+)
+
+consumption_lookup[,manual_prob_lookup_2d := 1 / (1 + exp(-smooth_contribution_2d))]
+range(consumption_lookup$manual_prob_lookup_2d)
+
+
+consumption_lookup[,abs_dif_2d := abs(smooth_contribution-smooth_contribution_2d)]
+mean(consumption_lookup$abs_dif_2d) #0.00000002535137
+formatC(mean(consumption_lookup$abs_dif_2d), format = "e", digits = 2) #2.54e-08
 
 ## Visualize lookup tables and interpolation accuracy
 
@@ -463,6 +566,23 @@ fwrite(random_effect_coefs, paste0(inference_objects_dir, "random_effects.csv"))
 #==============================================================================
 
 # Section unsuccessful - no longer used for predictions
+Xp <- predict(model, newdata = test_df, type = "lpmatrix", exclude = "s(ihme_loc_id)")
+manual_pe <- as.numeric(Xp %*% model$coefficients.t)
+range(manual_pe)
+
+# And if you want the uncertainty (doesn't sound like you do):
+Vp <- model$Vp.t
+
+manual_se <- as.numeric(sqrt(rowSums((Xp %*% Vp ) * Xp)))
+
+
+# And compare them to
+pred_fixed_effects <- predict(model, newdata = test_df, type = "link", se.fit = TRUE,
+                              exclude = "s(ihme_loc_id)")
+pred_pe<- pred_fixed_effects$fit
+pred_se<- pred_fixed_effects$se.fit
+range(pred_pe)
+
 
 #==============================================================================
 # EXPERIMENT: VERIFY PREDICT AGAINST LP MATRIX
