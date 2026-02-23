@@ -247,7 +247,7 @@ class ModelSpecification(BaseModel):
         predictors += self.predictors
         random_effects: dict[str, list[str]] = {}
         for predictor in predictors:
-            print("Predictor:", predictor.name)
+            #print("Predictor:", predictor.name)
             predictor_repr = "1" if predictor.name == "intercept" else predictor.name
             predictor_repr = (
                 f"C({predictor_repr})"

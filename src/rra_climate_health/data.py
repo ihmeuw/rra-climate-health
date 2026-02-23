@@ -74,6 +74,13 @@ class ClimateMalnutritionData:
                 "transformer": transformer,
                 "transform_spec": transform_spec,
             }
+            # If it's spline mixed effects and the variabel is categorical, convert to category dtype for modeling
+            if model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS and transform_spec.type == "categorical":
+                # If it's a numerical, convert to integer first
+                if pd.api.types.is_numeric_dtype(transformed_data[var]):
+                    transformed_data[var] = transformed_data[var].astype(int).astype(str).astype("category")
+                else:
+                    transformed_data[var] = transformed_data[var].astype(str).astype("category")
 
         df = pd.DataFrame(transformed_data)
 

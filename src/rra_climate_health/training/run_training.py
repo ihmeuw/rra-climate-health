@@ -101,7 +101,7 @@ def model_training_main(
     summary = training_validation.validate_model(df, model_spec, target_measure, year_variable)
     training_validation.update_results_file(summary, cm_data.models / "validation_results.csv", 
                                             model_version, submodel)
-    if not submodel:
+    if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS: #TODO Temporary
         # Only save intercept raster for full model
         icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
         cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
