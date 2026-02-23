@@ -16,8 +16,10 @@ from rra_climate_health.model_specification import (
 )
 from rra_climate_health.transforms import transform_column
 from rra_climate_health import utils
-from rra_climate_health.training import training_validation
+
+# from rra_climate_health.training import training_validation
 from rra_climate_health.model_specification import ModelType
+
 
 def model_training_main(
     output_root: Path,
@@ -45,7 +47,7 @@ def model_training_main(
     columns_to_keep = model_spec.raw_variables
     if year_variable not in columns_to_keep:
         columns_to_keep.append(year_variable)
-    
+
     raw_df = full_training_data.loc[:, columns_to_keep]
     null_mask = raw_df.isna().any(axis=1)
     if null_mask.sum() > 0:
@@ -75,19 +77,23 @@ def model_training_main(
         model = Lmer(model_spec.lmer_formula, data=df, family="binomial")
         model.fit()
         if len(model.warnings) > 0:
-        # TODO: save these to a file
+            # TODO: save these to a file
             print(model.warnings)
             msg = f"Model {model_spec} did not fit."
             raise ValueError(msg)
     elif model_type == ModelType.SPLINE_MIXED_EFFECTS:
         pandas2ri.activate()
-        scam_lib = packages.importr('scam')
-        base = packages.importr('base')
-        stats = packages.importr('stats')
-        
-        model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit"))
+        scam_lib = packages.importr("scam")
+        base = packages.importr("base")
+        stats = packages.importr("stats")
+
+        model = scam_lib.scam(
+            stats.as_formula(model_spec.lmer_formula),
+            data=df,
+            family=stats.binomial(link="logit"),
+        )
         print(base.summary(model))
-    
+
     model.var_info = var_info
     model.raw_data = raw_df
     model.submodel = submodel
@@ -98,14 +104,18 @@ def model_training_main(
     target_measure = model_spec.measure.value
     if year_variable not in df.columns:
         df[year_variable] = raw_df[year_variable]
-    summary = training_validation.validate_model(df, model_spec, target_measure, year_variable)
-    training_validation.update_results_file(summary, cm_data.models / "validation_results.csv", 
-                                            model_version, submodel)
-    if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS: #TODO Temporary
+    summary = training_validation.validate_model(
+        df, model_spec, target_measure, year_variable
+    )
+    training_validation.update_results_file(
+        summary, cm_data.models / "validation_results.csv", model_version, submodel
+    )
+    if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS:  # TODO Temporary
         # Only save intercept raster for full model
-        icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
-        cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
-
+        icept_raster = utils.get_intercept_raster(
+            model_spec, model.coefs, model.ranef, cm_data
+        )
+        cm_data.save_rasterized_intercept(model_version, icept_raster, predictor=1)
 
 
 @click.command()  # type: ignore[arg-type]
@@ -195,4 +205,3 @@ def model_training(
     )
 
     print("Model training complete. Results can be found at", version_root)
-
