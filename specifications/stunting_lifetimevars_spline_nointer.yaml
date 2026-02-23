@@ -1,0 +1,42 @@
+model_type: "scam"
+version:
+  training_data: "2026_01_23.03"
+measure: "stunting"
+holdout:
+  type: "no_holdout"  
+predictors:
+  - name: "intercept"
+    random_effect: "ihme_loc_id"
+  - name: "sex_id"
+    transform:
+      type: 'categorical'
+  - name: "age_group_id"
+    transform:
+      type: 'categorical'
+  - name: "days_over_30C"
+    transform:
+        type: 'scaling'
+        scale_source: 'data'
+        strategy: 'inner_ninety_five'
+    spline:
+      bs: 'mpi'
+      k: 4
+  - name: "ldi_pc_pd"
+    version: "v5"
+    transform:
+      type: 'scaling'
+      scale_source: 'inference'
+      strategy: 'inner_ninety_five'
+    spline:
+      bs: 'mpd'
+      k: 4
+  - name: "elevation"
+    transform:
+      type: 'scaling'
+      scale_source: 'data'
+      strategy: 'inner_ninety_five'
+  - name: "mean_temperature"
+    transform:
+      type: 'scaling'
+      scale_source: 'data'
+      strategy: 'inner_ninety_five'
