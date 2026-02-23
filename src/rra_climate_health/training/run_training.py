@@ -6,6 +6,7 @@ import click
 import pandas as pd
 import rasterra as rt
 from pymer4.models.Lmer import Lmer
+from rpy2.robjects import pandas2ri, packages
 from rra_tools import jobmon
 
 from rra_climate_health import cli_options as clio
@@ -15,8 +16,8 @@ from rra_climate_health.model_specification import (
 )
 from rra_climate_health.transforms import transform_column
 from rra_climate_health import utils
-
-
+from rra_climate_health.training import training_validation
+from rra_climate_health.model_specification import ModelType
 
 def model_training_main(
     output_root: Path,
@@ -40,7 +41,12 @@ def model_training_main(
             retyped_value = full_training_data[var].dtype.type(value)
             subset_mask = (full_training_data[var] == retyped_value) & subset_mask
 
-    raw_df = full_training_data.loc[:, model_spec.raw_variables]
+    year_variable = utils.get_year_variable(full_training_data)
+    columns_to_keep = model_spec.raw_variables
+    if year_variable not in columns_to_keep:
+        columns_to_keep.append(year_variable)
+    
+    raw_df = full_training_data.loc[:, columns_to_keep]
     null_mask = raw_df.isna().any(axis=1)
     if null_mask.sum() > 0:
         msg = f"Null values found in raw data for {null_mask.sum()} rows"
@@ -50,28 +56,56 @@ def model_training_main(
 
     raw_df = raw_df.loc[subset_mask].reset_index(drop=True)
     df = df.loc[subset_mask].reset_index(drop=True)
-
+    # # Print descriptions of both raw and processed data to illustrate transformations
+    # for col in df.columns:
+    #     print(f"Column: {col}")
+    #     print("  Raw data:")
+    #     print(raw_df[col].describe())
+    #     print("  Processed data:")
+    #     print(df[col].describe())
     # TODO: Test/train split
     print(
         f"Training {model_spec.lmer_formula} for {measure} {model_version} "
         f"submodel {submodel} cols {df.columns}"
         f" with {len(df)} rows"
     )
-    model = Lmer(model_spec.lmer_formula, data=df, family="binomial")
-    model.fit()
-    if len(model.warnings) > 0:
+
+    model_type = model_spec.model_type
+    if model_type == ModelType.LINEAR_MIXED_EFFECTS:
+        model = Lmer(model_spec.lmer_formula, data=df, family="binomial")
+        model.fit()
+        if len(model.warnings) > 0:
         # TODO: save these to a file
-        print(model.warnings)
-        msg = f"Model {model_spec} did not fit."
-        raise ValueError(msg)
+            print(model.warnings)
+            msg = f"Model {model_spec} did not fit."
+            raise ValueError(msg)
+    elif model_type == ModelType.SPLINE_MIXED_EFFECTS:
+        pandas2ri.activate()
+        scam_lib = packages.importr('scam')
+        base = packages.importr('base')
+        stats = packages.importr('stats')
+        
+        model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit"))
+        print(base.summary(model))
+    
     model.var_info = var_info
     model.raw_data = raw_df
     model.submodel = submodel
 
     cm_data.save_model(model, model_version, submodel)
-    icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
-    cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
-    
+
+    # Validation
+    target_measure = model_spec.measure.value
+    if year_variable not in df.columns:
+        df[year_variable] = raw_df[year_variable]
+    summary = training_validation.validate_model(df, model_spec, target_measure, year_variable)
+    training_validation.update_results_file(summary, cm_data.models / "validation_results.csv", 
+                                            model_version, submodel)
+    if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS: #TODO Temporary
+        # Only save intercept raster for full model
+        icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
+        cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
+
 
 
 @click.command()  # type: ignore[arg-type]
