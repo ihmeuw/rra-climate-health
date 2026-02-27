@@ -184,6 +184,15 @@ class ClimateMalnutritionData:
         # touch(random_effects_filepath, exist_ok=True)
         # model.ranef.to_parquet(random_effects_filepath)
 
+    def save_climate_lookup_table(
+        self, climate_lookup_table: pd.DataFrame, version: str
+    ) -> None:
+        model_root = self.models / version
+        mkdir(model_root, exist_ok=True)
+        lookup_filepath = model_root / "climate_lookup_table.parquet"
+        touch(lookup_filepath, exist_ok=True)
+        climate_lookup_table.to_parquet(lookup_filepath)
+
     def load_model_family(
         self,
         version: str,

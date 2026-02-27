@@ -1,4 +1,5 @@
 import itertools
+import os
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,8 @@ from rra_climate_health import utils
 
 # from rra_climate_health.training import training_validation
 from rra_climate_health.model_specification import ModelType
+import re
+import pickle
 
 
 def model_training_main(
@@ -30,6 +33,8 @@ def model_training_main(
     model_version: str,
     submodel: list[tuple[str, str]] | None = None,
 ) -> None:
+
+    output_dir = os.path.join(output_root, measure, "inference", model_version)
     cm_data = ClimateMalnutritionData(output_root / measure)
     model_spec = cm_data.load_model_specification(model_version)
 
@@ -105,7 +110,63 @@ def model_training_main(
     model.raw_data = raw_df
     model.submodel = submodel
 
-    cm_data.save_model(model, model_version, submodel)
+    # Create climate lookup table
+    climate_intervals = (
+        df["days_over_30C_prev_0_mo"].max() - df["days_over_30C_prev_0_mo"].min()
+    ) / 999
+    climate_grid = [
+        df["days_over_30C_prev_0_mo"].min() + i * climate_intervals for i in range(1000)
+    ]
+
+    # create constant prediction dataset for all variables except climate
+    constant_df = pd.DataFrame(
+        {
+            "days_over_30C_prev_0_mo": climate_grid,  # Climate grid for the variable of interest
+            "consumption_pd": df[
+                "consumption_pd"
+            ].median(),  # Median for numeric variables
+            "total_precipitation_prev_0_mo": df[
+                "total_precipitation_prev_0_mo"
+            ].median(),
+            "sex_id": pd.Categorical(
+                ["0"] * len(climate_grid), categories=["0", "1"]
+            ),  # Categorical variable
+            "birth_year": pd.Categorical(
+                ["2022"] * len(climate_grid), categories=df["birth_year"].unique()
+            ),
+            "ihme_loc_id": pd.Categorical(
+                [df["ihme_loc_id"].mode()[0]] * len(climate_grid),
+                categories=df["ihme_loc_id"].unique(),
+            ),
+        }
+    )
+
+    # Convert the constant DataFrame to an R data frame
+    with localconverter(default_converter + pandas2ri.converter):
+        r_constant_df = pandas2ri.py2rpy(constant_df)
+
+    # Predict spline contributions
+    pred_terms = stats.predict(model, newdata=r_constant_df, type="terms")
+
+    print(pred_terms.colnames)
+    pred_terms_climate = pred_terms.rx(
+        True, pred_terms.colnames.index("s(days_over_30C_prev_0_mo)") + 1
+    )
+
+    # Extract the spline contribution for `days_over_30C_prev_0_mo`
+    with localconverter(default_converter + pandas2ri.converter):
+        pred_terms_df = pandas2ri.rpy2py(pred_terms_climate)
+
+    pred_terms_df = pd.DataFrame(pred_terms_df, columns=["s(days_over_30C_prev_0_mo)"])
+    climate_lookup_df = pd.DataFrame(
+        {
+            "days_over_30C_prev_0_mo": climate_grid,
+            "smooth_contribution": pred_terms_df["s(days_over_30C_prev_0_mo)"],
+        }
+    )
+
+    cm_data.save_model(model, output_dir, submodel)
+    cm_data.save_climate_lookup_table(climate_lookup_df, output_dir)
 
     # Validation
     # target_measure = model_spec.measure.value
