@@ -49,8 +49,8 @@ options(scipen = 999) # turn off scientific notation
 ## set parameters
 summary_file <- "cm_v7_factored_birth_year"
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data.parquet"
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_02_27.01/data.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_02_27.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
 
@@ -70,9 +70,9 @@ climate_vars <- c(
   "mean_high_temperature",
   "mean_low_temperature",
   "precipitation_days",
-  "days_over_30C",
-  "days_over_26C",
-  "any_days_over_30C"
+  "days_over_30C"
+  # "days_over_26C",
+  # "any_days_over_30C"
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- df[, ..cols]
