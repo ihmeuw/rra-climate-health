@@ -541,13 +541,13 @@ def get_climate_vars_for_dataframe(
         "mean_low_temperature",
         "mean_high_temperature",
         "relative_humidity",
-        "days_over_26C",
-        "days_over_27C",
-        "days_over_28C",
-        "days_over_29C",
-        "days_over_31C",
-        "days_over_32C",
-        "days_over_33C",
+        # "days_over_26C",
+        # "days_over_27C",
+        # "days_over_28C",
+        # "days_over_29C",
+        # "days_over_31C",
+        # "days_over_32C",
+        # "days_over_33C",
     ]
 
     unique_coords = df[[lat_col, long_col, year_col]].drop_duplicates()
@@ -1961,7 +1961,24 @@ def plot_indvs_by_age_group(data):
 def run_training_data_prep_child_mortality(
     output_root: str | Path, data_source_type: str, module: str
 ) -> None:
-    # TODO: calculate int_year from age_month and birth_year so as not to drop missing int_year rows
+    # TODO: calculate int_year from age_month and birth_year so as not to drop missing int_year rows.
+    # India = location_id 163, ihme_loc_id IND
+
+    """
+    Overall structure of child_mortality data prep:
+    1. Load and format child_mortality data from DEM_BR module
+    2. Extracting and merging wealth dataset
+    3. Extract and merging annual climate variables
+    4. Extract monthly climate variables for previous months
+    5. Merge in monthly climate variables for previous months
+    6. Calculate averages over time periods analyzed for monthly climate variables
+    7. Extract monthly relative climate thresholds for previous months
+    8. Merge monthly relative climate thresholds with child_mortality data
+    9. Calculate averages over time periods analyzed for monthly relative climate thresholds
+    10. Add in temperature zones
+    """
+
+    ## 1. Load and format child_mortality data from DEM_BR module
 
     # Set up logging and versioned output path
     measure_root = Path(output_root) / data_source_type
@@ -2011,6 +2028,97 @@ def run_training_data_prep_child_mortality(
     df = check_columns(df, module)
 
     # drop rows with missing key variables
+    # Special note on India. India surveys contain age_month, which is the difference
+    # between time of birth and time of interview in months. This is important because
+    # int_year and int_month are missing. Calculate the variables using available
+    # data as much as possible to avoid unnecessary data loss.
+
+    # Attemp 1: int_year recovery via birth_year/month and age_month
+    def recover_int_year(row):
+        try:
+            birth_mo = int(row["birth_month"])
+            birth_yr = int(row["birth_year"])
+            age_mo = int(row["age_month"])
+            if pd.notna(birth_mo) and pd.notna(birth_yr) and pd.notna(age_mo):
+                int_yr = birth_yr + (age_mo // 12)
+                int_mo = (birth_mo + (age_mo % 12)) % 12
+                return int_yr
+            else:
+                return row["int_year"]
+        except:
+            return row["int_year"]
+
+    def recover_int_mo(row):
+        try:
+            birth_mo = int(row["birth_month"])
+            birth_yr = int(row["birth_year"])
+            age_mo = int(row["age_month"])
+            if pd.notna(birth_mo) and pd.notna(birth_yr) and pd.notna(age_mo):
+                int_yr = birth_yr + (age_mo // 12)
+                int_mo = (birth_mo + (age_mo % 12)) % 12
+                return int_mo
+            else:
+                return row["int_month"]
+        except:
+            return row["int_month"]
+
+    df["int_year_recovered"] = df.apply(recover_int_year, axis=1)
+    df["int_month_recovered"] = df.apply(recover_int_mo, axis=1)
+
+    df["int_year"].fillna(df["int_year_recovered"], inplace=True)
+    df["int_month"].fillna(df["int_month_recovered"], inplace=True)
+
+    # Are there any rows with nonempty int_year/month and age-Month but no birth_month?
+    len(
+        df[
+            (df["int_year"].notna())
+            & (df["int_month"].notna())
+            & (df["age_month"].notna())
+            & (df["birth_month"].isna())
+        ]
+    )  # 207270
+
+    def recover_birth_year(row):
+        try:
+            int_mo = int(row["int_month"])
+            int_yr = int(row["int_year"])
+            age_mo = int(row["age_month"])
+            if pd.notna(int_mo) and pd.notna(int_yr) and pd.notna(age_mo):
+                birth_yr = int_yr - (age_mo // 12)
+                return birth_yr
+            else:
+                return row["birth_year"]
+        except:
+            return row["birth_year"]
+
+    def recover_birth_mo(row):
+        try:
+            int_mo = int(row["int_month"])
+            int_yr = int(row["int_year"])
+            age_mo = int(row["age_month"])
+            if pd.notna(int_mo) and pd.notna(int_yr) and pd.notna(age_mo):
+                birth_mo = (int_mo - (age_mo % 12)) % 12
+                return birth_mo
+            else:
+                return row["birth_month"]
+        except:
+            return row["birth_month"]
+
+    df["birth_year_recovered"] = df.apply(recover_birth_year, axis=1)
+    df["birth_month_recovered"] = df.apply(recover_birth_mo, axis=1)
+    df["birth_year"].fillna(df["birth_year_recovered"], inplace=True)
+    df["birth_month"].fillna(df["birth_month_recovered"], inplace=True)
+
+    df.drop(
+        columns=[
+            "int_year_recovered",
+            "int_month_recovered",
+            "birth_year_recovered",
+            "birth_month_recovered",
+        ],
+        inplace=True,
+    )
+
     rows_before_na_drop = len(df)
     key_vars = [
         "nid",
@@ -2027,11 +2135,13 @@ def run_training_data_prep_child_mortality(
         "long",
         "child_alive",
     ]
-    df.dropna(subset=key_vars, inplace=True)
-    na_rows_dropped = rows_before_na_drop - len(df)
+    df_tmp = df.dropna(subset=key_vars)
+    na_rows_dropped = rows_before_na_drop - len(df_tmp)
     logging.info(
         f"Dropped {na_rows_dropped:,} rows with missing key variables: {key_vars}"
     )
+    df = df_tmp.copy()
+
     for var in key_vars:
         logging.info(f"- {var}: {data_raw[var].isna().sum():,} missing values")
     logging.info(f"NIDs with incomplete (some NAs) key variables: {key_vars}")
@@ -2042,39 +2152,6 @@ def run_training_data_prep_child_mortality(
 
     logging.info(f"Total unique NIDs after dropped NA values: {df['nid'].nunique():,}")
     df = df.rename(columns=COLUMN_NAME_TRANSLATOR)
-
-    # Investigate versions of India extractions
-    # data_raw_10_6 = pd.read_parquet(
-    #     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_10_06_2025.parquet"
-    # )
-    # india_10_6 = data_raw_10_6.query("ihme_loc_id=='IND'")
-    # print(len(india_10_6))
-    # for v in key_vars:
-    #     print(v)
-    #     print(len(india_10_6[~india_10_6[v].isna()]))
-    # data_raw_10_14_1 = pd.read_parquet(
-    #     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_2025_10_14.parquet"
-    # )
-    # india_10_14_1 = data_raw_10_14_1.query("ihme_loc_id=='IND'")
-    # print(len(india_10_14_1))
-    # for v in key_vars:
-    #     print(v)
-    #     print(len(india_10_14_1[~india_10_14_1[v].isna()]))
-    # print(len(india_10_14_1.dropna(subset=key_vars)))
-    # india_10_14_1_lat_long = india_10_14_1[~india_10_14_1["lat"].isna()]
-
-    # data_raw_10_14_2 = pd.read_parquet(
-    #     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_combined_2025_10_14.parquet"
-    # )
-    # india_10_14_2 = data_raw_10_14_2.query("ihme_loc_id=='IND'")
-    # print(len(india_10_14_2))
-    # india_10_14_2.rename(columns={"latitude": "lat", "longitude": "long"}, inplace=True)
-    # for v in key_vars:
-    #     print(v)
-    #     print(len(india_10_14_2[~india_10_14_2[v].isna()]))
-    # print(len(india_10_14_2.dropna(subset=key_vars)))
-    # india_10_14_2_int_yr = india_10_14_2[~india_10_14_2["int_year"].isna()]
-    # india_10_14_2_lat_long = india_10_14_2[~india_10_14_2["lat"].isna()]
 
     # update variable data types besides hh_id
     int_cols = [
@@ -2167,22 +2244,6 @@ def run_training_data_prep_child_mortality(
     )
     logging.info(f"Total unique NIDs remaining: {df_merged['nid'].nunique():,}")
 
-    # age_month is months since birth at time of interview.
-
-    # Only include children born within previous 5 years before int_year
-    # before_rows = len(df_merged)
-    # before_nids = df_merged["nid"].nunique()
-    # df_merged["int_birth_year_diff_months"] = 12 * (
-    #     df_merged["int_year"] - df_merged["birth_year"]
-    # ) + (df_merged["int_month"] - df_merged["birth_month"])
-    # df_merged_backup = df_merged.copy()
-    # df_dropped = df_merged_backup.query("int_birth_year_diff_months > 120")
-    # df_merged = df_merged.query("int_birth_year_diff_months <= 120")  # 10 years
-    # logging.info(
-    #     f"Dropped {before_rows - len(df_merged):,} rows, {before_nids - df_merged['nid'].nunique():,} nids for which int_year > birth_year + 5"
-    # )
-    # df_merged.drop(columns=["int_birth_year_diff_months"], inplace=True)
-
     # Include difference between int_year and birth_year for sensitivity analysis
     df_merged["int_birth_year_diff_months"] = 12 * (
         df_merged["int_year"] - df_merged["birth_year"]
@@ -2207,10 +2268,7 @@ def run_training_data_prep_child_mortality(
     # create list of years between birth year and year that the age_month lands on.
     df_merged["age_month"] = df_merged["age_month"].astype(int)
     df_merged["year_of_recorded_age"] = (
-        df_merged["birth_year"] * 12
-        + df_merged["birth_month"]
-        + df_merged["age_month"]
-        - 1
+        df_merged["birth_year"] * 12 + df_merged["birth_month"] + df_merged["age_month"]
     ) // 12
     df_merged["year_of_recorded_age"] = df_merged["year_of_recorded_age"].astype(int)
 
@@ -2277,6 +2335,17 @@ def run_training_data_prep_child_mortality(
     ]  # nothing to model at time=0
     logging.info(
         f"Dropped {rows_before - len(df_exploded):,} rows with age_month_at_year_end=0"
+    )
+
+    # save temp merged:
+    df_merged.to_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_tmp_merged.parquet",
+        index=False,
+    )
+    # save temp exploded
+    df_exploded.to_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_tmp_exploded.parquet",
+        index=False,
     )
 
     # override int_year, used to get climate vars
@@ -2406,41 +2475,41 @@ def run_training_data_prep_child_mortality(
         "mean_low_temperature",
         "mean_high_temperature",
         "relative_humidity",
-        "days_over_26C",
-        "days_over_27C",
-        "days_over_28C",
-        "days_over_29C",
-        "days_over_31C",
-        "days_over_32C",
-        "days_over_33C",
+        # "days_over_26C",
+        # "days_over_27C",
+        # "days_over_28C",
+        # "days_over_29C",
+        # "days_over_31C",
+        # "days_over_32C",
+        # "days_over_33C",
         "elevation",
     ]
 
     # Neonatal
     # get the index of the row with the min age_month_at_year_end for each indv_id
-    df_min_age = df_climate.copy()
-    df_min_age = (
-        df_climate.sort_values("age_month")
-        .groupby("indv_id", as_index=False)
-        .head(1)
-        .reset_index(drop=True)
-    )
+    # df_min_age = df_climate.copy()
+    # df_min_age = (
+    #     df_climate.sort_values("age_month")
+    #     .groupby("indv_id", as_index=False)
+    #     .head(1)
+    #     .reset_index(drop=True)
+    # )
 
-    # for any child with age_month > 1, set their age_month to 1,
-    # child_mortality to 0, and child_alive to 1. This should get true neonatal
-    # mortality for all individuals.
-    df_min_age.loc[df_min_age.age_month > 1, "child_alive"] = 1
-    df_min_age.loc[df_min_age.age_month > 1, "child_mortality"] = 0
-    df_min_age.loc[df_min_age.age_month > 1, "age_month"] = 1
+    # # for any child with age_month > 1, set their age_month to 1,
+    # # child_mortality to 0, and child_alive to 1. This should get true neonatal
+    # # mortality for all individuals.
+    # df_min_age.loc[df_min_age.age_month > 1, "child_alive"] = 1
+    # df_min_age.loc[df_min_age.age_month > 1, "child_mortality"] = 0
+    # df_min_age.loc[df_min_age.age_month > 1, "age_month"] = 1
 
-    # make version of consumption that is per day
-    df_min_age["consumption_pd"] = df_min_age["consumption"] / 365
+    # # make version of consumption that is per day
+    # df_min_age["consumption_pd"] = df_min_age["consumption"] / 365
 
-    # make any day over 30C variable binary
-    df_min_age["any_days_over_30C"] = np.where(df_min_age["days_over_30C"] > 0, 1, 0)
+    # # make any day over 30C variable binary
+    # df_min_age["any_days_over_30C"] = np.where(df_min_age["days_over_30C"] > 0, 1, 0)
 
-    # save out neonatal data set
-    df_min_age.to_parquet(Path(output_path_version) / "neonatal_data.parquet")
+    # # save out neonatal data set
+    # df_min_age.to_parquet(Path(output_path_version) / "neonatal_data.parquet")
 
     # df_min_age = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet")
 
