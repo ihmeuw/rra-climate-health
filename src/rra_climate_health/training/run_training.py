@@ -27,6 +27,78 @@ import re
 import pickle
 
 
+def create_spline_lookup(
+    model_obj,
+    model_spec,
+    lookup_var: str,
+    full_df: pd.DataFrame = df.copy(),
+    num_points: int = 1000,
+) -> pd.DataFrame:
+    """
+    Helper function to create a lookup table for the spline contribution of a
+    variable from a fitted scam model.
+    """
+
+    # Create lookup table for variable
+    df = full_df.copy()
+
+    # get the outcome variable from the model specification
+    outcome_tuple = [i for i in model_spec if "measure" in i][0]
+    outcome_var = outcome_tuple[1].value
+
+    # Get list of variables that are not outcome, lookup variable, or intercept
+    non_lookup_vars = [
+        col for col in df.columns if not col in (lookup_var, "intercept", outcome_var)
+    ]
+
+    intervals = (df[lookup_var].max() - df[lookup_var].min()) / (num_points - 1)
+    grid = [df[lookup_var].min() + i * intervals for i in range(num_points)]
+
+    # create constant prediction dataset for all variables lookup variable
+    # Use median for numeric variables, mode for categorical variables, and the
+    # grid for the variable of interest
+    constant_df = pd.DataFrame({lookup_var: grid})
+    for var in non_lookup_vars:
+
+        if pd.api.types.is_numeric_dtype(df[var]):
+            constant_df[var] = df[var].median()
+        elif pd.api.types.is_categorical_dtype(df[var]) or pd.api.types.is_object_dtype(
+            df[var]
+        ):
+            constant_df[var] = pd.Categorical(
+                [df[var].mode()[0]] * len(constant_df),
+                categories=df[var].unique(),
+            )
+        else:
+            raise ValueError(f"Unimplemented variable type for {var}")
+
+    # Convert the constant DataFrame to an R data frame
+    with localconverter(default_converter + pandas2ri.converter):
+        r_constant_df = pandas2ri.py2rpy(constant_df)
+
+    # Predict spline contributions
+    pred_terms = stats.predict(model_obj, newdata=r_constant_df, type="terms")
+
+    marginal_contribution_varname = f"s({lookup_var})"
+    pred_terms_var = pred_terms.rx(
+        True, pred_terms.colnames.index(marginal_contribution_varname) + 1
+    )
+
+    # Extract the spline contribution for variable
+    with localconverter(default_converter + pandas2ri.converter):
+        pred_terms_df = pandas2ri.rpy2py(pred_terms_var)
+
+    pred_terms_df = pd.DataFrame(pred_terms_df, columns=[marginal_contribution_varname])
+    climate_lookup_df = pd.DataFrame(
+        {
+            lookup_var: grid,
+            "smooth_contribution": pred_terms_df,
+        }
+    )
+
+    return climate_lookup_df
+
+
 def model_training_main(
     output_root: Path,
     measure: str,
@@ -110,63 +182,27 @@ def model_training_main(
     model.raw_data = raw_df
     model.submodel = submodel
 
-    # Create climate lookup table
-    climate_intervals = (
-        df["days_over_30C_prev_0_mo"].max() - df["days_over_30C_prev_0_mo"].min()
-    ) / 999
-    climate_grid = [
-        df["days_over_30C_prev_0_mo"].min() + i * climate_intervals for i in range(1000)
-    ]
-
-    # create constant prediction dataset for all variables except climate
-    constant_df = pd.DataFrame(
-        {
-            "days_over_30C_prev_0_mo": climate_grid,  # Climate grid for the variable of interest
-            "consumption_pd": df[
-                "consumption_pd"
-            ].median(),  # Median for numeric variables
-            "total_precipitation_prev_0_mo": df[
-                "total_precipitation_prev_0_mo"
-            ].median(),
-            "sex_id": pd.Categorical(
-                ["0"] * len(climate_grid), categories=["0", "1"]
-            ),  # Categorical variable
-            "birth_year": pd.Categorical(
-                ["2022"] * len(climate_grid), categories=df["birth_year"].unique()
-            ),
-            "ihme_loc_id": pd.Categorical(
-                [df["ihme_loc_id"].mode()[0]] * len(climate_grid),
-                categories=df["ihme_loc_id"].unique(),
-            ),
-        }
-    )
-
-    # Convert the constant DataFrame to an R data frame
-    with localconverter(default_converter + pandas2ri.converter):
-        r_constant_df = pandas2ri.py2rpy(constant_df)
-
-    # Predict spline contributions
-    pred_terms = stats.predict(model, newdata=r_constant_df, type="terms")
-
-    print(pred_terms.colnames)
-    pred_terms_climate = pred_terms.rx(
-        True, pred_terms.colnames.index("s(days_over_30C_prev_0_mo)") + 1
-    )
-
-    # Extract the spline contribution for `days_over_30C_prev_0_mo`
-    with localconverter(default_converter + pandas2ri.converter):
-        pred_terms_df = pandas2ri.rpy2py(pred_terms_climate)
-
-    pred_terms_df = pd.DataFrame(pred_terms_df, columns=["s(days_over_30C_prev_0_mo)"])
-    climate_lookup_df = pd.DataFrame(
-        {
-            "days_over_30C_prev_0_mo": climate_grid,
-            "smooth_contribution": pred_terms_df["s(days_over_30C_prev_0_mo)"],
-        }
-    )
-
     cm_data.save_model(model, output_dir, submodel)
-    cm_data.save_climate_lookup_table(climate_lookup_df, output_dir)
+
+    # Create lookup tables for spline variables if applicable
+    if model_type == ModelType.SPLINE_MIXED_EFFECTS:
+        predictor_vars = [i for i in model_spec if "predictors" in i][0][1]
+        predictor_specs_with_spline = [
+            spec for spec in predictor_vars if spec.spline is not None
+        ]
+        # remove consumption_pd
+        predictor_specs_with_spline = [
+            spec
+            for spec in predictor_specs_with_spline
+            if not ("consumption" in spec.name)
+        ]
+        if len(predictor_specs_with_spline) > 0:
+            for predictor_spec in predictor_specs_with_spline:
+                lookup_var = predictor_spec.name
+                climate_lookup_df = create_spline_lookup(
+                    model, model_spec, lookup_var, full_df=full_training_data
+                )
+                cm_data.save_climate_lookup_table(climate_lookup_df, output_dir)
 
     # Validation
     # target_measure = model_spec.measure.value
