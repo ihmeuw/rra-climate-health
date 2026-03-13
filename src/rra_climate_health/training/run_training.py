@@ -6,7 +6,8 @@ import click
 import pandas as pd
 import rasterra as rt
 from pymer4.models.Lmer import Lmer
-from rpy2.robjects import pandas2ri, packages
+from rpy2.robjects import pandas2ri, packages,  ListVector, FloatVector
+
 from rra_tools import jobmon
 
 from rra_climate_health import cli_options as clio
@@ -16,7 +17,8 @@ from rra_climate_health.model_specification import (
 )
 from rra_climate_health.transforms import transform_column
 from rra_climate_health import utils
-from rra_climate_health.training import training_validation
+from rra_climate_health.training import training_validation, training_diagnostics
+from rra_climate_health.training.training_validation import get_knot_values
 from rra_climate_health.model_specification import ModelType
 
 def model_training_main(
@@ -79,14 +81,35 @@ def model_training_main(
             print(model.warnings)
             msg = f"Model {model_spec} did not fit."
             raise ValueError(msg)
+        raw_df['fits'] = model.fits
+        df['fits'] = model.fits
+        no_re_pred = model.predict(model.design_matrix, use_rfx=False, verify_predictions=False)
+        raw_df['no_re_fits'] = no_re_pred
+        df['no_re_fits'] = no_re_pred
     elif model_type == ModelType.SPLINE_MIXED_EFFECTS:
         pandas2ri.activate()
         scam_lib = packages.importr('scam')
         base = packages.importr('base')
         stats = packages.importr('stats')
         
-        model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit"))
+        knots_dict = {}
+        for predictor in model_spec.predictors:
+            if predictor.spline is not None and predictor.spline.knots is not None:
+                knots = get_knot_values(df, predictor.name, predictor.spline.k, predictor.spline.knots)
+                print(f"Knots for {predictor.name}: {knots}")
+                knots_dict[predictor.name] = FloatVector(knots)
+        knots = ListVector(knots_dict) if len(knots_dict) > 0 else None
+        if knots is not None:
+            model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit"), knots = knots )
+        else:
+            model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit") )
         print(base.summary(model))
+        raw_df['fits'] = model.rx2('fitted.values')
+        df['fits'] = model.rx2('fitted.values')
+        no_re_pred = scam_lib.predict_scam(model, newdata=df, type="response", exclude="s(ihme_loc_id)")
+        raw_df['no_re_fits'] = no_re_pred
+        df['no_re_fits'] = no_re_pred
+
     
     model.var_info = var_info
     model.raw_data = raw_df
@@ -99,13 +122,16 @@ def model_training_main(
     if year_variable not in df.columns:
         df[year_variable] = raw_df[year_variable]
     summary = training_validation.validate_model(df, model_spec, target_measure, year_variable)
+    summary.to_csv(cm_data.models / model_version / "validation_results.csv", index=False)
     training_validation.update_results_file(summary, cm_data.models / "validation_results.csv", 
                                             model_version, submodel)
+    
+    training_diagnostics.run_training_diagnostics(model, df, model_spec, cm_data, model_version, submodel, raw_df, var_info)
+
     if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS: #TODO Temporary
         # Only save intercept raster for full model
         icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
         cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
-
 
 
 @click.command()  # type: ignore[arg-type]
@@ -195,4 +221,3 @@ def model_training(
     )
 
     print("Model training complete. Results can be found at", version_root)
-

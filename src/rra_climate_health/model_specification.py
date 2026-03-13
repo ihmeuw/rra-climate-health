@@ -75,10 +75,16 @@ TransformSpecification: TypeAlias = (
     | CategoricalSpecification
 )
 
+class SplineKnotSpecification(StrEnum):
+    QUANTILES = "quantiles"
+    EQUAL = "equal"
+    HARRELL = "harrell"
+
 #SplineSpecification: TypeAlias = dict[str, str]
 class SplineSpecification(BaseModel):
     bs: str
     k: int | None = None
+    knots: SplineKnotSpecification | None = None
 
 class OutcomeVariable(StrEnum):
     WASTING = "wasting"
@@ -266,7 +272,7 @@ class ModelSpecification(BaseModel):
                 if predictor.spline.k is not None:
                     keywords += f', k={predictor.spline.k}'
                 #keywords = ", ".join(f'{k}="{v}"' for k, v in predictor.spline.items())
-                spline_repr = f"s({predictor_repr}   {keywords})"
+                spline_repr = f"s({predictor_repr} {keywords})"
                 formula += f" {spline_repr} +"
             else:
                 formula += f" {predictor_repr} +"
