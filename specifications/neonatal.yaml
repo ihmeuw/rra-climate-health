@@ -1,9 +1,9 @@
 model_type: "scam"
 version:
   model: "2026_02_04.01"
-  training_data: "2025_12_16.01"  # Your training data version
+  training_data: "2025_12_16.01"  
 
-measure: "child_mortality"  # name of variable in data
+measure: "child_mortality"  
 holdout:
   type: "no_holdout" 
 predictors:
