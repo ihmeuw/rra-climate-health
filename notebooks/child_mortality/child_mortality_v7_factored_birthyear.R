@@ -136,12 +136,12 @@ write.csv(frailty_df, paste0(model_summary_dir, "frailty_estimates_", summary_fi
 # ## Predict mixed effects and fixed effects manually
 # 
 # # Extract fixed effect coefficients
-# coefs <- coef(model)
-# beta_consumption <- coefs["consumption_pd"]
-# beta_total_precipitation <- coefs["total_precipitation"]
-# beta_days_over_30C <- coefs["days_over_30C"]
-# beta_sex_female <- coefs["sex_idFemale"]
-# beta_birth_year <- coefs["birth_year"]
+coefs <- coef(model)
+beta_consumption <- coefs["consumption_pd"]
+beta_total_precipitation <- coefs["total_precipitation"]
+beta_days_over_30C <- coefs["days_over_30C"]
+beta_sex_female <- coefs["sex_idFemale"]
+beta_birth_year <- coefs["birth_year"]
 # 
 # 
 # # Extract baseline hazard - Note this is only as long as unique months in which

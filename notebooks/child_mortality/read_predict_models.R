@@ -40,18 +40,18 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
-# data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data_filtered.parquet"
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data.parquet"
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet"
+# data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_02_27.01/data.parquet"
+# neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet"
 
 # data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv"
 plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_24.01/"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
-neonatal_dir <- paste0(results_dir,"neonatal/")
-model_objects_dir <- paste0(neonatal_dir,"model_objects/")
-dir.create(neonatal_dir, recursive = TRUE, showWarnings = FALSE)
+# neonatal_dir <- paste0(results_dir,"neonatal/")
+# model_objects_dir <- paste0(neonatal_dir,"model_objects/")
+# dir.create(neonatal_dir, recursive = TRUE, showWarnings = FALSE)
 
 
 ## Read and format data
@@ -67,41 +67,44 @@ climate_vars <- c(
   "mean_high_temperature",
   "mean_low_temperature",
   "precipitation_days",
-  "days_over_30C",
-  "days_over_26C",
-  "any_days_over_30C"
+  "days_over_30C"
+  # "days_over_26C",
+  # "any_days_over_30C"
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- df[, ..cols]
+df_model <- data.table(df_model)
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
-df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
+# df_model[,birth_year:=as.factor(birth_year)]
+df_model[,sex_id:= factor(sex_id,levels = c("1", "2"))] #, labels = c("Male", "Female"))]
+
 
 
 df_model <- data.table(df_model)
-
-# Read in neonatal df 
-neo_df <- read_parquet(neo_version)
-neo_df <- data.table(neo_df)
-
-neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
-neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
-neo_df[,birth_year:=as.factor(birth_year)]
-
-## Read and format data
-
-climate_vars <- c(
-  "mean_temperature",
-  "total_precipitation",
-  "relative_humidity",
-  "mean_high_temperature",
-  "mean_low_temperature",
-  "precipitation_days",
-  "days_over_30C",
-  "days_over_26C",
-  "any_days_over_30C"
-)
-cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
-df_model_neo <- neo_df[, ..cols]
+# 
+# # Read in neonatal df 
+# neo_df <- read_parquet(neo_version)
+# neo_df <- data.table(neo_df)
+# 
+# neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
+# neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
+# neo_df[,birth_year:=as.factor(birth_year)]
+# 
+# ## Read and format data
+# 
+# climate_vars <- c(
+#   "mean_temperature",
+#   "total_precipitation",
+#   "relative_humidity",
+#   "mean_high_temperature",
+#   "mean_low_temperature",
+#   "precipitation_days",
+#   "days_over_30C",
+#   "days_over_26C",
+#   "any_days_over_30C"
+# )
+# cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
+# df_model_neo <- neo_df[, ..cols]
 
 #==============================================================================
 # SECTION 2: READ MODELS
@@ -111,7 +114,7 @@ df_model_neo <- neo_df[, ..cols]
 ## Read in and print model summaries from successful runs:
 
 # 3/3/2026 - predict version of model that includes latest data updates
-summary_file <- "cm_v7"
+summary_file <- "cm_v7_factored_birth_year"
 model = readRDS(file = paste0(results_dir, summary_file,".rds"))
 
 # Extract frailty estimates for each cluster (ihme_loc_id)
@@ -146,19 +149,57 @@ baseline_hazard$cumhazard <- cumsum(baseline_hazard$hazard)
 # Merge frailty estimates on data
 df_model <- merge(df_model, frailty_df, by = "ihme_loc_id", all.x = TRUE)
 
+# Merge other coefficients on data for manual prediction
+
+# sex_id
+sex_id_coef_dt <- data.table(sex_id=c("Male","Female"),sex_id_effect=c(0,coefs['sex_idFemale']))
+df_model <- merge(df_model, sex_id_coef_dt, by = "sex_id", all.x = TRUE)
+
+# birth_year
+birth_year_coef_dt <- data.table(variable=names(coefs),effect=coefs)
+birth_year_coef_dt[,birth_year:=sub("birth_year","",variable)]
+birth_year_coef_dt[,birth_year:= as.numeric(birth_year)]
+birth_year_coef_dt <- birth_year_coef_dt[!is.na(birth_year)]
+birth_year_coef_dt[,birth_year:= as.character(birth_year)]
+# find base year and set to 0
+setdiff(df_model$birth_year,birth_year_coef_dt$birth_year) #1953
+birth_year_coef_dt$variable <- NULL
+birth_year_coef_dt <- rbind(data.table(effect=0,birth_year='1953'),birth_year_coef_dt)
+setnames(birth_year_coef_dt,old="effect",new="birth_year_effect")
+df_model <- merge(df_model, birth_year_coef_dt, by = "birth_year", all.x = TRUE)
+
 # create mean variables
 df_model[,mean_precipitation:= mean(df_model$total_precipitation)]
-df_model[,mean_birth_year:= mean(df_model$birth_year)]
 # note that data is coded as 1=male, 2=female
 df_model[,mean_fraction_female:= mean(as.numeric(df_model$sex_id))-1]
 
+# birth year is somewhat complicated as a factor variable:
+birth_year_numeric <- as.numeric(as.character(df_model$birth_year))
+mean_birth_year <- mean(birth_year_numeric)
+closest_birth_year <- df_model$birth_year[which.min(abs(birth_year_numeric - mean_birth_year))]
+mean_birth_year_factored <- factor(closest_birth_year, levels = levels(df_model$birth_year))
+df_model[, mean_birth_year := mean_birth_year_factored]
+
+# Note which birth year is the mean and adjust below formula accordingly:
+print(mean_birth_year_factored) # 2000
+beta_birth_year <- coefs["birth_year2000"]
+
 # Calculate linear predictor (fixed effects only)
-df_model$linear_pred <- (
+# One version at mean values
+df_model$linear_pred_mean <- (
   beta_consumption * df_model$consumption_pd +
     beta_days_over_30C * df_model$days_over_30C +
     beta_total_precipitation * df_model$mean_precipitation + 
     beta_sex_female * df_model$mean_fraction_female+
-    beta_birth_year * df_model$mean_birth_year
+    beta_birth_year # Using coefficient only. 
+)
+# One version variable values -TBC
+df_model$linear_pred_at_data <- (
+  beta_consumption * df_model$consumption_pd +
+    beta_days_over_30C * df_model$days_over_30C +
+    beta_total_precipitation * df_model$total_precipitation + 
+    df_model$sex_id_effect+
+    df_model$birth_year_effect 
 )
 
 # Function to get cumulative baseline hazard at a given time
@@ -179,7 +220,7 @@ df_model$cumhaz_baseline <- sapply(df_model$age_month, function(t) {
 # where Z is the frailty for that cluster
 df_model$cumhaz_me <- df_model$frailty * 
   df_model$cumhaz_baseline * 
-  exp(df_model$linear_pred)
+  exp(df_model$linear_pred_at_data)
 
 
 # Survival probability = exp(-cumulative hazard)
@@ -193,7 +234,7 @@ df_model$mortality_me <- 1 - df_model$survival_me
 # Formula: H(t|X) = H0(t) * exp(X'β)
 # Equivalent to setting frailty Z = 1 (or E[Z] = 1)
 df_model$cumhaz_fe <- df_model$cumhaz_baseline * 
-  exp(df_model$linear_pred)
+  exp(df_model$linear_pred_mean)
 
 # Survival probability = exp(-cumulative hazard)
 df_model$survival_fe <- exp(-df_model$cumhaz_fe)
@@ -279,47 +320,70 @@ print(paste0("child mortality predictions saved to ",paste0(results_dir,"predict
 # paste0(neonatal_dir, "predictions_", summary_file, "_means.parquet")
 
 # 10/30 - predict models on mean values for birth year, precipitation, sex_id
-# summary_file <- "cm_v7"
-# model = readRDS(file = paste0(results_dir, summary_file,".rds"))
-# 
-# # Extract frailty estimates for each cluster (ihme_loc_id)
-# frailty_effects <- model$frail
-# 
-# # Create frailty lookup data frame
-# frailty_df <- data.frame(
-#   ihme_loc_id = names(frailty_effects),
-#   frailty = as.numeric(frailty_effects)
-# )
-# 
-# # Extract fixed effect coefficients
-# coefs <- coef(model)
-# beta_consumption <- coefs["consumption_pd"]
-# beta_total_precipitation <- coefs["total_precipitation"]
-# beta_days_over_30C <- coefs["days_over_30C"]
-# beta_sex_female <- coefs["sex_idFemale"]
-# beta_birth_year <- coefs["birth_year"]
-# 
-# 
-# # Extract baseline hazard - Note this is only as long as unique months in which
-# # someone died.
-# baseline_hazard <- model$hazard  
-# baseline_hazard <- data.frame(
-#   time = model$tev,
-#   hazard = baseline_hazard
-# )
-# 
-# baseline_hazard <- baseline_hazard[order(baseline_hazard$time), ]
-# baseline_hazard$cumhazard <- cumsum(baseline_hazard$hazard)
-# 
-# # Merge frailty estimates on data
-# df_model <- merge(df_model, frailty_df, by = "ihme_loc_id", all.x = TRUE)
-# 
-# # create mean variables
-# df_model[,mean_precipitation:= mean(df_model$total_precipitation)]
-# df_model[,mean_birth_year:= mean(df_model$birth_year)]
-# # note that data is coded as 1=male, 2=female
-# df_model[,mean_fraction_female:= mean(as.numeric(df_model$sex_id))-1]
-# 
+summary_file <- "cm_v7"
+model = readRDS(file = paste0(results_dir, summary_file,".rds"))
+
+# Extract frailty estimates for each cluster (ihme_loc_id)
+frailty_effects <- model$frail
+
+# Create frailty lookup data frame
+frailty_df <- data.frame(
+  ihme_loc_id = names(frailty_effects),
+  frailty = as.numeric(frailty_effects)
+)
+
+# Extract fixed effect coefficients
+coefs <- coef(model)
+beta_consumption <- coefs["consumption_pd"]
+beta_total_precipitation <- coefs["total_precipitation"]
+beta_days_over_30C <- coefs["days_over_30C"]
+beta_sex_female <- coefs["sex_idFemale"]
+beta_birth_year <- coefs["birth_year"]
+
+
+# Extract baseline hazard - Note this is only as long as unique months in which
+# someone died.
+baseline_hazard <- model$hazard
+baseline_hazard <- data.frame(
+  time = model$tev,
+  hazard = baseline_hazard
+)
+
+baseline_hazard <- baseline_hazard[order(baseline_hazard$time), ]
+baseline_hazard$cumhazard <- cumsum(baseline_hazard$hazard)
+
+# Merge frailty estimates on data
+df_model <- merge(df_model, frailty_df, by = "ihme_loc_id", all.x = TRUE)
+
+# sex_id
+sex_id_coef_dt <- data.table(sex_id=c("1","2"),sex_id_effect=c(0,coefs['sex_idFemale']))
+df_model <- merge(df_model, sex_id_coef_dt, by = "sex_id", all.x = TRUE)
+
+
+# create mean variables
+df_model[,mean_precipitation:= mean(df_model$total_precipitation)]
+# note that data is coded as 1=male, 2=female
+df_model[,mean_fraction_female:= mean(as.numeric(df_model$sex_id))-1]
+df_model[,mean_birth_year := as.integer(mean(df_model$birth_year))]
+
+# Calculate linear predictor (fixed effects only)
+# One version at mean values
+df_model$linear_pred_mean <- (
+  beta_consumption * df_model$consumption_pd +
+    beta_days_over_30C * df_model$days_over_30C +
+    beta_total_precipitation * df_model$mean_precipitation + 
+    beta_sex_female * df_model$mean_fraction_female+
+    beta_birth_year * df_model$mean_birth_year 
+)
+# One version variable values -TBC
+df_model$linear_pred_at_data <- (
+  beta_consumption * df_model$consumption_pd +
+    beta_days_over_30C * df_model$days_over_30C +
+    beta_total_precipitation * df_model$total_precipitation + 
+    df_model$sex_id_effect+
+    beta_birth_year * df_model$birth_year
+)
+
 # # Calculate linear predictor (fixed effects only)
 # df_model$linear_pred <- (
 #   beta_consumption * df_model$consumption_pd +
@@ -329,65 +393,65 @@ print(paste0("child mortality predictions saved to ",paste0(results_dir,"predict
 #     beta_birth_year * df_model$mean_birth_year
 # )
 # 
-# # Function to get cumulative baseline hazard at a given time
-# get_cumhaz_baseline <- function(time, basehaz_df) {
-#   if (time <= 0) return(0)
-#   idx <- max(which(basehaz_df$time <= time))
-#   if (length(idx) == 0 || idx == 0) return(0)
-#   return(basehaz_df$cumhazard[idx])
-# }
-# 
-# # Calculate cumulative baseline hazard at each observation time
-# df_model$cumhaz_baseline <- sapply(df_model$age_month, function(t) {
-#   get_cumhaz_baseline(t, baseline_hazard)
-# })
-# 
-# # MANUAL PREDICTION WITH RANDOM EFFECTS (Mixed Effects)
-# # Formula: H(t|X,Z) = Z * H0(t) * exp(X'β)
-# # where Z is the frailty for that cluster
-# df_model$cumhaz_me <- df_model$frailty * 
-#   df_model$cumhaz_baseline * 
-#   exp(df_model$linear_pred)
-# 
-# 
-# # Survival probability = exp(-cumulative hazard)
-# df_model$survival_me <- exp(-df_model$cumhaz_me)
-# 
-# # Mortality probability = 1 - survival
-# df_model$mortality_me <- 1 - df_model$survival_me
-# 
-# 
-# # MANUAL PREDICTION WITHOUT RANDOM EFFECTS (Fixed Effects Only)
-# # Formula: H(t|X) = H0(t) * exp(X'β)
-# # Equivalent to setting frailty Z = 1 (or E[Z] = 1)
-# df_model$cumhaz_fe <- df_model$cumhaz_baseline * 
-#   exp(df_model$linear_pred)
-# 
-# # Survival probability = exp(-cumulative hazard)
-# df_model$survival_fe <- exp(-df_model$cumhaz_fe)
-# 
-# # Mortality probability = 1 - survival
-# df_model$mortality_fe <- 1 - df_model$survival_fe
-# 
-# 
-# # Also get point probability estimates
-# df_model <- merge(df_model, baseline_hazard[, c("time", "hazard")], 
-#                   by.x = "age_month", by.y = "time", all.x = TRUE, suffixes = c("", "_point"))
-# 
-# # Calculate point hazard for each observation
-# df_model$hazard_point_me <- df_model$frailty * df_model$hazard * exp(df_model$linear_pred)
-# df_model$hazard_point_fe <- df_model$hazard * exp(df_model$linear_pred)
-# 
-# # Convert to point mortality probability (probability of dying in that month)
-# df_model$mortality_point_me <- 1 - exp(-df_model$hazard_point_me)
-# df_model$mortality_point_fe <- 1 - exp(-df_model$hazard_point_fe)
-# print("model predictions done")
-# 
-# 
-# # save results
-# write_parquet(df_model,paste0(results_dir,"predictions_",summary_file,"_means.parquet"))
-# print(paste0("child mortality predictions saved to ",paste0(results_dir,"predictions_",summary_file,"_means.parquet")))
-# 
+# Function to get cumulative baseline hazard at a given time
+get_cumhaz_baseline <- function(time, basehaz_df) {
+  if (time <= 0) return(0)
+  idx <- max(which(basehaz_df$time <= time))
+  if (length(idx) == 0 || idx == 0) return(0)
+  return(basehaz_df$cumhazard[idx])
+}
+
+# Calculate cumulative baseline hazard at each observation time
+df_model$cumhaz_baseline <- sapply(df_model$age_month, function(t) {
+  get_cumhaz_baseline(t, baseline_hazard)
+})
+
+# MANUAL PREDICTION WITH RANDOM EFFECTS (Mixed Effects)
+# Formula: H(t|X,Z) = Z * H0(t) * exp(X'β)
+# where Z is the frailty for that cluster
+df_model$cumhaz_me <- df_model$frailty * 
+  df_model$cumhaz_baseline * 
+  exp(df_model$linear_pred_at_data)
+
+
+# Survival probability = exp(-cumulative hazard)
+df_model$survival_me <- exp(-df_model$cumhaz_me)
+
+# Mortality probability = 1 - survival
+df_model$mortality_me <- 1 - df_model$survival_me
+
+
+# MANUAL PREDICTION WITHOUT RANDOM EFFECTS (Fixed Effects Only)
+# Formula: H(t|X) = H0(t) * exp(X'β)
+# Equivalent to setting frailty Z = 1 (or E[Z] = 1)
+df_model$cumhaz_fe <- df_model$cumhaz_baseline * 
+  exp(df_model$linear_pred_mean)
+
+# Survival probability = exp(-cumulative hazard)
+df_model$survival_fe <- exp(-df_model$cumhaz_fe)
+
+# Mortality probability = 1 - survival
+df_model$mortality_fe <- 1 - df_model$survival_fe
+
+
+# Also get point probability estimates
+df_model <- merge(df_model, baseline_hazard[, c("time", "hazard")],
+                  by.x = "age_month", by.y = "time", all.x = TRUE, suffixes = c("", "_point"))
+
+# Calculate point hazard for each observation
+df_model$hazard_point_me <- df_model$frailty * df_model$hazard * exp(df_model$linear_pred)
+df_model$hazard_point_fe <- df_model$hazard * exp(df_model$linear_pred)
+
+# Convert to point mortality probability (probability of dying in that month)
+df_model$mortality_point_me <- 1 - exp(-df_model$hazard_point_me)
+df_model$mortality_point_fe <- 1 - exp(-df_model$hazard_point_fe)
+print("model predictions done")
+
+
+# save results
+write_parquet(df_model,paste0(results_dir,"predictions_",summary_file,"_repredicted.parquet"))
+print(paste0("child mortality predictions saved to ",paste0(results_dir,"predictions_",summary_file,"_repredicted.parquet")))
+
 # # Do the same for the latest neonatal data
 # summary_file <- "nm_v7"
 # model = readRDS(file = paste0(model_objects_dir, summary_file,".rds"))

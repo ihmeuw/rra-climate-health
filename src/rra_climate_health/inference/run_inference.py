@@ -295,9 +295,6 @@ def get_model_prevalence(  # noqa: C901 PLR0912
     var_info = cm_data.load_model_variable_info(spec.version.model)
     training_data_types = cm_data.load_training_data_types(training_data_version)
 
-    do30_spline_contributions = xr.open_dataarray(
-        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/inference_format/climate_smooth_lookup.nc"
-    )
     # partial_estimates = {}
     z_accum = np.zeros_like(raster_template)  # raster_template.copy()
     for predictor in spec.predictors:
@@ -333,16 +330,7 @@ def get_model_prevalence(  # noqa: C901 PLR0912
             )
             # Not a raster, but the coefficient applies to the whole raster and can be added to the sum
             z_accum = z_accum + category_coef  # type: ignore[assignment]
-        elif predictor.name == "days_over_30C_prev_0_mo":
-            z_accum = z_accum + get_transformed_days_over_30_raster(
-                cm_data,
-                do30_spline_contributions,
-                cmip6_scenario,
-                year,
-                raster_template,
-                coefs,
-                draw,
-            )
+
         else:
             z_accum = z_accum + get_transformed_variable_raster(
                 predictor,
@@ -510,56 +498,7 @@ def get_ldi_z_component(
     decile,
     cm_data: ClimateMalnutritionData,
     raster_template,
-    is_spline=False,  # will have flag later somehow from yaml file.
 ):
-    if is_spline:
-        """
-        ldi_version = "v5"
-        """
-        import rpy2.robjects as ro
-        from rpy2.robjects import pandas2ri
-        from rpy2.robjects.packages import importr
-        from rpy2.robjects.conversion import localconverter
-
-        base = importr("base")
-        scam = importr("scam")
-
-        model_object = base.readRDS(
-            "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/model_objects/nnm_1_mo_do30_scam_summary.rds"
-        )
-
-        # write lookup table function here
-        consumption = cm_data.load_ldi_distributions(
-            geospecificity="admin2", version=ldi_version
-        )
-
-        consumption["ldipc"] = consumption["ldipc"] / 365  # convert to pd
-
-        # create lookup table
-        lookup_table = pd.read_csv(
-            "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/inference_format/dummy_consumption.csv"
-        )
-        lookup_table.drop(columns=["consumption_pd"], inplace=True)
-        lookup_table.drop_duplicates(inplace=True)
-
-        lookup_table = pd.merge(
-            lookup_table, consumption[["ldipc"]].drop_duplicates(), how="cross"
-        )
-        lookup_table = lookup_table.sort_values("ldipc").reset_index(drop=True)
-        lookup_table.rename(columns={"ldipc": "consumption_pd"}, inplace=True)
-
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            r_lookup_table = ro.conversion.py2rpy(lookup_table)
-            lookup_table_predictions = ro.r.predict(
-                model_object, newdata=r_lookup_table, type="terms"
-            )
-            # Convert back to pandas if needed
-        lookup_table_predictions_df = pd.DataFrame(
-            lookup_table_predictions_df, columns=lookup_table.columns
-        )
-
-        pass
-
     transform_func = var_info["ldi_pc_pd"]["transformer"]
     dec_str = f"{decile:.1f}"
 

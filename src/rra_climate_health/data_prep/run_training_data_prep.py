@@ -1961,7 +1961,7 @@ def plot_indvs_by_age_group(data):
 def run_training_data_prep_child_mortality(
     output_root: str | Path, data_source_type: str, module: str
 ) -> None:
-    # TODO: calculate int_year from age_month and birth_year so as not to drop missing int_year rows.
+    # TODO: Update TOCs
     # India = location_id 163, ihme_loc_id IND
 
     """
@@ -2348,6 +2348,9 @@ def run_training_data_prep_child_mortality(
         index=False,
     )
 
+    # read back in if necessary
+    # df_exploded = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_tmp_exploded.parquet")
+
     # override int_year, used to get climate vars
     df_exploded["int_year_original"] = df_exploded["int_year"]  # keep copy of original
     df_exploded["int_year"] = df_exploded["years_to_expand"].astype(int)
@@ -2564,6 +2567,476 @@ def run_training_data_prep_child_mortality(
     # Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
         measure_df = df_max_age[df_max_age[measure].notna()].copy()
+        measure_df["measure"] = measure
+        measure_df["value"] = measure_df[measure]
+        logging.info(
+            f"Saving data for {measure} to {output_path_version} {len(measure_df)} rows"
+        )
+        for ldi_col in ["ldipc_weighted_no_match"]:  # ldi_cols:
+            measure_df["ldi_pc_pd"] = measure_df[ldi_col] / 365
+            logging.info(
+                f"Saving data for {measure} to version {version} with {ldi_col} as LDI"
+            )
+            cm_data.save_training_data(measure_df, version)
+            message = "Used " + ldi_col + " as LDI"
+            # Save a small file with a record of which ldi column was used for this version
+            with open(cm_data.training_data / version / "ldi_col.txt", "w") as f:
+                f.write(message)
+
+
+def run_training_data_prep_child_mortality_monthly(
+    output_root: str | Path, data_source_type: str, module: str
+) -> None:
+    # TODO: Update TOCs
+    # India = location_id 163, ihme_loc_id IND
+
+    """
+    Overall structure of child_mortality data prep:
+    1. Load and format child_mortality data from DEM_BR module
+    2. Extracting and merging wealth dataset
+    3. Extract and merging annual climate variables
+    4. Extract monthly climate variables for previous months
+    5. Merge in monthly climate variables for previous months
+    6. Calculate averages over time periods analyzed for monthly climate variables
+    7. Extract monthly relative climate thresholds for previous months
+    8. Merge monthly relative climate thresholds with child_mortality data
+    9. Calculate averages over time periods analyzed for monthly relative climate thresholds
+    10. Add in temperature zones
+    """
+
+    ## 1. Load and format child_mortality data from DEM_BR module
+
+    # Set up logging and versioned output path
+    measure_root = Path(output_root) / data_source_type
+    os.makedirs(Path(measure_root) / "training_data", exist_ok=True, mode=0o777)
+    cm_data = ClimateMalnutritionData(measure_root)
+    version = cm_data.new_training_version()
+    output_path_version = Path(measure_root) / "training_data" / version
+    os.makedirs(
+        output_path_version,
+        exist_ok=True,
+        mode=0o777,
+    )
+
+    dataprep_log_path = Path(output_path_version) / "data_prep_log.txt"
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=[
+            logging.FileHandler(dataprep_log_path, mode="w"),
+            logging.StreamHandler(),
+        ],
+    )
+
+    survey_data_path = SURVEY_DATA_PATHS[data_source_type][module]
+    logging.info(f"Running training data prep for {data_source_type}...")
+
+    logging.info(f"Creating new version stored under version: {version}")
+
+    logging.info("Processing extraction survey data...")
+    loc_meta = pd.read_parquet(paths.FHS_LOCATION_METADATA_FILEPATH)
+
+    # data_raw = concat_valid_extractions(survey_data_path)
+    # data_raw = pd.read_csv(
+    #     survey_data_path / "dem_br_matched_latlong.csv", encoding="latin1"
+    # )
+    data_raw = pd.read_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_2025_10_14.parquet"
+    )
+
+    logging.info(f"Total rows in concatenated raw data: {len(data_raw):,}")
+    logging.info(
+        f"Total unique NIDs in concatenated raw data: {data_raw['nid'].nunique():,}"
+    )
+
+    df = data_raw.copy()
+    df = check_columns(df, module)
+
+    # drop rows with missing key variables
+    # Special note on India. India surveys contain age_month, which is the difference
+    # between time of birth and time of interview in months. This is important because
+    # int_year and int_month are missing. Calculate the variables using available
+    # data as much as possible to avoid unnecessary data loss.
+
+    # Attemp 1: int_year recovery via birth_year/month and age_month
+    def recover_int_year(row):
+        try:
+            birth_mo = int(row["birth_month"])
+            birth_yr = int(row["birth_year"])
+            age_mo = int(row["age_month"])
+            if pd.notna(birth_mo) and pd.notna(birth_yr) and pd.notna(age_mo):
+                int_yr = birth_yr + (age_mo // 12)
+                int_mo = (birth_mo + (age_mo % 12)) % 12
+                return int_yr
+            else:
+                return row["int_year"]
+        except:
+            return row["int_year"]
+
+    def recover_int_mo(row):
+        try:
+            birth_mo = int(row["birth_month"])
+            birth_yr = int(row["birth_year"])
+            age_mo = int(row["age_month"])
+            if pd.notna(birth_mo) and pd.notna(birth_yr) and pd.notna(age_mo):
+                int_yr = birth_yr + (age_mo // 12)
+                int_mo = (birth_mo + (age_mo % 12)) % 12
+                return int_mo
+            else:
+                return row["int_month"]
+        except:
+            return row["int_month"]
+
+    df["int_year_recovered"] = df.apply(recover_int_year, axis=1)
+    df["int_month_recovered"] = df.apply(recover_int_mo, axis=1)
+
+    df["int_year"].fillna(df["int_year_recovered"], inplace=True)
+    df["int_month"].fillna(df["int_month_recovered"], inplace=True)
+
+    # Are there any rows with nonempty int_year/month and age-Month but no birth_month?
+    len(
+        df[
+            (df["int_year"].notna())
+            & (df["int_month"].notna())
+            & (df["age_month"].notna())
+            & (df["birth_month"].isna())
+        ]
+    )  # 207270
+
+    def recover_birth_year(row):
+        try:
+            int_mo = int(row["int_month"])
+            int_yr = int(row["int_year"])
+            age_mo = int(row["age_month"])
+            if pd.notna(int_mo) and pd.notna(int_yr) and pd.notna(age_mo):
+                birth_yr = int_yr - (age_mo // 12)
+                return birth_yr
+            else:
+                return row["birth_year"]
+        except:
+            return row["birth_year"]
+
+    def recover_birth_mo(row):
+        try:
+            int_mo = int(row["int_month"])
+            int_yr = int(row["int_year"])
+            age_mo = int(row["age_month"])
+            if pd.notna(int_mo) and pd.notna(int_yr) and pd.notna(age_mo):
+                birth_mo = (int_mo - (age_mo % 12)) % 12
+                return 12 if birth_mo == 0 else birth_mo  # prevent 0
+            else:
+                return row["birth_month"]
+        except:
+            return row["birth_month"]
+
+    df["birth_year_recovered"] = df.apply(recover_birth_year, axis=1)
+    df["birth_month_recovered"] = df.apply(recover_birth_mo, axis=1)
+    df["birth_year"].fillna(df["birth_year_recovered"], inplace=True)
+    df["birth_month"].fillna(df["birth_month_recovered"], inplace=True)
+
+    df.drop(
+        columns=[
+            "int_year_recovered",
+            "int_month_recovered",
+            "birth_year_recovered",
+            "birth_month_recovered",
+        ],
+        inplace=True,
+    )
+
+    rows_before_na_drop = len(df)
+    key_vars = [
+        "nid",
+        "psu",
+        "birth_year",
+        "birth_month",
+        "int_year",
+        "int_month",
+        "age_month",
+        "hh_id",
+        "geospatial_id",
+        "line_id",
+        "lat",
+        "long",
+        "child_alive",
+    ]
+    df_tmp = df.dropna(subset=key_vars)
+    na_rows_dropped = rows_before_na_drop - len(df_tmp)
+    logging.info(
+        f"Dropped {na_rows_dropped:,} rows with missing key variables: {key_vars}"
+    )
+    df = df_tmp.copy()
+
+    for var in key_vars:
+        logging.info(f"- {var}: {data_raw[var].isna().sum():,} missing values")
+    logging.info(f"NIDs with incomplete (some NAs) key variables: {key_vars}")
+    for var in key_vars:
+        logging.info(
+            f"-{data_raw[data_raw[var].isna()]["nid"].nunique():,} contains missing {var} values"
+        )
+
+    logging.info(f"Total unique NIDs after dropped NA values: {df['nid'].nunique():,}")
+    df = df.rename(columns=COLUMN_NAME_TRANSLATOR)
+
+    # update variable data types besides hh_id
+    int_cols = [
+        "nid",
+        "psu",
+        "birth_year",
+        "birth_month",
+        "int_year",
+        "int_month",
+        "age_month",
+        "child_alive",
+        "geospatial_id",
+    ]
+    df[int_cols] = df[int_cols].astype("int")
+
+    # Apply cleaning function to each group and update hh_id
+    df["old_hh_id"] = df["hh_id"]
+    df["hh_id"] = df.groupby(["nid", "ihme_loc_id", "psu"], group_keys=False).apply(
+        clean_hh_id_subset
+    )
+
+    assert len(df[df["hh_id"].isna()]) == len(
+        df[df["old_hh_id"].isna()]
+    ), "NAs introduced by cleaning"
+
+    df["hh_id"] = df["hh_id"].astype("int")
+    df.drop(columns=["old_hh_id"], inplace=True)
+
+    # Prepping wealth dataset
+    dhs_wealth_data_raw = get_DHS_wealth_dataset()
+    dhs_wealth_data = dhs_wealth_data_raw.copy()
+
+    # Find out percent of anemia nids and hh_ids that can be matched in wealth data
+    merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
+
+    cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT) / "child_mortality")
+    dhs_wealth_data_test = get_ldipc_from_asset_score(
+        dhs_wealth_data,
+        cm_data,
+        asset_score_col="wealth_index_dhs",
+        weights_col="hhweight",
+        # plot_pdf_path=Path(DEFAULT_ROOT) / "input"/ "ldi_plots"/ "dhs_plots.pdf",
+        ldi_version=LDI_VERSION,
+    )
+
+    wealth_nids = set(dhs_wealth_data_test.nid.unique())
+    df_nids = set(df.nid.unique())
+    common_nids = wealth_nids.intersection(df_nids)
+
+    nid_with_wealth_pc = 100 * len(common_nids) / len(df_nids)
+    logging.info(
+        f"{nid_with_wealth_pc:.1f}% of df NIDs - {len(common_nids)} out of "
+        f"{len(df_nids)} in wealth data NIDs"
+    )
+
+    dhs_wealth_data_test = dhs_wealth_data_test.query("nid in @df_nids")
+
+    # Merge data
+
+    # fix df columns
+    df.rename(columns={"iso3": "ihme_loc_id"}, inplace=True)
+    df["ihme_loc_id"] = df["ihme_loc_id"].str.replace("KEN_.*", "KEN", regex=True)
+    df[["year_start", "year_end", "int_year"]] = df[
+        ["year_start", "year_end", "int_year"]
+    ].astype(int)
+
+    df_wealth = merge_left_without_inflating(
+        df,
+        dhs_wealth_data_test.drop(
+            columns=["geospatial_id", "strata", "lat", "long", "hhweight"]
+        ),
+        on=merge_cols,
+    )
+
+    merged_percent = len(df_wealth[~df_wealth["ldipc_weighted_no_match"].isna()]) / len(
+        df_wealth
+    )
+    print(f"Merged rows percent: {100*merged_percent:.1f}%")
+
+    # Calculate proportion of NA and filter out nids with too much wealth missingness (bad merges)
+    merged_na_props = (
+        df_wealth.groupby(["nid"]).ldipc_weighted_no_match.count()
+        / df_wealth.groupby(["nid"]).ldipc_weighted_no_match.size()
+    )
+    merged_nids = merged_na_props[merged_na_props > 0.95].index.to_list()
+    df_merged = df_wealth.query("nid in @merged_nids").copy()
+    dropped_too_missingness = len(df_wealth) - len(df_merged)
+    logging.info(
+        f"Dropped {dropped_too_missingness:,} rows from {len(df_wealth):,} due to excessive wealth missingness in NIDs"
+    )
+    logging.info(f"Total unique NIDs remaining: {df_merged['nid'].nunique():,}")
+
+    # Include difference between int_year and birth_year for sensitivity analysis
+    df_merged["int_birth_year_diff_months"] = 12 * (
+        df_merged["int_year"] - df_merged["birth_year"]
+    ) + (df_merged["int_month"] - df_merged["birth_month"])
+
+    # Assign age group
+    before_rows = len(df_merged)
+
+    # replace age_month with aod_months for rows with child_alive==0
+    df_merged["age_month_original"] = df_merged["age_month"]  # keep copy of original
+    df_merged.loc[df_merged.child_alive == 0, "age_month"] = df_merged.loc[
+        df_merged.child_alive == 0, "aod_months"
+    ]
+
+    # drop data with no age_month
+    before_rows = len(df_merged)
+    df_merged = df_merged[df_merged["age_month"].notna()]
+    logging.info(
+        f"Dropped {before_rows - len(df_merged):,} rows with missing age_month or aod_months"
+    )
+
+    # create list of years between birth year and year that the age_month lands on.
+    df_merged["age_month"] = df_merged["age_month"].astype(int)
+
+    # save temp merged:
+    df_merged.to_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_tmp_wealth_merged.parquet",
+        index=False,
+    )
+
+    # we want an int_year and int_month, and a new age_month incrementing for all
+    # months up until age_month. Cut off age limit here at 60 months to avoid
+    # giant dataset
+    df_merged["months_to_expand"] = df_merged.apply(
+        lambda x: list(range(0, min(x["age_month"] + 1, 61))), axis=1
+    )
+
+    df_exploded = df_merged.explode("months_to_expand")
+    df_exploded["age_month_pre_exploded"] = df_exploded["age_month"]
+    df_exploded["age_month"] = df_exploded["months_to_expand"]
+
+    df_exploded["int_year_original"] = df_exploded["int_year"]
+    df_exploded["int_month_original"] = df_exploded["int_month"]
+
+    # make all outcome values pre-age-month be child_alive=1
+    df_exploded.loc[
+        df_exploded.age_month < df_exploded.age_month_pre_exploded, "child_alive"
+    ] = 1
+
+    # get int_year for each row
+    df_exploded["int_year"] = df_exploded.apply(
+        lambda x: x["birth_year"] + (x["birth_month"] + x["age_month"] - 1) // 12,
+        axis=1,
+    )
+    df_exploded["int_month"] = df_exploded.apply(
+        lambda x: (x["birth_month"] + (x["age_month"] % 12)) % 12, axis=1
+    )
+    df_exploded.loc[df_exploded["int_month"] == 0, "int_month"] = 12
+
+    # save temp merged:
+    df_exploded.to_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_monthly.parquet",
+        index=False,
+    )
+
+    # df_exploded = pd.read_parquet(
+    #     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_monthly.parquet"
+    # )
+
+    logging.info(
+        f"Exploded data to {len(df_exploded):,} rows by expanding on years between child birth and either age of death or age at interview"
+    )
+
+    df_exploded = assign_age_group(df_exploded, indicator="child_mortality")
+
+    # age_days and aod_days are empty, but we assume that age_month and aod_months
+    # are rounded down, such that age_month 0 is not stillborns, but deaths between
+    # 0 and 1 month. This is required for a survival modeling approach, for which
+    # time to event cannot be 0.
+    df_exploded["age_month"] += 1
+
+    # for rows with child_alive==0, replace with child_alive=1 if int_year < year_of_recorded_age
+    df_exploded["child_alive"] = df_exploded["child_alive"].astype(int)
+
+    # Take out data with invalid lat and long
+    before_rows = len(df_exploded)
+    df_exploded = df_exploded.dropna(subset=["lat", "long"])
+    df_exploded = df_exploded.query("lat != 0 and long != 0")
+    dropped_due_to_coords = before_rows - len(df_exploded)
+    logging.info(
+        f"Dropped {dropped_due_to_coords:,} rows due to invalid lat and long values"
+    )
+
+    # NID 275090 is a very long survey in Peru, 2003-2008 that is coded as having
+    # multiple year_starts. Removing it.
+    # NID 411301 - updated: not in BR data extractions
+    problematic_nids = [275090]
+    before_rows = len(df_exploded)
+    df_exploded = df_exploded.query("nid not in @problematic_nids")
+    dropped_problematic_nids = before_rows - len(df_exploded)
+    logging.info(
+        f"Dropped {dropped_problematic_nids:,} rows due to problematic NIDs: {problematic_nids}"
+    )
+
+    # missing outcome variables
+    measure_columns = MEASURES_IN_SOURCE[data_source_type]
+    rows_with_na_outcomes = df_exploded[measure_columns].isna().any(axis=1).sum()
+    rows_with_na_outcomes = int(rows_with_na_outcomes)
+    logging.info(
+        f"Dropped {rows_with_na_outcomes:,} rows with missing outcome variables ({measure_columns})"
+    )
+
+    # save temp files
+    df_exploded.to_csv(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv",
+        index=False,
+    )
+
+    # df_exploded = pd.read_csv("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv")
+
+    # Merge with climate data
+    logging.info("Processing climate data...")
+    climate_vars = get_climate_vars_for_dataframe(df_exploded)
+    df_climate = merge_left_without_inflating(
+        df_exploded, climate_vars, on=["int_year", "lat", "long"]
+    )
+
+    logging.info("Adding elevation data...")
+    df_climate = get_elevation_for_dataframe(df_climate)
+    df_climate = assign_lbd_admin2_location_id(df_climate)
+
+    # save temp files
+    df_climate.to_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_with_climate.parquet",
+        index=False,
+    )
+
+    # df_climate = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_with_climate.parquet")
+
+    # get unique invidiuals and clean variables
+    df_climate["line_id"] = df_climate["line_id"].astype(int)
+
+    df_climate["indv_id"] = (
+        df_climate[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
+    )
+    logging.info(f"{df_climate['indv_id'].nunique():,} unique individuals in data")
+
+    # avg number of months per individual
+    avg_months_per_indv = len(df_climate) / df_climate["indv_id"].nunique()
+    print(f"Average number of months per individual: {avg_months_per_indv:.2f}")
+
+    # flip child_alive so 1 = died, 0 = alive for easier interpretation
+    df_climate["child_mortality"] = 1 - df_climate["child_alive"]
+
+    df_climate["consumption"] = df_climate["ldipc_weighted_no_match"]
+
+    # make version of consumption that is per day
+    df_climate["consumption_pd"] = df_climate["consumption"] / 365
+
+    # make any day over 30C variable binary
+    df_climate["any_days_over_30C"] = np.where(df_climate["days_over_30C"] > 0, 1, 0)
+
+    # Write to output
+    df_climate.to_parquet(Path(output_path_version) / "data.parquet", index=False)
+
+    for measure in MEASURES_IN_SOURCE[data_source_type]:
+        measure_df = df_climate[df_climate[measure].notna()].copy()
         measure_df["measure"] = measure
         measure_df["value"] = measure_df[measure]
         logging.info(
