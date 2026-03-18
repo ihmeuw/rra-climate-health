@@ -8,7 +8,7 @@ import pandas as pd
 import rasterra as rt
 from pymer4.models.Lmer import Lmer
 
-from rpy2.robjects import pandas2ri, packages, conversion
+from rpy2.robjects import pandas2ri, packages, ListVector, FloatVector
 from rpy2.robjects import pandas2ri, default_converter
 from rpy2.robjects.conversion import localconverter
 from rra_tools import jobmon
@@ -21,7 +21,8 @@ from rra_climate_health.model_specification import (
 from rra_climate_health.transforms import transform_column
 from rra_climate_health import utils
 
-# from rra_climate_health.training import training_validation
+from rra_climate_health.training import training_validation, training_diagnostics
+from rra_climate_health.training.training_validation import get_knot_values
 from rra_climate_health.model_specification import ModelType
 import re
 import pickle

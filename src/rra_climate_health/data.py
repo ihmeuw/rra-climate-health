@@ -177,12 +177,8 @@ class ClimateMalnutritionData:
             pickle.dump(model, f)
 
         coefs_filepath = model_root / (model_filename_base + "_coefs.parquet")
-        # touch(coefs_filepath, exist_ok=True)
-        # model.coefs.to_parquet(coefs_filepath)
 
         random_effects_filepath = model_root / (model_filename_base + "_ranef.parquet")
-        # touch(random_effects_filepath, exist_ok=True)
-        # model.ranef.to_parquet(random_effects_filepath)
 
     def save_climate_lookup_table(
         self, climate_lookup_table: pd.DataFrame, version: str
