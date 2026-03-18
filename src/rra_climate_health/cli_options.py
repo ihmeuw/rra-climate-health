@@ -14,7 +14,7 @@ _T = TypeVar("_T")
 _P = ParamSpec("_P")
 
 
-VALID_MEASURES = ["wasting", "stunting", "underweight"]
+VALID_MEASURES = ["wasting", "stunting", "underweight", "anemia", "lbw"]
 
 
 def get_choice_callback(
@@ -48,6 +48,7 @@ VALID_SOURCE_TYPES = [
     "cgf",
     "anemia",
     "child_mortality",
+    "lbw"
     "neonatal_mortality",
 ]
 

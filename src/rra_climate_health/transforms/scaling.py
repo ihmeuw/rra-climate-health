@@ -25,6 +25,9 @@ class IdentityScaler:
     def transform(self, data: npt.NDArray[Any]) -> npt.NDArray[Any]:
         return data
 
+    def inverse_transform(self, data: npt.NDArray[Any]) -> npt.NDArray[Any]:
+        return data
+
 
 class InnerNinetyFiveScaler:
     def __init__(self) -> None:
@@ -39,6 +42,9 @@ class InnerNinetyFiveScaler:
         return (data - self.two_point_five) / (
             self.ninety_seven_point_five - self.two_point_five
         )
+    
+    def inverse_transform(self, data: npt.NDArray[Any]) -> npt.NDArray[Any]:
+        return data * (self.ninety_seven_point_five - self.two_point_five) + self.two_point_five
 
 class InferenceNinetyFiveScaler:
     def __init__(self, variable_name: str, variable_version: str) -> None:
@@ -78,6 +84,9 @@ class InferenceNinetyFiveScaler:
         return (data - self.two_point_five) / (
             self.ninety_seven_point_five - self.two_point_five
         )
+    
+    def inverse_transform(self, data: npt.NDArray[Any]) -> npt.NDArray[Any]:
+        return data * (self.ninety_seven_point_five - self.two_point_five) + self.two_point_five
 
 
 SCALING_STRATEGIES = {
@@ -111,6 +120,9 @@ class Scaler:
         # raise errors here.
         self._strategy.n_features_in_ = data.shape[1]
         return self._strategy.transform(data)  # type: ignore[no-any-return]
+    
+    def inverse_transform(self, data: npt.NDArray[Any]) -> npt.NDArray[Any]:
+        return self._strategy.inverse_transform(data)  # type: ignore[no-any-return]
 
 
 def scale_column(
