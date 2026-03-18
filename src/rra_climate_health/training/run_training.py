@@ -205,23 +205,6 @@ def model_training_main(
                 )
                 cm_data.save_climate_lookup_table(climate_lookup_df, output_dir)
 
-    # Validation
-    # target_measure = model_spec.measure.value
-    # if year_variable not in df.columns:
-    #     df[year_variable] = raw_df[year_variable]
-    # summary = training_validation.validate_model(
-    #     df, model_spec, target_measure, year_variable
-    # )
-    # training_validation.update_results_file(
-    #     summary, cm_data.models / "validation_results.csv", model_version, submodel
-    # )
-    # if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS:  # TODO Temporary
-    #     # Only save intercept raster for full model
-    #     icept_raster = utils.get_intercept_raster(
-    #         model_spec, model.coefs, model.ranef, cm_data
-    #     )
-    #     cm_data.save_rasterized_intercept(model_version, icept_raster, predictor=1)
-
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
