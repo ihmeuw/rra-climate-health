@@ -7,6 +7,7 @@ from rasterio.features import rasterize
 from rra_climate_health.model_specification import ModelSpecification
 from rra_climate_health.data import ClimateMalnutritionData
 
+
 def xarray_to_raster(ds: xr.DataArray, nodata: float | int) -> rt.RasterArray:
     from affine import Affine
 
@@ -39,9 +40,7 @@ def get_intercept_raster(
     ranefs: pd.DataFrame,
     cm_data: ClimateMalnutritionData,
 ) -> rt.RasterArray:
-    pred_spec = next(
-            (x for x in model_spec.predictors if x.name == 'intercept'), None
-        )
+    pred_spec = next((x for x in model_spec.predictors if x.name == "intercept"), None)
     if pred_spec is None:
         error_message = "No intercept predictor found in model specification"
         raise ValueError(error_message)
@@ -94,8 +93,9 @@ def get_intercept_raster(
         raise NotImplementedError(msg)
     return icept_raster
 
+
 def get_year_variable(df: pd.DataFrame) -> str:
-    prioritized_year_vars = ['year_start', 'int_year', 'year']
+    prioritized_year_vars = ["year_start", "int_year", "year", "birth_year"]
     for var in prioritized_year_vars:
         if var in df.columns:
             return var

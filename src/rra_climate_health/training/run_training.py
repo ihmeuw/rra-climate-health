@@ -1,4 +1,5 @@
 import itertools
+import os
 from pathlib import Path
 from typing import Any
 
@@ -6,8 +7,10 @@ import click
 import pandas as pd
 import rasterra as rt
 from pymer4.models.Lmer import Lmer
-from rpy2.robjects import pandas2ri, packages,  ListVector, FloatVector
 
+from rpy2.robjects import pandas2ri, packages, ListVector, FloatVector
+from rpy2.robjects import pandas2ri, default_converter
+from rpy2.robjects.conversion import localconverter
 from rra_tools import jobmon
 
 from rra_climate_health import cli_options as clio
@@ -17,9 +20,85 @@ from rra_climate_health.model_specification import (
 )
 from rra_climate_health.transforms import transform_column
 from rra_climate_health import utils
+
 from rra_climate_health.training import training_validation, training_diagnostics
 from rra_climate_health.training.training_validation import get_knot_values
 from rra_climate_health.model_specification import ModelType
+import re
+import pickle
+
+
+def create_spline_lookup(
+    model_obj,
+    model_spec,
+    lookup_var: str,
+    full_df: pd.DataFrame = df.copy(),
+    num_points: int = 1000,
+) -> pd.DataFrame:
+    """
+    Helper function to create a lookup table for the spline contribution of a
+    variable from a fitted scam model.
+    """
+
+    # Create lookup table for variable
+    df = full_df.copy()
+
+    # get the outcome variable from the model specification
+    outcome_tuple = [i for i in model_spec if "measure" in i][0]
+    outcome_var = outcome_tuple[1].value
+
+    # Get list of variables that are not outcome, lookup variable, or intercept
+    non_lookup_vars = [
+        col for col in df.columns if not col in (lookup_var, "intercept", outcome_var)
+    ]
+
+    intervals = (df[lookup_var].max() - df[lookup_var].min()) / (num_points - 1)
+    grid = [df[lookup_var].min() + i * intervals for i in range(num_points)]
+
+    # create constant prediction dataset for all variables lookup variable
+    # Use median for numeric variables, mode for categorical variables, and the
+    # grid for the variable of interest
+    constant_df = pd.DataFrame({lookup_var: grid})
+    for var in non_lookup_vars:
+
+        if pd.api.types.is_numeric_dtype(df[var]):
+            constant_df[var] = df[var].median()
+        elif pd.api.types.is_categorical_dtype(df[var]) or pd.api.types.is_object_dtype(
+            df[var]
+        ):
+            constant_df[var] = pd.Categorical(
+                [df[var].mode()[0]] * len(constant_df),
+                categories=df[var].unique(),
+            )
+        else:
+            raise ValueError(f"Unimplemented variable type for {var}")
+
+    # Convert the constant DataFrame to an R data frame
+    with localconverter(default_converter + pandas2ri.converter):
+        r_constant_df = pandas2ri.py2rpy(constant_df)
+
+    # Predict spline contributions
+    pred_terms = stats.predict(model_obj, newdata=r_constant_df, type="terms")
+
+    marginal_contribution_varname = f"s({lookup_var})"
+    pred_terms_var = pred_terms.rx(
+        True, pred_terms.colnames.index(marginal_contribution_varname) + 1
+    )
+
+    # Extract the spline contribution for variable
+    with localconverter(default_converter + pandas2ri.converter):
+        pred_terms_df = pandas2ri.rpy2py(pred_terms_var)
+
+    pred_terms_df = pd.DataFrame(pred_terms_df, columns=[marginal_contribution_varname])
+    climate_lookup_df = pd.DataFrame(
+        {
+            lookup_var: grid,
+            "smooth_contribution": pred_terms_df,
+        }
+    )
+
+    return climate_lookup_df
+
 
 def model_training_main(
     output_root: Path,
@@ -27,6 +106,8 @@ def model_training_main(
     model_version: str,
     submodel: list[tuple[str, str]] | None = None,
 ) -> None:
+
+    output_dir = os.path.join(output_root, measure, "inference", model_version)
     cm_data = ClimateMalnutritionData(output_root / measure)
     model_spec = cm_data.load_model_specification(model_version)
 
@@ -47,7 +128,7 @@ def model_training_main(
     columns_to_keep = model_spec.raw_variables
     if year_variable not in columns_to_keep:
         columns_to_keep.append(year_variable)
-    
+
     raw_df = full_training_data.loc[:, columns_to_keep]
     null_mask = raw_df.isna().any(axis=1)
     if null_mask.sum() > 0:
@@ -132,6 +213,44 @@ def model_training_main(
         # Only save intercept raster for full model
         icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
         cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
+    cm_data.save_model(model, output_dir, submodel)
+
+    # Create lookup tables for spline variables if applicable
+    if model_type == ModelType.SPLINE_MIXED_EFFECTS:
+        predictor_vars = [i for i in model_spec if "predictors" in i][0][1]
+        predictor_specs_with_spline = [
+            spec for spec in predictor_vars if spec.spline is not None
+        ]
+        # remove consumption_pd
+        predictor_specs_with_spline = [
+            spec
+            for spec in predictor_specs_with_spline
+            if not ("consumption" in spec.name)
+        ]
+        if len(predictor_specs_with_spline) > 0:
+            for predictor_spec in predictor_specs_with_spline:
+                lookup_var = predictor_spec.name
+                climate_lookup_df = create_spline_lookup(
+                    model, model_spec, lookup_var, full_df=full_training_data
+                )
+                cm_data.save_climate_lookup_table(climate_lookup_df, output_dir)
+
+    # Validation
+    # target_measure = model_spec.measure.value
+    # if year_variable not in df.columns:
+    #     df[year_variable] = raw_df[year_variable]
+    # summary = training_validation.validate_model(
+    #     df, model_spec, target_measure, year_variable
+    # )
+    # training_validation.update_results_file(
+    #     summary, cm_data.models / "validation_results.csv", model_version, submodel
+    # )
+    # if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS:  # TODO Temporary
+    #     # Only save intercept raster for full model
+    #     icept_raster = utils.get_intercept_raster(
+    #         model_spec, model.coefs, model.ranef, cm_data
+    #     )
+    #     cm_data.save_rasterized_intercept(model_version, icept_raster, predictor=1)
 
 
 @click.command()  # type: ignore[arg-type]

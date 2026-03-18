@@ -9,6 +9,11 @@ class ModelType(StrEnum):
     LINEAR_MIXED_EFFECTS = "lmer"
     SPLINE_MIXED_EFFECTS = "scam"
 
+class ModelType(StrEnum):
+    LINEAR_MIXED_EFFECTS = "lmer"
+    SPLINE_MIXED_EFFECTS = "scam"
+
+
 class ScalingStrategy(StrEnum):
     IDENTITY = "identity"
     MIN_MAX = "min_max"
@@ -86,6 +91,12 @@ class SplineSpecification(BaseModel):
     k: int | None = None
     knots: SplineKnotSpecification | None = None
 
+# SplineSpecification: TypeAlias = dict[str, str]
+class SplineSpecification(BaseModel):
+    bs: str
+    k: int | None = None
+
+
 class OutcomeVariable(StrEnum):
     WASTING = "wasting"
     STUNTING = "stunting"
@@ -93,6 +104,7 @@ class OutcomeVariable(StrEnum):
     LOW_BMI = "low_bmi"
     ANEMIA = "anemia"
     LOW_BIRTH_WEIGHT = "lbw"
+    CHILD_MORTALITY = "child_mortality"
 
 
 class PredictorSpecification(BaseModel):
@@ -116,7 +128,7 @@ class PredictorSpecification(BaseModel):
         if self.transform.type == "binning":
             variables += self.transform.groupby_columns
         return variables
-    
+
     @model_validator(mode="after")
     def fill_scaling_transform_fields(cls, values: "PredictorSpecification"):
         """
@@ -151,7 +163,9 @@ class GridSpecification(BaseModel):
         return v
 
     @model_validator(mode="after")  # type: ignore[arg-type]
-    def check_transform_is_binning(cls, v: "GridSpecification") -> "GridSpecification":  # noqa: N805
+    def check_transform_is_binning(
+        cls, v: "GridSpecification"
+    ) -> "GridSpecification":  # noqa: N805
         if v.x.transform.type != "binning":
             msg = "Grid predictor x must be binned"
             raise ValueError(msg)
@@ -253,7 +267,7 @@ class ModelSpecification(BaseModel):
         predictors += self.predictors
         random_effects: dict[str, list[str]] = {}
         for predictor in predictors:
-            #print("Predictor:", predictor.name)
+            # print("Predictor:", predictor.name)
             predictor_repr = "1" if predictor.name == "intercept" else predictor.name
             predictor_repr = (
                 f"C({predictor_repr})"

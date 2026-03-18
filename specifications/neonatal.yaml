@@ -1,0 +1,26 @@
+model_type: "scam"
+version:
+  model: "2026_02_04.01"
+  training_data: "2025_12_16.01"  # Your training data version
+
+measure: "child_mortality"  # name of variable in data
+holdout:
+  type: "no_holdout" 
+predictors:
+  - name: "intercept"
+    random_effect: "ihme_loc_id"  
+  - name: "consumption_pd"
+    spline:
+      bs: "mpd"
+      k: 14
+  - name: "days_over_30C_prev_0_mo"
+    spline:
+      bs: 'mpi'
+      k: 14
+  - name: "total_precipitation_prev_0_mo"
+  - name: "sex_id"
+    transform:
+      type: 'categorical'
+  - name: "birth_year"
+    transform:
+      type: 'categorical'
