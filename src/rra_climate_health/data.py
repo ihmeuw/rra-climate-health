@@ -11,6 +11,7 @@ import pandas as pd
 import rasterra as rt
 import xarray as xr
 from rra_tools.shell_tools import mkdir, touch
+from rpy2.robjects import pandas2ri, packages
 
 from rra_climate_health.transforms import transform_column
 from rra_climate_health.model_specification import ModelSpecification, ModelType
@@ -146,6 +147,7 @@ class ClimateMalnutritionData:
         self,
         model: "Lmer",
         version: str,
+        model_spec: ModelSpecification,
         submodel: list[tuple[str, str]] | None = None,
     ) -> None:
         model_root = self.models / version
@@ -166,14 +168,21 @@ class ClimateMalnutritionData:
             pickle.dump(model, f)
         
         coefs_filepath = model_root / (model_filename_base + "_coefs.parquet")
-        #touch(coefs_filepath, exist_ok=True)
-        #model.coefs.to_parquet(coefs_filepath)
-
+        touch(coefs_filepath, exist_ok=True)
         random_effects_filepath = model_root / (model_filename_base + "_ranef.parquet")
-        #touch(random_effects_filepath, exist_ok=True)
-        #model.ranef.to_parquet(random_effects_filepath)
+        touch(random_effects_filepath, exist_ok=True)
 
-    
+        try:
+            if model_spec.model_type == 'lmer':
+                model.coefs.to_parquet(coefs_filepath)
+                model.ranef.to_parquet(random_effects_filepath)
+            elif model_spec.model_type == 'scam':
+                extract_fixed_effects_from_scam(model).to_parquet(coefs_filepath)
+                extract_random_effects_from_scam(model, 'ihme_loc_id').to_parquet(random_effects_filepath)
+        except Exception as e:
+            print(e)
+
+
     def load_model_family(
         self,
         version: str,
@@ -567,3 +576,72 @@ def save_raster(
     }
     touch(output_path, exist_ok=True)
     raster.to_file(output_path, **save_params)
+
+
+def extract_fixed_effects_from_scam(model):
+    pandas2ri.deactivate()
+    
+    # 1. Get the model summary
+    base = ro.baseenv['summary']
+    model_summary = base(model)
+    
+    # 2. Extract the parametric table (p.table)
+    p_table = model_summary.rx2('p.table')
+    
+    # 3. Safely extract the row names directly from the p.table
+    # This avoids slicing the full coefficients list and sidesteps NULLType vector names
+    rownames_func = ro.baseenv['rownames']
+    p_table_names = list(rownames_func(p_table))
+    
+    # 4. Convert the matrix to a numpy array for pandas
+    p_table_values = np.array(p_table)
+    
+    # 5. Build the DataFrame
+    fixed_effects_df = pd.DataFrame(
+        p_table_values,
+        columns=['estimate', 'std_error', 'statistic', 'p_value']
+    )
+    
+    # 6. Insert the perfectly matched terms
+    fixed_effects_df.insert(0, 'term', p_table_names)
+    
+    return fixed_effects_df
+
+def extract_random_effects_from_scam(model, random_effect_name='ihme_loc_id'):
+    # Deactivate pandas2ri to work with raw R objects without conversion issues
+    base = packages.importr('base')
+    stats = packages.importr('stats')
+    pandas2ri.deactivate()
+    # We need to get the categorical levels to build the random effects table
+    m_frame = model.rx2('model')
+    loc_column = m_frame.rx2(random_effect_name)
+    re_levels = list(base.levels(loc_column))
+
+    # Extract the coefficient values
+    all_coefs = np.array(stats.coef(model))
+    smooth_info = model.rx2('smooth')
+
+    # Find the specific smooth object to get the coefficient pointers
+    re_smooth = None
+    for s in smooth_info:
+        if random_effect_name in str(s.rx2('label')[0]):
+            re_smooth = s
+            break
+
+    if re_smooth and re_levels:
+        first = int(re_smooth.rx2('first.para')[0]) - 1
+        last = int(re_smooth.rx2('last.para')[0])
+        re_values = all_coefs[first:last]
+        
+        # Check lengths match before building
+        if len(re_levels) == len(re_values):
+            random_effects_df = pd.DataFrame({
+                random_effect_name: re_levels,
+                'offset': re_values
+            })
+            return random_effects_df
+        else:
+            raise ValueError(
+                 f"Length mismatch: {len(re_levels)} levels vs {len(re_values)} coefficients."
+            )
+    raise ValueError("Could not find the random effect smooth or levels in the model.")
