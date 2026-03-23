@@ -1,4 +1,4 @@
-LDI_VERSION = "v5"
+LDI_VERSION = "v6"
 import multiprocessing as mp
 from functools import partial
 from pathlib import Path
@@ -251,17 +251,19 @@ def get_prev_monthly_climate_vars_for_dataframe(
 ) -> pd.DataFrame:
     var_names = [
         "mean_temperature",
-        "days_over_30C",
-        "precipitation_days",
+        # "precipitation_days",
         "total_precipitation",
-        "mean_low_temperature",
-        "mean_high_temperature",
-        "relative_humidity",
-        # "days_over_26C",
-        # "days_over_27C",
+        # "mean_low_temperature",
+        # "mean_high_temperature",
+        # "relative_humidity",
+        "days_over_24C",
+        "days_over_25C",
+        "days_over_26C",
+        "days_over_27C",
         "days_over_28C",
-        # "days_over_29C",
-        # "days_over_31C",
+        "days_over_29C",
+        "days_over_30C",
+        "days_over_31C",
         "days_over_32C",
         # "days_over_33C",
     ]
@@ -313,26 +315,38 @@ def get_climate_vars_all_locs(
 
     return_arrays = []
     for climate_variable in climate_variables:
-        climate_da = xr.open_dataarray(
-            f"/mnt/share/erf/climate_downscale/results/monthly/raw/historical/{climate_variable}/{lookup_yr}_era5.nc"
-        )
-        climate_da = climate_da.load()
-        # Select nearest latitude and longitude
-        climate_da = climate_da.sel(latitude=lats, longitude=lons, method="nearest")
-        # Add original latitude and longitude as coordinates
-        climate_da = climate_da.assign_coords(lat_orig=("point", lats.values))
-        climate_da = climate_da.assign_coords(long_orig=("point", lons.values))
+        try:
+            climate_da = xr.open_dataarray(
+                f"/mnt/share/erf/climate_downscale/results/monthly/raw/historical/{climate_variable}/{lookup_yr}_era5.nc"
+            )
+            climate_da = climate_da.load()
+            # Select nearest latitude and longitude
+            climate_da = climate_da.sel(latitude=lats, longitude=lons, method="nearest")
+            # Add original latitude and longitude as coordinates
+            climate_da = climate_da.assign_coords(lat_orig=("point", lats.values))
+            climate_da = climate_da.assign_coords(long_orig=("point", lons.values))
 
-        # Add climate variable dimension
-        climate_da = climate_da.expand_dims(dim="climate_var")
-        climate_da = climate_da.assign_coords(climate_var=[climate_variable])
-        # Drop the "point" dimension if not needed
-        climate_da = climate_da.drop_vars("point")
-        return_arrays.append(climate_da)
-
+            # Add climate variable dimension
+            climate_da = climate_da.expand_dims(dim="climate_var")
+            climate_da = climate_da.assign_coords(climate_var=[climate_variable])
+            # Drop the "point" dimension if not needed
+            climate_da = climate_da.drop_vars("point")
+            return_arrays.append(climate_da)
+        except:
+            print(
+                f"Error loading climate data for year {lookup_yr} and variable {climate_variable}"
+            )
+            print("check file path:")
+            print(
+                f"/mnt/share/erf/climate_downscale/results/monthly/raw/historical/{climate_variable}/{lookup_yr}_era5.nc"
+            )
+            pass
     # Concatenate all climate variables along the "climate_var" dimension
-    result = xr.concat(return_arrays, dim="climate_var")
-    return result
+    if len(return_arrays) > 0:
+        result = xr.concat(return_arrays, dim="climate_var")
+        return result
+    else:
+        pass
 
 
 def get_all_climate_vars_year_months_for_latlongs(
@@ -347,17 +361,19 @@ def get_all_climate_vars_year_months_for_latlongs(
     """
     var_names = [
         "mean_temperature",
-        "days_over_30C",
-        "precipitation_days",
+        # "precipitation_days",
         "total_precipitation",
-        "mean_low_temperature",
-        "mean_high_temperature",
-        "relative_humidity",
-        # "days_over_26C",
-        # "days_over_27C",
+        # "mean_low_temperature",
+        # "mean_high_temperature",
+        # "relative_humidity",
+        "days_over_24C",
+        "days_over_25C",
+        "days_over_26C",
+        "days_over_27C",
         "days_over_28C",
-        # "days_over_29C",
-        # "days_over_31C",
+        "days_over_29C",
+        "days_over_30C",
+        "days_over_31C",
         "days_over_32C",
         # "days_over_33C",
     ]
@@ -393,6 +409,7 @@ def get_all_climate_vars_year_months_for_latlongs(
     p.join()
 
     # Concatenate the xarrays along the "lookup_year" dimension
+    results_xarrays = [da for da in results_xarrays if da is not None]
     results_da = xr.concat(results_xarrays, dim="year")
     return results_da
 
@@ -535,16 +552,18 @@ def get_climate_vars_for_dataframe(
 ) -> pd.DataFrame:
     var_names = [
         "mean_temperature",
-        "days_over_30C",
-        "precipitation_days",
+        # "precipitation_days",
         "total_precipitation",
-        "mean_low_temperature",
-        "mean_high_temperature",
-        "relative_humidity",
+        # "mean_low_temperature",
+        # "mean_high_temperature",
+        # "relative_humidity",
+        # "days_over_24C",
+        # "days_over_25C",
         # "days_over_26C",
         # "days_over_27C",
         # "days_over_28C",
         # "days_over_29C",
+        "days_over_30C",
         # "days_over_31C",
         # "days_over_32C",
         # "days_over_33C",
@@ -641,6 +660,8 @@ def get_ldipc_from_asset_score(
     if "scenario" in ldi.columns:
         if 0 in ldi.scenario.unique():
             ldi = ldi.loc[ldi["scenario"] == 0].drop("scenario", axis=1)
+        elif "reference" in ldi.scenario.unique():
+            ldi = ldi.loc[ldi["scenario"] == "reference"].drop("scenario", axis=1)
         elif 4.5 in ldi.scenario.unique():
             ldi = ldi.loc[ldi["scenario"] == 4.5].drop("scenario", axis=1)
         else:
@@ -3276,7 +3297,9 @@ def run_training_data_prep_neonatal(
     )
 
     # read back in if required
-    # df_merged = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/neonatal_mortality_merged_wealth.parquet")
+    df_merged = pd.read_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/neonatal_mortality_merged_wealth.parquet"
+    )
 
     ## 3. Extract and merging annual climate variables
     logging.info("Processing climate data...")
@@ -3312,24 +3335,24 @@ def run_training_data_prep_neonatal(
 
     df_climate["consumption"] = df_climate["ldipc_weighted_no_match"]
 
-    # collapse by average climate var exposure for each child
-    climate_vars = [
-        "mean_temperature",
-        "days_over_30C",
-        "precipitation_days",
-        "total_precipitation",
-        "mean_low_temperature",
-        "mean_high_temperature",
-        "relative_humidity",
-        "days_over_26C",
-        "days_over_27C",
-        "days_over_28C",
-        "days_over_29C",
-        "days_over_31C",
-        "days_over_32C",
-        "days_over_33C",
-        "elevation",
-    ]
+    # # collapse by average climate var exposure for each child
+    # climate_vars = [
+    #     "mean_temperature",
+    #     "days_over_30C",
+    #     "precipitation_days",
+    #     "total_precipitation",
+    #     "mean_low_temperature",
+    #     "mean_high_temperature",
+    #     "relative_humidity",
+    #     "days_over_26C",
+    #     "days_over_27C",
+    #     "days_over_28C",
+    #     "days_over_29C",
+    #     "days_over_31C",
+    #     "days_over_32C",
+    #     "days_over_33C",
+    #     "elevation",
+    # ]
 
     # Neonatal
     # get the index of the row with the min age_month_at_year_end for each indv_id
@@ -3418,17 +3441,19 @@ def run_training_data_prep_neonatal(
 
     var_names = [
         "mean_temperature",
-        "days_over_30C",
-        "precipitation_days",
+        # "precipitation_days",
         "total_precipitation",
-        "mean_low_temperature",
-        "mean_high_temperature",
-        "relative_humidity",
-        # "days_over_26C",
-        # "days_over_27C",
+        # "mean_low_temperature",
+        # "mean_high_temperature",
+        # "relative_humidity",
+        "days_over_24C",
+        "days_over_25C",
+        "days_over_26C",
+        "days_over_27C",
         "days_over_28C",
-        # "days_over_29C",
-        # "days_over_31C",
+        "days_over_29C",
+        "days_over_30C",
+        "days_over_31C",
         "days_over_32C",
         # "days_over_33C",
     ]
@@ -3501,7 +3526,7 @@ def run_training_data_prep_neonatal(
     # )
 
     ## 6. Calculate averages over time periods analyzed for monthly climate variables
-    for v in var_names:
+    for v in tqdm(var_names):
         for i in [3, 6, 9]:
             prev_vars = get_prev_climate_var_months(v, i)
             df_min_age_updated[f"{v}_prev_{i}_mo_avg"] = df_min_age_updated[
@@ -3511,6 +3536,9 @@ def run_training_data_prep_neonatal(
     df_min_age_updated.to_parquet(
         Path(output_path_version) / "neonatal_data_prev_month_vars.parquet"
     )
+    # df_min_age_updated = pd.read_parquet(
+    #     Path(output_path_version) / "neonatal_data_prev_month_vars.parquet"
+    # )
 
     ## 7. Extract monthly relative climate thresholds for previous months
 
@@ -3526,7 +3554,7 @@ def run_training_data_prep_neonatal(
 
     # format climate_vars df
     climate_vars_df = climate_vars.to_dataframe().reset_index()
-    climate_vars_df.drop(columns=["point", "last_year"], inplace=True)
+    climate_vars_df.drop(columns=["point"], inplace=True)
 
     climate_vars_df.rename(
         columns={
@@ -3745,10 +3773,7 @@ def run_training_data_prep_main(  # noqa: PLR0915
             output_root, data_source_type, module=module
         )
     elif data_source_type == "neonatal_mortality":
-        run_training_data_prep_neonatal(
-            output_root,
-            data_source_type,
-        )
+        run_training_data_prep_neonatal(output_root, data_source_type, module=module)
     # elif data_source_type == "neonatal_mortality":
     #     quick_fix_update_neonatal(
     #         output_root,

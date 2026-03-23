@@ -32,9 +32,7 @@ if (Sys.info()["sysname"] == "Linux") {
   l <- "L:/"
 }
 
-install.packages("pec", lib = "/homes/elyeb/rlibs")
-install.packages("pammtools",lib = "/homes/elyeb/rlibs")
-library(pammtools,lib.loc = "/homes/elyeb/rlibs")
+
 library(scam)
 library(data.table)
 library(dplyr) # for anti_join function
@@ -48,7 +46,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_splines_scam"
+summary_file <- "cm_logistic_splines_full_data"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_02_27.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_02_27.01/"
@@ -77,11 +75,48 @@ climate_vars <- c(
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- df[, ..cols]
+# limit observations 
+# df_model <- df_model[int_birth_year_diff_months<=60]
+
 df_model <- data.table(df_model)
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
 df_model[,birth_year:=as.factor(birth_year)]
+df_model[,days_over_30C:=as.integer(days_over_30C)]
 df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
 
+# make time interval as per Ryan: alive at 1 month, 3 months, 6 months, 1 yr, etc
+get_time_var <- function(x){
+  # use age_month to find time bin of child's age
+  if (x==1){
+    return("1 mo")
+  }
+  else if(x <= 3){
+    return("1-3 mo")
+  }
+  else if(x <= 6){
+    return("3-6 mo")
+  }
+  else if(x<=12){
+    return("6-12 mo")
+  }
+  else if(x<=24){
+    return("1-2 yr")
+  }
+  else if(x<=36){
+    return("2-3 yr")    
+  }
+  else if(x<=48){
+    return("3-4 yr")
+  }
+  else{
+    return("4-5 yr")
+  }
+}
+time_var_levels <- c("1 mo","1-3 mo","3-6 mo","6-12 mo","1-2 yr","2-3 yr","3-4 yr","4-5 yr")
+# this will revert to 1 through 8 if as.numeric(time_var)
+
+df_model$time_var <- sapply(df_model$age_month,get_time_var)
+df_model$time_var <- factor(df_model$time_var,levels=time_var_levels,ordered = TRUE)
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
@@ -89,14 +124,20 @@ df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Femal
 
 
 # fit model
-model <- scam(child_mortality ~ s(consumption_pd, bs = "mpi") + 
-                s(days_over_30C, bs = "mpi") + 
-                total_precipitation + 
+model <- scam(child_mortality ~ time_var + 
                 sex_id + 
-                birth_year +
+                s(consumption_pd, bs="mpd") + 
+                s(days_over_30C, bs="mpi")+
+                total_precipitation+
+                birth_year+
                 s(ihme_loc_id, bs = "re"),
-              family = cox.ph(), 
+              family = binomial(link = "logit"),
               data = df_model)
 
 # save model parameters for future use:
 saveRDS(model, file = paste0(results_dir, summary_file,".rds"))
+
+# model = readRDS(file = paste0(results_dir, summary_file,".rds"))
+# save model summary:
+summary_file_path <- paste0(model_summary_dir, summary_file, ".txt")
+capture.output(summary(model), file = summary_file_path)

@@ -46,7 +46,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_splines_no_splines"
+summary_file <- "cm_splines_no_splines_full_data"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_02_27.01/data.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_02_27.01/"
@@ -75,6 +75,9 @@ climate_vars <- c(
 )
 cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
 df_model <- df[, ..cols]
+# limit observations 
+# df_model <- df_model[int_birth_year_diff_months<=60]
+
 df_model <- data.table(df_model)
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
 df_model[,birth_year:=as.factor(birth_year)]
@@ -133,3 +136,9 @@ model <- scam(child_mortality ~ time_var +
 
 # save model parameters for future use:
 saveRDS(model, file = paste0(results_dir, summary_file,".rds"))
+
+
+# model = readRDS(file = paste0(results_dir, summary_file,".rds"))
+# save model summary:
+summary_file_path <- paste0(model_summary_dir, summary_file, ".txt")
+capture.output(summary(model), file = summary_file_path)

@@ -44,8 +44,8 @@ options(scipen = 999) # turn off scientific notation
 ## set parameters
 summary_file <- paste0("nnm_1_mo_do30_scam_summary")
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2025_12_16.01/"
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2025_12_16.01/neonatal_data.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2026_03_19.04/"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2026_03_19.04/neonatal_data_prev_month_vars.parquet"
 
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -69,6 +69,7 @@ neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
 # convert sex_id to int between 0 and 1, where 0 is male and 1 is female
 neo_df[,sex_id := as.integer(sex_id)]
 neo_df[,sex_id := sex_id-1]
+neo_df[,days_over_30C_prev_0_mo:=as.integer(days_over_30C_prev_0_mo)]
 neo_df[,birth_year:=as.factor(birth_year)]
 
 ## Read and format data
@@ -120,33 +121,6 @@ df_model <- na.omit(df_model)
 # SECTION 2: FIT MODEL 
 #==============================================================================
 
-
-# model <- mgcv::bam(
-#   child_mortality ~ s(consumption_pd, bs="mpd") +
-#     s(q95_prev_0_mo, bs="mpi") +
-#     total_precipitation_prev_0_mo +
-#     sex_id +
-#     birth_year +
-#     s(ihme_loc_id, bs="re"),
-#   data = df_model,
-#   family = binomial(link = "logit"),
-#   discrete = TRUE
-# )
-# Error in UseMethod("smooth.construct") : 
-#   no applicable method for 'smooth.construct' applied to an object of class "mpd.smooth.spec"
-
-# model <- mgcv::bam(
-#   child_mortality ~ s(consumption_pd) +
-#     s(q95_prev_0_mo) +
-#     total_precipitation_prev_0_mo +
-#     sex_id +
-#     birth_year +
-#     s(ihme_loc_id, bs="re"),
-#   data = df_model,
-#   family = binomial(link = "logit"),
-#   discrete = TRUE
-# )
-# works, but no monotonoicity contraints
 
 
 model <- scam(
@@ -201,7 +175,6 @@ coefs <- merge(coefs, random_effect_mapping, by = "variable", all.x = TRUE)
 # If the replacement is successful, update the variable column
 coefs[, variable := ifelse(!is.na(ihme_loc_id), ihme_loc_id, variable)]
 
-
 # Drop the temporary ihme_loc_id column
 coefs[, ihme_loc_id := NULL]
 
@@ -251,7 +224,7 @@ write.csv(inf_coef,paste0(inference_objects_dir,outfile_coef),row.names=TRUE)
 print(paste0(inference_objects_dir,outfile_coef))
 
 # test conversion
-inf_coef_parquet <- read_parquet(paste0(inference_objects_dir,gsub("csv","parquet",outfile_coef)))
+# inf_coef_parquet <- read_parquet(paste0(inference_objects_dir,gsub("csv","parquet",outfile_coef)))
 
 # save out random effects
 re_df <- copy(coefs)
@@ -268,7 +241,7 @@ write.csv(inf_re,paste0(inference_objects_dir,outfile_re),row.names = TRUE)
 print(paste0(inference_objects_dir,outfile_re))
 
 # test conversion
-inf_re_parquet <- read_parquet(paste0(inference_objects_dir,gsub("csv","parquet",outfile_re)))
+# inf_re_parquet <- read_parquet(paste0(inference_objects_dir,gsub("csv","parquet",outfile_re)))
 
 #==============================================================================
 # SECTION 3: PREDICT MODEL FOR NEONATAL ON AVG BIRTH YEAR, SEX, PRECIPITATION
@@ -344,7 +317,7 @@ df_avg_psu[,s_days_over_30C_contribution_lower:=s_days_over_30C_contribution-1.9
 # make additional predictions trying to hold rest of other variables flat
 
 # # Save predictions to parquet
-write_parquet(df_avg_psu, paste0(results_dir, "predictions_", summary_file, ".parquet"))
+write_parquet(df_avg_psu, paste0(results_dir, "predictions_", summary_file, "with_psu.parquet"))
 
 # make synthetic data sets that are smaller but for the purpose of plotting
 # marginal effects for q95 and consumption
@@ -479,186 +452,186 @@ paste0(results_dir, "predictions_fixed_do30_", summary_file, ".parquet")
 #==============================================================================
 
 
-
-# Create a data frame with q95_prev_0_mo and its spline contribution
-fit <- data.table(pred_with_se$fit)
-se_fit <- data.table(pred_with_se$se.fit)
-
-plot_data <- data.table(
-  consumption_pd = df_model$consumption_pd,
-  days_over_30C = df_model$days_over_30C_prev_0_mo,
-  spline_contribution_consumption_pd = fit[["s(consumption_pd)"]],
-  spline_contribution_do30 = fit[["s(days_over_30C_prev_0_mo)"]],
-  se_do30 = se_fit[["s(days_over_30C_prev_0_mo)"]],
-  se_consumption_pd = se_fit[["s(consumption_pd)"]]
-)
-
-
-plot_data <- plot_data %>%
-  mutate(
-    do30_lower_ci = spline_contribution_do30 - 1.96 * se_do30,
-    do30_upper_ci = spline_contribution_do30 + 1.96 * se_do30,
-    c_lower_ci = spline_contribution_consumption_pd - 1.96 * se_consumption_pd,
-    c_upper_ci = spline_contribution_consumption_pd + 1.96 * se_consumption_pd
-  )
-
-## Add lines for linear models
-linear_do30 <- 0.0064507
-consumption_linear <- -0.0426716
-
-# plot do30
-p_do30 <- ggplot(plot_data, aes(x = days_over_30C, y = spline_contribution_do30)) +
-  geom_line(aes(color = "Spline")) +
-  geom_ribbon(aes(ymin = do30_lower_ci, ymax = do30_upper_ci), alpha = 0.2, fill = "blue") +
-  geom_abline(
-    aes(color = "Slope from linear model",
-    slope = linear_do30,
-    intercept = -0.0217828),
-    linetype = "dashed"
-  ) +
-  scale_color_manual(
-    name = "Legend",  # Legend title
-    values = c("Slope from linear model" = "red",
-               "Spline"="blue") 
-  ) +
-  labs(
-    title = "Spline Contribution for days_over_30C",
-    x = "days_over_30C",
-    y = "Spline Contribution"
-  ) +
-  ylim(-0.05, 0.2)+
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 30),
-    axis.title.x = element_text(size = 26),
-    axis.title.y = element_text(size = 26),
-    axis.text.x = element_text(size = 20),
-    axis.text.y = element_text(size = 20),
-    legend.title = element_text(size = 20),
-    legend.text = element_text(size = 18),
-    legend.position = c(0.8, 0.2),  # Position legend inside the plot (x, y)
-    legend.background = element_rect(fill = "white", color = "black", size = 0.5),  # Add a background box
-    legend.key = element_rect(fill = "white")  # Ensure legend keys have a white background
-  )
-
-# Save the plot
-ggsave(
-  filename = paste0(plot_dir, summary_file, "_do30_with_linear.png"),
-  plot = p_do30,
-  bg = "white",
-  width = 10,
-  height = 8,
-  dpi = 300
-)
-
-# plot consumption
-p_consumption <- ggplot(plot_data, aes(x = consumption_pd, y = spline_contribution_consumption_pd)) +
-  geom_line(aes(color = "Spline")) +
-  geom_ribbon(aes(ymin = c_lower_ci, ymax = c_upper_ci), alpha = 0.2, fill = "blue") +
-  labs(
-    title = "Spline Contribution for consumption_pd",
-    x = "consumption_pd",
-    y = "Spline Contribution"
-  ) +
-  geom_abline(
-    aes(
-    slope = consumption_linear, 
-    intercept = 0.3033357, 
-    color = "Slope from linear model"), 
-    linetype = "dashed"
-  ) +
-  scale_color_manual(
-    name = "Legend",  # Legend title
-    values = c("Slope from linear model" = "red",
-               "Spline"="blue") 
-  ) +
-  scale_x_continuous(breaks = seq(0, max(plot_data$consumption_pd, na.rm = TRUE), by = 30)) +
-  ylim(-1.2, 0.4)+
-  scale_y_continuous(breaks = round(seq(-1.2, 0.4, by = 0.4), 1)) +
-  theme_minimal()+
-  theme(
-    plot.title = element_text(size = 30),
-    axis.title.x = element_text(size = 26),
-    axis.title.y = element_text(size = 26),
-    axis.text.x = element_text(size = 20),
-    axis.text.y = element_text(size = 20),
-    legend.title = element_text(size = 20),
-    legend.text = element_text(size = 18),
-    legend.position = c(0.8, 0.8),  # Position legend inside the plot (x, y)
-    legend.background = element_rect(fill = "white", color = "black", size = 0.5),  # Add a background box
-    legend.key = element_rect(fill = "white")  # Ensure legend keys have a white background
-  )
-
-
-ggsave(
-  filename = paste0(plot_dir, summary_file, "_consumption_linear.png"),
-  plot = p_consumption,
-  bg = "white",          # Set background to white
-  width = 10,             # Adjust width (in inches)
-  height = 8,            # Adjust height (in inches)
-  dpi = 300              # Set resolution for better quality
-)
-
-# Make histograms of data density for q95 and consumption_pd
-
-
-p_hist_do30 <- ggplot(plot_data, aes(x = days_over_30C)) +
-  geom_histogram(binwidth = 1, fill = "blue", color = "black", alpha = 0.7) +
-  labs(
-    title = "Data Density by days_over_30C",
-    x = "days_over_30C",
-    y = "Data points"
-  ) +
-  scale_y_continuous(labels = comma) +
-  theme_minimal()+
-  theme(
-    plot.title = element_text(size = 30),
-    axis.title.x = element_text(size = 26),
-    axis.title.y = element_text(size = 26),
-    axis.text.x = element_text(size = 20),
-    axis.text.y = element_text(size = 20)
-  )
-
-# Save the histogram plot
-ggsave(
-  filename = paste0(plot_dir, summary_file, "_do30_density.png"),
-  plot = p_hist_do30,
-  bg = "white",          # Set background to white
-  width = 10,             # Adjust width (in inches)
-  height = 8,            # Adjust height (in inches)
-  dpi = 300              # Set resolution for better quality
-)
-
-# same for consumption
-p_hist_consumption <- ggplot(plot_data, aes(x = consumption_pd)) +
-  geom_histogram(binwidth = 2, fill = "blue", color = "black", alpha = 0.7) +
-  labs(
-    title = "Data Density by consumption_pd",
-    x = "consumption_pd",
-    y = "Data points"
-  ) +
-  scale_x_continuous(breaks = seq(0, max(plot_data$consumption_pd, na.rm = TRUE), by = 30)) +
-  scale_y_continuous(labels = comma) +  # Format y-axis with commas
-  theme_minimal()+
-  theme(
-    plot.title = element_text(size = 30),
-    axis.title.x = element_text(size = 26),
-    axis.title.y = element_text(size = 26),
-    axis.text.x = element_text(size = 20),
-    axis.text.y = element_text(size = 20)
-  )
-
-
-
-# Save the histogram plot
-ggsave(
-  filename = paste0(plot_dir, summary_file, "_consumption_density.png"),
-  plot = p_hist_consumption,
-  bg = "white",
-  width = 10,             # Adjust width (in inches)
-  height = 8,            # Adjust height (in inches)
-  dpi = 300
-)
+# 
+# # Create a data frame with q95_prev_0_mo and its spline contribution
+# fit <- data.table(pred_with_se$fit)
+# se_fit <- data.table(pred_with_se$se.fit)
+# 
+# plot_data <- data.table(
+#   consumption_pd = df_model$consumption_pd,
+#   days_over_30C = df_model$days_over_30C_prev_0_mo,
+#   spline_contribution_consumption_pd = fit[["s(consumption_pd)"]],
+#   spline_contribution_do30 = fit[["s(days_over_30C_prev_0_mo)"]],
+#   se_do30 = se_fit[["s(days_over_30C_prev_0_mo)"]],
+#   se_consumption_pd = se_fit[["s(consumption_pd)"]]
+# )
+# 
+# 
+# plot_data <- plot_data %>%
+#   mutate(
+#     do30_lower_ci = spline_contribution_do30 - 1.96 * se_do30,
+#     do30_upper_ci = spline_contribution_do30 + 1.96 * se_do30,
+#     c_lower_ci = spline_contribution_consumption_pd - 1.96 * se_consumption_pd,
+#     c_upper_ci = spline_contribution_consumption_pd + 1.96 * se_consumption_pd
+#   )
+# 
+# ## Add lines for linear models
+# linear_do30 <- 0.0064507
+# consumption_linear <- -0.0426716
+# 
+# # plot do30
+# p_do30 <- ggplot(plot_data, aes(x = days_over_30C, y = spline_contribution_do30)) +
+#   geom_line(aes(color = "Spline")) +
+#   geom_ribbon(aes(ymin = do30_lower_ci, ymax = do30_upper_ci), alpha = 0.2, fill = "blue") +
+#   geom_abline(
+#     aes(color = "Slope from linear model",
+#     slope = linear_do30,
+#     intercept = -0.0217828),
+#     linetype = "dashed"
+#   ) +
+#   scale_color_manual(
+#     name = "Legend",  # Legend title
+#     values = c("Slope from linear model" = "red",
+#                "Spline"="blue") 
+#   ) +
+#   labs(
+#     title = "Spline Contribution for days_over_30C",
+#     x = "days_over_30C",
+#     y = "Spline Contribution"
+#   ) +
+#   ylim(-0.05, 0.2)+
+#   theme_minimal() +
+#   theme(
+#     plot.title = element_text(size = 30),
+#     axis.title.x = element_text(size = 26),
+#     axis.title.y = element_text(size = 26),
+#     axis.text.x = element_text(size = 20),
+#     axis.text.y = element_text(size = 20),
+#     legend.title = element_text(size = 20),
+#     legend.text = element_text(size = 18),
+#     legend.position = c(0.8, 0.2),  # Position legend inside the plot (x, y)
+#     legend.background = element_rect(fill = "white", color = "black", size = 0.5),  # Add a background box
+#     legend.key = element_rect(fill = "white")  # Ensure legend keys have a white background
+#   )
+# 
+# # Save the plot
+# ggsave(
+#   filename = paste0(plot_dir, summary_file, "_do30_with_linear.png"),
+#   plot = p_do30,
+#   bg = "white",
+#   width = 10,
+#   height = 8,
+#   dpi = 300
+# )
+# 
+# # plot consumption
+# p_consumption <- ggplot(plot_data, aes(x = consumption_pd, y = spline_contribution_consumption_pd)) +
+#   geom_line(aes(color = "Spline")) +
+#   geom_ribbon(aes(ymin = c_lower_ci, ymax = c_upper_ci), alpha = 0.2, fill = "blue") +
+#   labs(
+#     title = "Spline Contribution for consumption_pd",
+#     x = "consumption_pd",
+#     y = "Spline Contribution"
+#   ) +
+#   geom_abline(
+#     aes(
+#     slope = consumption_linear, 
+#     intercept = 0.3033357, 
+#     color = "Slope from linear model"), 
+#     linetype = "dashed"
+#   ) +
+#   scale_color_manual(
+#     name = "Legend",  # Legend title
+#     values = c("Slope from linear model" = "red",
+#                "Spline"="blue") 
+#   ) +
+#   scale_x_continuous(breaks = seq(0, max(plot_data$consumption_pd, na.rm = TRUE), by = 30)) +
+#   ylim(-1.2, 0.4)+
+#   scale_y_continuous(breaks = round(seq(-1.2, 0.4, by = 0.4), 1)) +
+#   theme_minimal()+
+#   theme(
+#     plot.title = element_text(size = 30),
+#     axis.title.x = element_text(size = 26),
+#     axis.title.y = element_text(size = 26),
+#     axis.text.x = element_text(size = 20),
+#     axis.text.y = element_text(size = 20),
+#     legend.title = element_text(size = 20),
+#     legend.text = element_text(size = 18),
+#     legend.position = c(0.8, 0.8),  # Position legend inside the plot (x, y)
+#     legend.background = element_rect(fill = "white", color = "black", size = 0.5),  # Add a background box
+#     legend.key = element_rect(fill = "white")  # Ensure legend keys have a white background
+#   )
+# 
+# 
+# ggsave(
+#   filename = paste0(plot_dir, summary_file, "_consumption_linear.png"),
+#   plot = p_consumption,
+#   bg = "white",          # Set background to white
+#   width = 10,             # Adjust width (in inches)
+#   height = 8,            # Adjust height (in inches)
+#   dpi = 300              # Set resolution for better quality
+# )
+# 
+# # Make histograms of data density for q95 and consumption_pd
+# 
+# 
+# p_hist_do30 <- ggplot(plot_data, aes(x = days_over_30C)) +
+#   geom_histogram(binwidth = 1, fill = "blue", color = "black", alpha = 0.7) +
+#   labs(
+#     title = "Data Density by days_over_30C",
+#     x = "days_over_30C",
+#     y = "Data points"
+#   ) +
+#   scale_y_continuous(labels = comma) +
+#   theme_minimal()+
+#   theme(
+#     plot.title = element_text(size = 30),
+#     axis.title.x = element_text(size = 26),
+#     axis.title.y = element_text(size = 26),
+#     axis.text.x = element_text(size = 20),
+#     axis.text.y = element_text(size = 20)
+#   )
+# 
+# # Save the histogram plot
+# ggsave(
+#   filename = paste0(plot_dir, summary_file, "_do30_density.png"),
+#   plot = p_hist_do30,
+#   bg = "white",          # Set background to white
+#   width = 10,             # Adjust width (in inches)
+#   height = 8,            # Adjust height (in inches)
+#   dpi = 300              # Set resolution for better quality
+# )
+# 
+# # same for consumption
+# p_hist_consumption <- ggplot(plot_data, aes(x = consumption_pd)) +
+#   geom_histogram(binwidth = 2, fill = "blue", color = "black", alpha = 0.7) +
+#   labs(
+#     title = "Data Density by consumption_pd",
+#     x = "consumption_pd",
+#     y = "Data points"
+#   ) +
+#   scale_x_continuous(breaks = seq(0, max(plot_data$consumption_pd, na.rm = TRUE), by = 30)) +
+#   scale_y_continuous(labels = comma) +  # Format y-axis with commas
+#   theme_minimal()+
+#   theme(
+#     plot.title = element_text(size = 30),
+#     axis.title.x = element_text(size = 26),
+#     axis.title.y = element_text(size = 26),
+#     axis.text.x = element_text(size = 20),
+#     axis.text.y = element_text(size = 20)
+#   )
+# 
+# 
+# 
+# # Save the histogram plot
+# ggsave(
+#   filename = paste0(plot_dir, summary_file, "_consumption_density.png"),
+#   plot = p_hist_consumption,
+#   bg = "white",
+#   width = 10,             # Adjust width (in inches)
+#   height = 8,            # Adjust height (in inches)
+#   dpi = 300
+# )
 
 
 

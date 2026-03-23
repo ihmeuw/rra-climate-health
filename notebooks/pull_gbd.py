@@ -46,9 +46,8 @@ rate, however, has person-time in the denominator andtherefore accounts for time
 spent at risk, so the width of the age groupdoes not impact the magnitude of a 
 mortality rate.
 """
-df = df[df["life_table_parameter_id"] == 1]  # MX
-df["mean"].describe()  # max is 2.17
-# from the HUB, this looks like deaths per 100k person-years https://hub.ihme.washington.edu/spaces/~ermadd/pages/496927980/IHME+Glossary+updated+2026?preview=%2F496927980%2F545587771%2F1A+-+Mortality+rate+%28official%29.pptx
+df = df[df["life_table_parameter_id"] == 3]  # qx
+df["mean"].describe()
 
 neo = df[df["age_group_id"] == 42]
 cm = df[df["age_group_id"] == 1]
