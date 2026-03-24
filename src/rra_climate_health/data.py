@@ -77,19 +77,12 @@ class ClimateMalnutritionData:
                 "transform_spec": transform_spec,
             }
             # If it's spline mixed effects and the variabel is categorical, convert to category dtype for modeling
-            if (
-                model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS
-                and transform_spec.type == "categorical"
-            ):
+            if model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS and transform_spec.type == "categorical":
                 # If it's a numerical, convert to integer first
                 if pd.api.types.is_numeric_dtype(transformed_data[var]):
-                    transformed_data[var] = (
-                        transformed_data[var].astype(int).astype(str).astype("category")
-                    )
+                    transformed_data[var] = transformed_data[var].astype(int).astype(str).astype("category")
                 else:
-                    transformed_data[var] = (
-                        transformed_data[var].astype(str).astype("category")
-                    )
+                    transformed_data[var] = transformed_data[var].astype(str).astype("category")
 
         df = pd.DataFrame(transformed_data)
 
@@ -110,9 +103,10 @@ class ClimateMalnutritionData:
             if random_effect not in df:
                 df[random_effect] = raw_model_data[random_effect]
             if model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS:
-                df[random_effect] = df[random_effect].astype("category")
+                df[random_effect] = df[random_effect].astype('category')
 
         df[model_spec.measure] = raw_model_data[model_spec.measure]
+            
 
         return df, var_info
 
@@ -177,8 +171,12 @@ class ClimateMalnutritionData:
             pickle.dump(model, f)
 
         coefs_filepath = model_root / (model_filename_base + "_coefs.parquet")
+        #touch(coefs_filepath, exist_ok=True)
+        #model.coefs.to_parquet(coefs_filepath)
 
         random_effects_filepath = model_root / (model_filename_base + "_ranef.parquet")
+        #touch(random_effects_filepath, exist_ok=True)
+        #model.ranef.to_parquet(random_effects_filepath)
 
     def save_climate_lookup_table(
         self, climate_lookup_table: pd.DataFrame, version: str

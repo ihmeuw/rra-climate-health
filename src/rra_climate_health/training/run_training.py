@@ -158,31 +158,61 @@ def model_training_main(
         model = Lmer(model_spec.lmer_formula, data=df, family="binomial")
         model.fit()
         if len(model.warnings) > 0:
-            # TODO: save these to a file
+        # TODO: save these to a file
             print(model.warnings)
             msg = f"Model {model_spec} did not fit."
             raise ValueError(msg)
+        raw_df['fits'] = model.fits
+        df['fits'] = model.fits
+        no_re_pred = model.predict(model.design_matrix, use_rfx=False, verify_predictions=False)
+        raw_df['no_re_fits'] = no_re_pred
+        df['no_re_fits'] = no_re_pred
     elif model_type == ModelType.SPLINE_MIXED_EFFECTS:
-        # pandas2ri.activate()
-        scam_lib = packages.importr("scam")
-        base = packages.importr("base")
-        stats = packages.importr("stats")
-
-        # convert pandas to R dataframe
-        with localconverter(default_converter + pandas2ri.converter):
-            r_df = pandas2ri.py2rpy(df)
-
-        model = scam_lib.scam(
-            stats.as_formula(model_spec.lmer_formula),
-            data=r_df,
-            family=stats.binomial(link="logit"),
-        )
+        pandas2ri.activate()
+        scam_lib = packages.importr('scam')
+        base = packages.importr('base')
+        stats = packages.importr('stats')
+        
+        knots_dict = {}
+        for predictor in model_spec.predictors:
+            if predictor.spline is not None and predictor.spline.knots is not None:
+                knots = get_knot_values(df, predictor.name, predictor.spline.k, predictor.spline.knots)
+                print(f"Knots for {predictor.name}: {knots}")
+                knots_dict[predictor.name] = FloatVector(knots)
+        knots = ListVector(knots_dict) if len(knots_dict) > 0 else None
+        if knots is not None:
+            model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit"), knots = knots )
+        else:
+            model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit") )
         print(base.summary(model))
+        raw_df['fits'] = model.rx2('fitted.values')
+        df['fits'] = model.rx2('fitted.values')
+        no_re_pred = scam_lib.predict_scam(model, newdata=df, type="response", exclude="s(ihme_loc_id)")
+        raw_df['no_re_fits'] = no_re_pred
+        df['no_re_fits'] = no_re_pred
 
+    
     model.var_info = var_info
     model.raw_data = raw_df
     model.submodel = submodel
 
+    cm_data.save_model(model, model_version, submodel)
+
+    # Validation
+    target_measure = model_spec.measure.value
+    if year_variable not in df.columns:
+        df[year_variable] = raw_df[year_variable]
+    summary = training_validation.validate_model(df, model_spec, target_measure, year_variable)
+    summary.to_csv(cm_data.models / model_version / "validation_results.csv", index=False)
+    training_validation.update_results_file(summary, cm_data.models / "validation_results.csv", 
+                                            model_version, submodel)
+    
+    training_diagnostics.run_training_diagnostics(model, df, model_spec, cm_data, model_version, submodel, raw_df, var_info)
+
+    if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS: #TODO Temporary
+        # Only save intercept raster for full model
+        icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
+        cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
     cm_data.save_model(model, output_dir, submodel)
 
     # Create lookup tables for spline variables if applicable
@@ -293,15 +323,3 @@ def model_training(
     )
 
     print("Model training complete. Results can be found at", version_root)
-
-
-if __name__ == "__main__":
-    # Example of calling model_training_main directly
-    model_training_main(
-        output_root=Path(
-            "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition"
-        ),
-        measure="neonatal_mortality",
-        model_version="/ihme/homes/elyeb/repos/rra-climate-health/specifications/neonatal.yaml",
-        submodel=None,
-    )
