@@ -82,14 +82,18 @@ TransformSpecification: TypeAlias = (
 
 class SplineKnotSpecification(StrEnum):
     QUANTILES = "quantiles"
+    QUANTILE_UNIQUE = "quantile_unique"
     EQUAL = "equal"
     HARRELL = "harrell"
+    CUSTOM = "custom_knots"
 
 #SplineSpecification: TypeAlias = dict[str, str]
 class SplineSpecification(BaseModel):
     bs: str
     k: int | None = None
-    knots: SplineKnotSpecification | None = None
+    knot_strategy: SplineKnotSpecification | None = None
+    knots: list[float] | None = None
+
 
 # SplineSpecification: TypeAlias = dict[str, str]
 class SplineSpecification(BaseModel):

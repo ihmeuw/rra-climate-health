@@ -175,13 +175,14 @@ def model_training_main(
         
         knots_dict = {}
         for predictor in model_spec.predictors:
-            if predictor.spline is not None and predictor.spline.knots is not None:
-                knots = get_knot_values(df, predictor.name, predictor.spline.k, predictor.spline.knots)
+            if predictor.spline is not None and predictor.spline.knot_strategy is not None:
+                knots = get_knot_values(df, predictor.name, predictor.spline, var_info)
                 print(f"Knots for {predictor.name}: {knots}")
                 knots_dict[predictor.name] = FloatVector(knots)
         knots = ListVector(knots_dict) if len(knots_dict) > 0 else None
         if knots is not None:
-            model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit"), knots = knots )
+            model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, 
+                                  family = stats.binomial(link = "logit"), knots = knots )
         else:
             model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit") )
         print(base.summary(model))
@@ -191,12 +192,11 @@ def model_training_main(
         raw_df['no_re_fits'] = no_re_pred
         df['no_re_fits'] = no_re_pred
 
-    
     model.var_info = var_info
     model.raw_data = raw_df
     model.submodel = submodel
 
-    cm_data.save_model(model, model_version, submodel)
+    cm_data.save_model(model, model_version, model_spec, submodel)
 
     # Validation
     target_measure = model_spec.measure.value

@@ -10,7 +10,7 @@ from rpy2.robjects import pandas2ri, packages,  ListVector, FloatVector
 
 import pathlib
 
-from rra_climate_health.model_specification import ModelType
+from rra_climate_health.model_specification import ModelType, SplineSpecification
 from rra_climate_health.training.training_diagnostics import merge_gbd_data
 
 @dataclass
@@ -233,17 +233,21 @@ def update_results_file(summary_df: pd.DataFrame,
     print(f"Results saved to {output_path}")
 
 
-def get_knot_values(df: pd.DataFrame, variable: str, k: int, knot_spec: str) -> np.ndarray:
+def get_knot_values(df: pd.DataFrame, variable: str, spline: SplineSpecification, var_info: dict) -> np.ndarray:
+    k = spline.k
+    knot_strategy = spline.knot_strategy
     inner_knot_n = k - 4  # Number of inner knots
-    if knot_spec == 'quantiles':
+    if knot_strategy == 'quantiles':
         knot_values = np.quantile(df[variable], np.linspace(0, 1, inner_knot_n + 2)[1:-1])
         # Check for unique knot values
         if len(np.unique(knot_values)) < len(knot_values):
             # Use quantile of unique values to ensure unique knots        
             knot_values = np.quantile(df[variable].unique(), np.linspace(0, 1, inner_knot_n + 2)[1:-1])
-    elif knot_spec == 'equal':
+    elif knot_strategy == 'quantile_unique':
+        knot_values = np.quantile(df[variable].unique(), np.linspace(0, 1, inner_knot_n + 2)[1:-1])
+    elif knot_strategy == 'equal':
         knot_values = np.linspace(df[variable].min(), df[variable].max(), inner_knot_n + 2)[1:-1]
-    elif knot_spec == 'harrell':
+    elif knot_strategy == 'harrell':
         harrell_knot_values = {
             3: [0.1, 0.5, 0.9],
             4: [0.05, 0.35, 0.65, 0.95],
@@ -254,9 +258,13 @@ def get_knot_values(df: pd.DataFrame, variable: str, k: int, knot_spec: str) -> 
         if inner_knot_n not in harrell_knot_values:
             raise ValueError(f"Harrell knot specification not defined for {inner_knot_n} knots")
         knot_values = np.quantile(df[variable], harrell_knot_values[inner_knot_n])
+    elif knot_strategy == 'custom_knots':
+        if spline.knots is None:
+            raise ValueError("Custom knot strategy requires user-provided knot values.")
+        # Apply transformation
+        knot_values = var_info[variable]['transformer'](np.array([spline.knots])).flatten()
     else:
-        raise ValueError(f"Unknown knot specification: {knot_spec}")
-    
+        raise ValueError(f"Unknown knot specification: {spline.knot_strategy}")
     data_min = df[variable].min()
     data_max = df[variable].max()
     core_knots = [data_min, *knot_values, data_max]

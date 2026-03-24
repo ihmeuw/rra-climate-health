@@ -301,6 +301,7 @@ def run_training_diagnostics(model: Any,
                 transformed_knots = var_info[var.name]['transformer'].inverse_transform(knots)
             else:
                 transformed_knots = knots
+            effect_df.to_parquet(cm_data.models / model_version / f"spline_effect_{var.name}{submodel}.parquet")
             plot_scam_spline(effect_df, raw_df, var.name, knots = transformed_knots,
                             title=f"Spline Effect for {var.name} submodel {submodel}",
                             filepath=cm_data.models / model_version / f"spline_effect_{var.name}{submodel}.png")
@@ -309,6 +310,6 @@ def run_training_diagnostics(model: Any,
         model_spec.measure, f"Model vs GBD for {model_spec.measure} {model_version} {submodel}",
         filepath=cm_data.models / model_version / f"gbd_comparison.png")
 
-    plot_model_heatmaps(df, model_spec.measure, 
+    plot_model_heatmaps(raw_df, model_spec.measure, 
                         filepath=cm_data.models / model_version / f"heatmap_comparison{submodel}.png")
     
