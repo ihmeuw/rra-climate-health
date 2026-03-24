@@ -40,67 +40,43 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
-# data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data_filtered.parquet"
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/data.parquet"
-neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2025_10_24.01/neonatal_data.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2026_03_19.04/"
+neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2026_03_19.04/neonatal_data_prev_month_vars.parquet"
 
-# data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv"
-plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2025_10_24.01/"
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2025_10_24.01/"
+plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/plots/2026_03_19.04/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2026_03_19.04/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
 neonatal_dir <- paste0(results_dir,"neonatal/")
 model_objects_dir <- paste0(neonatal_dir,"model_objects/")
 dir.create(neonatal_dir, recursive = TRUE, showWarnings = FALSE)
 
-
-## Read and format data
-df <- read_parquet(data_version)
-df <- data.table(df)
-
-df[,location_id := as.integer(location_id)]
-
-climate_vars <- c(
-  "mean_temperature",
-  "total_precipitation",
-  "relative_humidity",
-  "mean_high_temperature",
-  "mean_low_temperature",
-  "precipitation_days",
-  "days_over_30C",
-  "days_over_26C",
-  "any_days_over_30C"
-)
-cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
-df_model <- df[, ..cols]
-df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
-df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
-
-
-df_model <- data.table(df_model)
-
 # Read in neonatal df 
 neo_df <- read_parquet(neo_version)
 neo_df <- data.table(neo_df)
 
 neo_df[,ihme_loc_id:=as.factor(ihme_loc_id)]
-neo_df[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
+# convert sex_id to int between 0 and 1, where 0 is male and 1 is female
+neo_df[,sex_id := as.integer(sex_id)]
+neo_df[,sex_id := sex_id-1]
+neo_df[,days_over_30C_prev_0_mo:=as.integer(days_over_30C_prev_0_mo)]
 neo_df[,birth_year:=as.factor(birth_year)]
+
 
 ## Read and format data
 
 climate_vars <- c(
   "mean_temperature",
   "total_precipitation",
-  "relative_humidity",
-  "mean_high_temperature",
-  "mean_low_temperature",
-  "precipitation_days",
-  "days_over_30C",
-  "days_over_26C",
-  "any_days_over_30C"
+  # "relative_humidity",
+  # "mean_high_temperature",
+  # "mean_low_temperature",
+  # "precipitation_days",
+  "days_over_30C"
+  # "days_over_26C",
+  # "any_days_over_30C"
 )
-cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year","int_birth_year_diff_months", climate_vars)
+cols <- c("indv_id","child_mortality", "age_month", "sex_id", "ihme_loc_id", "consumption","consumption_pd","birth_year",climate_vars) #"int_birth_year_diff_months", 
 df_model_neo <- neo_df[, ..cols]
 
 #==============================================================================
@@ -110,33 +86,139 @@ df_model_neo <- neo_df[, ..cols]
 
 ## Read in and print model summaries from successful runs:
 
+# 3/23/2026
+summary_file <- "cm_mgcv_cubic_knots"
+model = readRDS(file = paste0(results_dir, summary_file,".rds"))
+plot(model, pages=1,residuals = FALSE, pch = 1, cex = 1)
+
+# Plot spline vars in isolation
+spline_plot_path <- paste0(plot_dir,summary_file,"/")
+dir.create(spline_plot_path, recursive = TRUE, showWarnings = FALSE)
+
+# 1: consumption_pd
+plot_range <- seq(min(df_model$consumption_pd), max(df_model$consumption_pd), length.out = 200)
+
+# Build a prediction data frame
+p_data <- data.frame(
+  consumption_pd = plot_range,
+  days_over_30C = mean(df_model$days_over_30C),
+  total_precipitation = mean(df_model$total_precipitation),
+  sex_id = df_model$sex_id[1],
+  birth_year = df_model$birth_year[1],
+  ihme_loc_id = df_model$ihme_loc_id[1],
+  age_month_at_year_end = mean(df_model$age_month_at_year_end)
+)
+
+# Predict the specific "Term" (the spline)
+p_raw <- predict(model, newdata = p_data, type = "terms", se.fit = TRUE)
+
+# Extract the column corresponding to your spline, e.g., "s(x1)"
+p_data$fit <- p_raw$fit[, "s(consumption_pd)"]
+p_data$se  <- p_raw$se.fit[, "s(consumption_pd)"]
+
+p <- ggplot(p_data, aes(x = consumption_pd, y = fit)) +
+  geom_ribbon(aes(ymin = fit - 1.96 * se, ymax = fit + 1.96 * se), 
+              fill = "grey", alpha = 0.4) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  labs(
+    title = "Partial Effect of s(consumption_pd)",
+    x = "consumption_pd",
+    y = "Contribution to Link Function"
+  ) +
+  theme_minimal()+
+  theme(
+    plot.title = element_text(size = 20, face = "bold"), 
+    axis.title = element_text(size = 16),               
+    axis.text = element_text(size = 12),               
+  )
+ggsave(
+  filename = paste0(summary_file,"_consumption_pd_spline.png"), 
+  plot = p,
+  device = "png",
+  path = paste0(plot_dir,summary_file,"/"), 
+  width = 10, 
+  height = 7, 
+  units = "in",
+  dpi = 300 
+)
+
+# 2: days_over_30C
+plot_range <- seq(min(df_model$days_over_30C), max(df_model$days_over_30C), length.out = 365)
+
+# Build a prediction data frame
+p_data <- data.frame(
+  consumption_pd = mean(df_model$consumption_pd),
+  days_over_30C = plot_range,
+  total_precipitation = mean(df_model$total_precipitation),
+  sex_id = df_model$sex_id[1],
+  birth_year = df_model$birth_year[1],
+  ihme_loc_id = df_model$ihme_loc_id[1],
+  age_month_at_year_end = mean(df_model$age_month_at_year_end)
+)
+
+# Predict the specific "Term" (the spline)
+p_raw <- predict(model, newdata = p_data, type = "terms", se.fit = TRUE)
+
+# Extract the column corresponding to your spline, e.g., "s(x1)"
+p_data$fit <- p_raw$fit[, "s(days_over_30C)"]
+p_data$se  <- p_raw$se.fit[, "s(days_over_30C)"]
+
+p <- ggplot(p_data, aes(x = days_over_30C, y = fit)) +
+  geom_ribbon(aes(ymin = fit - 1.96 * se, ymax = fit + 1.96 * se), 
+              fill = "grey", alpha = 0.4) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  labs(
+    title = "Partial Effect of s(days_over_30C)",
+    x = "days_over_30C",
+    y = "Contribution to Link Function"
+  ) +
+  theme_minimal()+
+  theme(
+    plot.title = element_text(size = 20, face = "bold"), 
+    axis.title = element_text(size = 16),               
+    axis.text = element_text(size = 12),               
+  )
+ggsave(
+  filename = paste0(summary_file,"_do30_spline.png"), 
+  plot = p,
+  device = "png",
+  path = paste0(plot_dir,summary_file,"/"), 
+  width = 10, 
+  height = 7, 
+  units = "in",
+  dpi = 300 
+)
+
+
 # 11/18 - predict neonatal model on mean values for birth year, precipitation, sex_id
 # after birth_year has been factored
-summary_file <- "cm_v7_factored_birth_year"
-model_object_file <- "nm_v7_factored_yr"
-model = readRDS(file = paste0(model_objects_dir, model_object_file,".rds"))
-df_avg <- copy(df_model_neo)
-
-setDT(df_avg)
-# override existing variables to be able to use predict function from package
-df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0), 
-                              levels = levels(df_model_neo$birth_year))]
-
-# note that data is coded as 1=male, 2=female
-df_avg[,sex_id:=df_model_neo$sex_id[100]]
-# df_avg[,sex_id:= mean(as.numeric(df_avg$sex_id))-1]
-
-df_avg[,total_precipitation:= mean(df_avg$total_precipitation)]
-
-# Predict WITHOUT random effects (fixed effects only)
-df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)
-
-
-# Predict WITH random effects (mixed effects)
-df_avg$pred_me <- predict(model, newdata = df_avg, type = "response", re.form = NULL)
-
-# Save predictions to parquet
-write_parquet(df_avg, paste0(neonatal_dir, "predictions_", summary_file, ".parquet"))
+# summary_file <- "cm_v7_factored_birth_year"
+# model_object_file <- "nm_v7_factored_yr"
+# model = readRDS(file = paste0(model_objects_dir, model_object_file,".rds"))
+# df_avg <- copy(df_model_neo)
+# 
+# setDT(df_avg)
+# # override existing variables to be able to use predict function from package
+# df_avg[, birth_year := factor(round(mean(as.numeric(as.character(birth_year))), 0), 
+#                               levels = levels(df_model_neo$birth_year))]
+# 
+# # note that data is coded as 1=male, 2=female
+# df_avg[,sex_id:=df_model_neo$sex_id[100]]
+# # df_avg[,sex_id:= mean(as.numeric(df_avg$sex_id))-1]
+# 
+# df_avg[,total_precipitation:= mean(df_avg$total_precipitation)]
+# 
+# # Predict WITHOUT random effects (fixed effects only)
+# df_avg$pred_fe <- predict(model, newdata = df_avg, type = "response", re.form = NA)
+# 
+# 
+# # Predict WITH random effects (mixed effects)
+# df_avg$pred_me <- predict(model, newdata = df_avg, type = "response", re.form = NULL)
+# 
+# # Save predictions to parquet
+# write_parquet(df_avg, paste0(neonatal_dir, "predictions_", summary_file, ".parquet"))
 
 
 # 10/30 - predict models on mean values for birth year, precipitation, sex_id

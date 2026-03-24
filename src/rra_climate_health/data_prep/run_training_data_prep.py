@@ -3665,7 +3665,7 @@ def run_training_data_prep_neonatal(
     )
 
     ## 9. Calculate averages over time periods analyzed for monthly relative climate thresholds
-    for v in [75, 8, 85, 9, 95, 99]:
+    for v in tqdm([75, 8, 85, 9, 95, 99]):
         for i in [3, 6, 9]:
             prev_vars = get_prev_climate_threshold_months(v, i)
             df_min_age_updated[f"q{v}_prev_{i}_mo_avg"] = df_min_age_updated[
@@ -3732,12 +3732,12 @@ def run_training_data_prep_neonatal(
         "q99_prev_3_mo_avg",
         "q99_prev_6_mo_avg",
         "q99_prev_9_mo_avg",
-        "zone",
+        # "zone",
     ]
     df_min_age_final = df_min_age_final.dropna(subset=new_vars)
 
     # save final version
-    df_min_age_final.to_parquet(Path(output_path_version) / "neonatal_data.parquet")
+    df_min_age_final.to_parquet(Path(output_path_version) / "data.parquet")
 
 
 @click.command()  # type: ignore[arg-type]

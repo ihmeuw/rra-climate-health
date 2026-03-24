@@ -47,10 +47,10 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_v7_factored_birth_year"
+summary_file <- "birth_year_child_mortality"
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_02_27.01/data.parquet"
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_02_27.01/"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_03_23.01/child_mortality_with_wealth.parquet"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_03_23.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
 
@@ -61,7 +61,7 @@ dir.create(model_summary_dir, recursive = TRUE, showWarnings = FALSE)
 df <- read_parquet(data_version)
 df <- data.table(df)
 
-df[,location_id := as.integer(location_id)]
+# df[,location_id := as.integer(location_id)]
 
 climate_vars <- c(
   "mean_temperature",
