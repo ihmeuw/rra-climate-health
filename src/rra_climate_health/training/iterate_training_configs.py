@@ -1,13 +1,16 @@
 """
-Overview of iteration possibilities for neonatal mortality models:
-- days_over_xC_prev_0_mo for x 24 through 32 -> "absolute thresholds, birth_month"
-- days_over_xC_prev_y_mo_avg for x 24 through 32 and y in 3,6,9 -> "absolute thresholds, prev_month_avgs"
-- qx_prev_0_mo for x in 75,8,85,9,95 -> "relative thresholds, birth_month"
-- qx_prev_y_mo_avg for x in 75,8,85,9,95 and y in 3,6,9 -> "relative thresholds, prev_month_avgs"
-- mean_temperature_prev_0_mo and mean_temperature_prev_y_mo_avg for y in 3,6,9 -> "mean temp"
+Overview of iterations tested for neonatal mortality models:
+Climate variables:
+- Absolute thresholds: days_over_xC_prev_0_mo and days_over_xC_prev_3_mo_avg for x in 28, 30, 32
+- Relative thresholds: q{x}_prev_0_mo and q{x}_prev_3_mo_avg for x in 8, 85, 9, 95, 99
+Time horizons:
+- t=0 (birth month) and t=3 (3-month average)
 Other iterations:
-- with and without total_precipitation_prev_0_mo or total_precipitation_prev_y_mo_avg for corresponding y
-- knots k in 4,6,8, 10, 12
+- With and without total_precipitation_prev_0_mo or total_precipitation_prev_3_mo_avg
+- Knots k in 6, 9, 12
+- Knot strategies: "quantiles" and "equal"
+
+Total number of models run = 192
 
 """
 

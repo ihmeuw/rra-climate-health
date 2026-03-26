@@ -220,11 +220,14 @@ def plot_gbd_comparison(
 
 
 def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figure:  # type: ignore[name-defined]
+
     import seaborn as sns
     import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
 
-    threshold_varname = next((x for x in df.columns if x.startswith("days_over")), None)
+    threshold_varname = next(
+        (x for x in df.columns if (x.startswith("days_over")) | x.startswith("q")), None
+    )
     if not threshold_varname:
         error_message = "No threshold variable found"
         raise ValueError(error_message)
@@ -234,11 +237,14 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
     axislabel_size = 18
     paneltitle_size = 18
 
-    df["over_30"], o30_bins = pd.qcut(
+    df[threshold_varname], o30_bins = pd.qcut(
         df.loc[df[threshold_varname] > 0, threshold_varname], 8, retbins=True
     )
     o30_bins = [0] + o30_bins
-    df["ldi"], ldi_bins = pd.qcut(df.ldi_pc_pd, 10, retbins=True)
+    if measure == "neonatal_mortality":
+        df["ldi"], ldi_bins = pd.qcut(df["consumption_pd"], 10, retbins=True)
+    else:
+        df["ldi"], ldi_bins = pd.qcut(df.ldi_pc_pd, 10, retbins=True)
 
     x_ticks = range(len(o30_bins))
     x_labs = [f"{x:.1f}" for x in o30_bins]
@@ -253,6 +259,7 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
         "underweight": 0.40,
         "anemia": 0.7,
         "lbw": 0.25,
+        "neonatal_mortality": 70,
     }
     vmax = vmax_dict[measure]
     colorbin_interval = (vmax - vmin) / 10
@@ -260,10 +267,15 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
     cmap = plt.get_cmap("RdYlBu_r", len(boundaries) - 1)
     norm = mcolors.BoundaryNorm(boundaries, cmap.N, clip=True)
 
+    if measure == "neonatal_mortality":
+        df[measure] = df[measure] * 1000  # convert to per 1000 live births
+        df["fits"] = df["fits"] * 1000
+        df["no_re_fits"] = df["no_re_fits"] * 1000
+
     fig, axes = plt.subplots(figsize=(24, 8), ncols=3)
 
     sns.heatmap(
-        df.groupby(["ldi", "over_30"])[measure].mean().unstack(),
+        df.groupby(["ldi", threshold_varname])[measure].mean().unstack(),
         ax=axes[0],
         annot=True,
         fmt=".2f",
@@ -278,7 +290,7 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
     axes[0].set_title("Data", size=paneltitle_size)
 
     sns.heatmap(
-        df.groupby(["ldi", "over_30"]).fits.mean().unstack(),
+        df.groupby(["ldi", threshold_varname]).fits.mean().unstack(),
         ax=axes[1],
         annot=True,
         fmt=".2f",
@@ -293,7 +305,7 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
     axes[1].set_title("With location random effects", size=paneltitle_size)
 
     sns.heatmap(
-        df.groupby(["ldi", "over_30"]).no_re_fits.mean().unstack(),
+        df.groupby(["ldi", threshold_varname]).no_re_fits.mean().unstack(),
         ax=axes[2],
         annot=True,
         fmt=".2f",
@@ -397,6 +409,9 @@ def run_training_diagnostics(
                 / f"spline_effect_{var.name}{submodel}.png",
             )
 
+    # save predictions to raw data:
+    raw_df.to_parquet(cm_data.models / model_version / f"predictions{submodel}.parquet")
+
     plot_gbd_comparison(
         merge_gbd_data(model_spec.measure, raw_df),
         model_spec.measure,
@@ -404,8 +419,8 @@ def run_training_diagnostics(
         filepath=cm_data.models / model_version / f"gbd_comparison.png",
     )
 
-    # plot_model_heatmaps(
-    #     raw_df,
-    #     model_spec.measure,
-    #     filepath=cm_data.models / model_version / f"heatmap_comparison{submodel}.png",
-    # )
+    plot_model_heatmaps(
+        raw_df,
+        model_spec.measure,
+        filepath=cm_data.models / model_version / f"heatmap_comparison{submodel}.png",
+    )
