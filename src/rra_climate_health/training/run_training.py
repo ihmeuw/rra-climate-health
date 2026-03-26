@@ -5,6 +5,7 @@ from typing import Any
 
 import click
 import pandas as pd
+import numpy as np
 import rasterra as rt
 from pymer4.models.Lmer import Lmer
 
@@ -32,7 +33,7 @@ def create_spline_lookup(
     model_obj,
     model_spec,
     lookup_var: str,
-    full_df: pd.DataFrame = df.copy(),
+    full_df: pd.DataFrame,
     num_points: int = 1000,
 ) -> pd.DataFrame:
     """
@@ -124,7 +125,13 @@ def model_training_main(
             retyped_value = full_training_data[var].dtype.type(value)
             subset_mask = (full_training_data[var] == retyped_value) & subset_mask
 
-    year_variable = utils.get_year_variable(full_training_data)
+    year_variables = [
+        v for v in model_spec.raw_variables if re.search("year", v, re.IGNORECASE)
+    ]
+    if len(year_variables) == 1:
+        year_variable = year_variables[0]
+    else:
+        year_variable = utils.get_year_variable(full_training_data)
     columns_to_keep = model_spec.raw_variables
     if year_variable not in columns_to_keep:
         columns_to_keep.append(year_variable)
@@ -158,39 +165,59 @@ def model_training_main(
         model = Lmer(model_spec.lmer_formula, data=df, family="binomial")
         model.fit()
         if len(model.warnings) > 0:
-        # TODO: save these to a file
+            # TODO: save these to a file
             print(model.warnings)
             msg = f"Model {model_spec} did not fit."
             raise ValueError(msg)
-        raw_df['fits'] = model.fits
-        df['fits'] = model.fits
-        no_re_pred = model.predict(model.design_matrix, use_rfx=False, verify_predictions=False)
-        raw_df['no_re_fits'] = no_re_pred
-        df['no_re_fits'] = no_re_pred
+        raw_df["fits"] = model.fits
+        df["fits"] = model.fits
+        no_re_pred = model.predict(
+            model.design_matrix, use_rfx=False, verify_predictions=False
+        )
+        raw_df["no_re_fits"] = no_re_pred
+        df["no_re_fits"] = no_re_pred
     elif model_type == ModelType.SPLINE_MIXED_EFFECTS:
-        pandas2ri.activate()
-        scam_lib = packages.importr('scam')
-        base = packages.importr('base')
-        stats = packages.importr('stats')
-        
+        scam_lib = packages.importr("scam")
+        base = packages.importr("base")
+        stats = packages.importr("stats")
+        # pandas2ri.activate()
+        with localconverter(default_converter + pandas2ri.converter):
+            r_df = pandas2ri.py2rpy(df)
+
         knots_dict = {}
         for predictor in model_spec.predictors:
-            if predictor.spline is not None and predictor.spline.knot_strategy is not None:
+            if (
+                predictor.spline is not None
+                and predictor.spline.knot_strategy is not None
+            ):
                 knots = get_knot_values(df, predictor.name, predictor.spline, var_info)
                 print(f"Knots for {predictor.name}: {knots}")
-                knots_dict[predictor.name] = FloatVector(knots)
+                knots_dict[predictor.name] = FloatVector(list(knots))
         knots = ListVector(knots_dict) if len(knots_dict) > 0 else None
         if knots is not None:
-            model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, 
-                                  family = stats.binomial(link = "logit"), knots = knots )
+            model = scam_lib.scam(
+                stats.as_formula(model_spec.lmer_formula),
+                data=r_df,
+                family=stats.binomial(link="logit"),
+                knots=knots,
+            )
         else:
-            model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit") )
+            model = scam_lib.scam(
+                stats.as_formula(model_spec.lmer_formula),
+                data=r_df,
+                family=stats.binomial(link="logit"),
+            )
         print(base.summary(model))
-        raw_df['fits'] = model.rx2('fitted.values')
-        df['fits'] = model.rx2('fitted.values')
-        no_re_pred = scam_lib.predict_scam(model, newdata=df, type="response", exclude="s(ihme_loc_id)")
-        raw_df['no_re_fits'] = no_re_pred
-        df['no_re_fits'] = no_re_pred
+        fits = np.array(model.rx2("fitted.values"))
+        raw_df["fits"] = fits
+        df["fits"] = fits
+
+        no_re_pred = scam_lib.predict_scam(
+            model, newdata=r_df, type="response", exclude="s(ihme_loc_id)"
+        )
+        no_re_pred = np.array(no_re_pred)
+        raw_df["no_re_fits"] = no_re_pred
+        df["no_re_fits"] = no_re_pred
 
     model.var_info = var_info
     model.raw_data = raw_df
@@ -202,17 +229,26 @@ def model_training_main(
     target_measure = model_spec.measure.value
     if year_variable not in df.columns:
         df[year_variable] = raw_df[year_variable]
-    summary = training_validation.validate_model(df, model_spec, target_measure, year_variable)
-    summary.to_csv(cm_data.models / model_version / "validation_results.csv", index=False)
-    training_validation.update_results_file(summary, cm_data.models / "validation_results.csv", 
-                                            model_version, submodel)
-    
-    training_diagnostics.run_training_diagnostics(model, df, model_spec, cm_data, model_version, submodel, raw_df, var_info)
+    summary = training_validation.validate_model(
+        df, model_spec, target_measure, year_variable, var_info
+    )
+    summary.to_csv(
+        cm_data.models / model_version / "validation_results.csv", index=False
+    )
+    training_validation.update_results_file(
+        summary, cm_data.models / "validation_results.csv", model_version, submodel
+    )
 
-    if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS: #TODO Temporary
+    training_diagnostics.run_training_diagnostics(
+        model, df, model_spec, cm_data, model_version, submodel, raw_df, var_info
+    )
+
+    if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS:  # TODO Temporary
         # Only save intercept raster for full model
-        icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
-        cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
+        icept_raster = utils.get_intercept_raster(
+            model_spec, model.coefs, model.ranef, cm_data
+        )
+        cm_data.save_rasterized_intercept(model_version, icept_raster, predictor=1)
     cm_data.save_model(model, output_dir, submodel)
 
     # Create lookup tables for spline variables if applicable
@@ -314,8 +350,8 @@ def model_training(
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "60Gb",
-            "runtime": "4h",
+            "memory": "100Gb",
+            "runtime": "12h",
             "project": "proj_rapidresponse",
         },
         max_attempts=1,

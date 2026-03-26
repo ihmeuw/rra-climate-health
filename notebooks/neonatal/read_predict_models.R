@@ -40,16 +40,13 @@ options(scipen = 999) # turn off scientific notation
 # SECTION 1: DATA LOADING AND PREPROCESSING
 #==============================================================================
 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2026_03_19.04/"
 neo_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/2026_03_19.04/neonatal_data_prev_month_vars.parquet"
 
 plot_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/plots/2026_03_19.04/"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2026_03_19.04/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
-neonatal_dir <- paste0(results_dir,"neonatal/")
-model_objects_dir <- paste0(neonatal_dir,"model_objects/")
-dir.create(neonatal_dir, recursive = TRUE, showWarnings = FALSE)
+model_objects_dir <- paste0(results_dir,"model_objects/")
 
 # Read in neonatal df 
 neo_df <- read_parquet(neo_version)
@@ -86,10 +83,9 @@ df_model_neo <- neo_df[, ..cols]
 
 ## Read in and print model summaries from successful runs:
 
-# 3/23/2026
-summary_file <- "cm_mgcv_cubic_knots"
-model = readRDS(file = paste0(results_dir, summary_file,".rds"))
-plot(model, pages=1,residuals = FALSE, pch = 1, cex = 1)
+# 3/25/2026
+summary_file <- "nnm_1_mo_do30_scam_summary"
+model = readRDS(file = paste0(model_objects_dir, summary_file,".rds"))
 
 # Plot spline vars in isolation
 spline_plot_path <- paste0(plot_dir,summary_file,"/")

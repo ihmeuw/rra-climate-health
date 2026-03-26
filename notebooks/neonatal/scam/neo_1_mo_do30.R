@@ -139,7 +139,6 @@ saveRDS(model, file = paste0(model_objects_dir, summary_file,".rds"))
 
 # Read model back in
 # model = readRDS(file = paste0(model_objects_dir, summary_file,".rds"))
-
 summary(model)
 
 # Extract random effects 

@@ -1,9 +1,9 @@
 model_type: "scam"
 version:
-  model: "2026_02_04.01"
-  training_data: "2025_12_16.01"  
+  model: "2026_03_24.01"
+  training_data: "2026_03_19.04"  
 
-measure: "child_mortality"  
+measure: "neonatal_mortality"  
 holdout:
   type: "no_holdout" 
 predictors:

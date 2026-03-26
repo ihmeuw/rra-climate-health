@@ -52,5 +52,12 @@ df["mean"].describe()
 neo = df[df["age_group_id"] == 42]
 cm = df[df["age_group_id"] == 1]
 
+neo = neo[neo["sex_id"].isin([1, 2])]
+neo["sex_id"] = neo["sex_id"].astype(str)
+neo.rename(columns={"mean": "gbd_mean_prevalence"}, inplace=True)
+cm = cm[cm["sex_id"].isin([1, 2])]
+cm["sex_id"] = cm["sex_id"].astype(str)
+cm.rename(columns={"mean": "gbd_mean_prevalence"}, inplace=True)
+
 neo.to_parquet(os.path.join(OUTPATH, "neonatal_mortality.parquet"))
 cm.to_parquet(os.path.join(OUTPATH, "child_mortality.parquet"))

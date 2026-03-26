@@ -3368,7 +3368,7 @@ def run_training_data_prep_neonatal(
     # child_mortality to 0, and child_alive to 1. This should get true neonatal
     # mortality for all individuals.
     df_min_age.loc[df_min_age.age_month > 1, "child_alive"] = 1
-    df_min_age.loc[df_min_age.age_month > 1, "child_mortality"] = 0
+    df_min_age.loc[df_min_age.age_month > 1, "neonatal_mortality"] = 0
     df_min_age.loc[df_min_age.age_month > 0, "age_month"] = 0
 
     # make version of consumption that is per day

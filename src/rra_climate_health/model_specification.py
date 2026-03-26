@@ -5,9 +5,11 @@ from typing import Literal, TypeAlias, Any
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
+
 class ModelType(StrEnum):
     LINEAR_MIXED_EFFECTS = "lmer"
     SPLINE_MIXED_EFFECTS = "scam"
+
 
 class ModelType(StrEnum):
     LINEAR_MIXED_EFFECTS = "lmer"
@@ -80,6 +82,7 @@ TransformSpecification: TypeAlias = (
     | CategoricalSpecification
 )
 
+
 class SplineKnotSpecification(StrEnum):
     QUANTILES = "quantiles"
     QUANTILE_UNIQUE = "quantile_unique"
@@ -87,7 +90,8 @@ class SplineKnotSpecification(StrEnum):
     HARRELL = "harrell"
     CUSTOM = "custom_knots"
 
-#SplineSpecification: TypeAlias = dict[str, str]
+
+# SplineSpecification: TypeAlias = dict[str, str]
 class SplineSpecification(BaseModel):
     bs: str
     k: int | None = None
@@ -109,6 +113,7 @@ class OutcomeVariable(StrEnum):
     ANEMIA = "anemia"
     LOW_BIRTH_WEIGHT = "lbw"
     CHILD_MORTALITY = "child_mortality"
+    NEONATAL_MORTALITY = "child_mortality"
 
 
 class PredictorSpecification(BaseModel):
@@ -288,8 +293,8 @@ class ModelSpecification(BaseModel):
                 assert self.model_type == ModelType.SPLINE_MIXED_EFFECTS
                 keywords = f', bs="{predictor.spline.bs}"'
                 if predictor.spline.k is not None:
-                    keywords += f', k={predictor.spline.k}'
-                #keywords = ", ".join(f'{k}="{v}"' for k, v in predictor.spline.items())
+                    keywords += f", k={predictor.spline.k}"
+                # keywords = ", ".join(f'{k}="{v}"' for k, v in predictor.spline.items())
                 spline_repr = f"s({predictor_repr} {keywords})"
                 formula += f" {spline_repr} +"
             else:
