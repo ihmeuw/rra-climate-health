@@ -1,7 +1,7 @@
 model_type: "scam"
 version:
-  model: "2026_03_24.01"
-  training_data: "2026_03_19.04"  
+  model: "2026_03_25.01"
+  training_data: "2026_03_19.05"  
 
 measure: "neonatal_mortality"  
 holdout:
@@ -24,5 +24,3 @@ predictors:
     transform:
       type: 'categorical'
   - name: "birth_year"
-    transform:
-      type: 'categorical'
