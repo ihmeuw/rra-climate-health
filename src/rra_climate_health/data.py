@@ -642,10 +642,11 @@ def save_raster(
 
 
 def extract_fixed_effects_from_scam(model):
-    pandas2ri.deactivate()
+    # pandas2ri.deactivate()
+    base = packages.importr("base")
 
     # 1. Get the model summary
-    base = ro.baseenv["summary"]
+    # base = ro.baseenv["summary"]
     model_summary = base(model)
 
     # 2. Extract the parametric table (p.table)
@@ -653,8 +654,9 @@ def extract_fixed_effects_from_scam(model):
 
     # 3. Safely extract the row names directly from the p.table
     # This avoids slicing the full coefficients list and sidesteps NULLType vector names
-    rownames_func = ro.baseenv["rownames"]
-    p_table_names = list(rownames_func(p_table))
+    # rownames_func = ro.baseenv["rownames"]
+    # p_table_names = list(rownames_func(p_table))
+    p_table_names = list(base.rownames(p_table))
 
     # 4. Convert the matrix to a numpy array for pandas
     p_table_values = np.array(p_table)
@@ -674,7 +676,7 @@ def extract_random_effects_from_scam(model, random_effect_name="ihme_loc_id"):
     # Deactivate pandas2ri to work with raw R objects without conversion issues
     base = packages.importr("base")
     stats = packages.importr("stats")
-    pandas2ri.deactivate()
+    # pandas2ri.deactivate()
     # We need to get the categorical levels to build the random effects table
     m_frame = model.rx2("model")
     loc_column = m_frame.rx2(random_effect_name)
