@@ -2,10 +2,17 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
-
+import pickle
 
 model_summary_file = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/models/2026_03_29.01/zzz_logs/2026_03_29_09_17_12/output/18304496/training_task_template_measure-neonatal_mortality.o18304496_1"
 plot_loc = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2026_03_29.01/plots/"
+linear_model_file = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/models/2026_03_29.08/base_model.pkl"
+linear_model_coefs = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/models/2026_03_29.08/base_model_coefs.parquet"
+
+coefs = pd.read_parquet(linear_model_coefs)
+with open(linear_model_file, "rb") as f:
+    linear_model = pickle.load(f)
+
 os.makedirs(plot_loc, exist_ok=True)
 
 year_df = pd.DataFrame(columns=["year", "coef", "std_err", "z_value", "p_value"])
