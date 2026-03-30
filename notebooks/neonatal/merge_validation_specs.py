@@ -6,7 +6,7 @@ import re
 from rra_climate_health.data import DEFAULT_ROOT
 
 output_root = Path(DEFAULT_ROOT)
-RESULTS_ROOT = output_root / "neonatal_mortality" / "models"
+RESULTS_ROOT = output_root / "neonatal_mortality" / "models"  # "spec_v2" /
 validation_results = pd.read_csv(Path(RESULTS_ROOT) / "validation_results.csv")
 
 

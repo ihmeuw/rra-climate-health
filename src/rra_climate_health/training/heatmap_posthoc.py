@@ -4,22 +4,17 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pickle
 import numpy as np
+from pathlib import Path
+import os
 
-ex_df = pd.read_parquet(
-    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/2026_03_19.04/predictions_nnm_1_mo_do30_scam_summarywith_psu.parquet"
+RESULTS_ROOT = Path(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/results/"
 )
 
-"""
-df = ex_df.copy()
-measure = "neonatal_mortality"
-df.rename(columns={"child_mortality":"neonatal_mortality"},inplace=True)
-df.rename(columns={"pred_fe":"no_re_fits"},inplace=True)
-df.rename(columns={"pred_me":"fits"},inplace=True)
-"""
 
+def plot_model_heatmaps(data: pd.DataFrame, measure: str, filepath: str = None) -> plt.Figure:  # type: ignore[name-defined]
 
-def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figure:  # type: ignore[name-defined]
-
+    df = data.copy()
     import seaborn as sns
     import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
@@ -58,7 +53,7 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
         "underweight": 0.40,
         "anemia": 0.7,
         "lbw": 0.25,
-        "neonatal_mortality": 70,
+        "neonatal_mortality": 45,
     }
     vmax = vmax_dict[measure]
     colorbin_interval = (vmax - vmin) / 10
@@ -168,3 +163,23 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
         fig.savefig(filepath, dpi=300)
     else:
         fig.show()
+
+
+# raw_df = pd.read_parquet(
+#     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/models/2026_03_26.02/predictions.parquet"
+# )
+measure = "neonatal_mortality"
+
+for d in os.listdir(RESULTS_ROOT):
+    if d.startswith("2026_03_27"):
+
+        if "predictions.parquet" in os.listdir(RESULTS_ROOT / d):
+            infile = RESULTS_ROOT / d / "predictions.parquet"
+            outfile = RESULTS_ROOT / d / "heatmap_comparison_updated.png"
+            raw_df = pd.read_parquet(infile)
+
+            plot_model_heatmaps(
+                raw_df,
+                measure,
+                filepath=outfile,
+            )

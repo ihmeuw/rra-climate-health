@@ -331,11 +331,11 @@ def get_knot_values(
             df[variable], np.linspace(0, 1, inner_knot_n + 2)[1:-1]
         )
         # Check for unique knot values
-        if len(np.unique(knot_values)) < len(knot_values):
-            # Use quantile of unique values to ensure unique knots
-            knot_values = np.quantile(
-                df[variable].unique(), np.linspace(0, 1, inner_knot_n + 2)[1:-1]
-            )
+        # if len(np.unique(knot_values)) < len(knot_values):
+        #     # Use quantile of unique values to ensure unique knots
+        #     knot_values = np.quantile(
+        #         df[variable].unique(), np.linspace(0, 1, inner_knot_n + 2)[1:-1]
+        #     )
     elif knot_strategy == "quantile_unique":
         knot_values = np.quantile(
             df[variable].unique(), np.linspace(0, 1, inner_knot_n + 2)[1:-1]

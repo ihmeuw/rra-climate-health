@@ -259,7 +259,7 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
         "underweight": 0.40,
         "anemia": 0.7,
         "lbw": 0.25,
-        "neonatal_mortality": 70,
+        "neonatal_mortality": 45,
     }
     vmax = vmax_dict[measure]
     colorbin_interval = (vmax - vmin) / 10

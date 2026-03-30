@@ -33,14 +33,16 @@ from rra_climate_health.model_specification import (
 from rra_climate_health.transforms import transform_column
 from rra_climate_health import utils
 import copy
+import os
 
 specification_filepath = Path(
     "/ihme/homes/elyeb/repos/rra-climate-health/specifications"
 )
-base_spec = "neonatal_sensitivity.yaml"
+base_spec = "neonatal_sensitivity_2.yaml"
 
 measure = "neonatal_mortality"
-output_root = Path(DEFAULT_ROOT)
+output_root = Path(DEFAULT_ROOT) / "spec_v2"
+os.makedirs(output_root, exist_ok=True)
 queue = "all.q"
 model_versions = []
 node_args = dict()
@@ -52,6 +54,8 @@ print("Using model specification:", model_specification_path)
 base_model_spec = ModelSpecification.from_yaml(model_specification_path)
 
 measure_root = Path(output_root) / measure
+os.makedirs(measure_root, exist_ok=True)
+os.makedirs(Path(output_root) / measure / "models", exist_ok=True)
 cm_data = ClimateMalnutritionData(measure_root)
 
 
@@ -64,6 +68,12 @@ def build_model_spec(
     model_specification_path: Path,
     base_model_spec: ModelSpecification,
 ) -> ModelSpecification:
+
+    # custom knots only applies to consumption:
+    if s == "custom_knots":
+        s_climate = "quantiles"
+    else:
+        s_climate = s
     model_spec = ModelSpecification.from_yaml(model_specification_path)
 
     other_predictors = [
@@ -86,7 +96,7 @@ def build_model_spec(
     )
     new_pred.name = climate_var
     new_pred.spline.k = k
-    new_pred.spline.knot_strategy = s
+    new_pred.spline.knot_strategy = s_climate
     model_spec.predictors.append(new_pred)
 
     # Add precip if applicable
@@ -107,6 +117,9 @@ def build_model_spec(
     )
     new_pred.spline.k = k
     new_pred.spline.knot_strategy = s
+    if s == "custom_knots":
+        new_pred.spline.knots = [2, 5, 10, 20, 40]
+        new_pred.spline.k = 9
     model_spec.predictors.append(new_pred)
 
     return model_spec
@@ -114,7 +127,7 @@ def build_model_spec(
 
 for k in [6, 9, 12]:
     # number of knots
-    for strategy in ["quantiles", "equal"]:
+    for strategy in ["quantiles", "equal", "custom_knots"]:
         # knot_stragey
         for precip in [True, False]:
             # with or without precipitation
@@ -159,7 +172,7 @@ for k in [6, 9, 12]:
                             )
 
                     else:
-                        for threshold in [95, 8, 85, 9, 99]:  # 75,
+                        for threshold in [95, 9, 99]:  # 75,
                             if t == 0:
                                 climate_var = f"q{threshold}_prev_{t}_mo"
                                 if precip:
