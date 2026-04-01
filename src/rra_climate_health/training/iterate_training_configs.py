@@ -1,16 +1,14 @@
 """
 Overview of iterations tested for neonatal mortality models:
 Climate variables:
-- Absolute thresholds: days_over_xC_prev_0_mo and days_over_xC_prev_3_mo_avg for x in 28, 30, 32
-- Relative thresholds: q{x}_prev_0_mo and q{x}_prev_3_mo_avg for x in 8, 85, 9, 95, 99
+- Absolute thresholds: days_over_xC_prev_t_mo (t=0) and days_over_xC_prev_t_mo_avg (t=3, 6, 9) for x in 28, 30, 32
+- Relative thresholds: q{x}_prev_t_mo (t=0) and q{x}_prev_t_mo_avg (t=3, 6, 9) for x in 8, 85, 9, 95, 99
 Time horizons:
-- t=0 (birth month) and t=3 (3-month average)
+- t=0 (birth month) and t=3, 6, 9 (moving averages)
 Other iterations:
-- With and without total_precipitation_prev_0_mo or total_precipitation_prev_3_mo_avg
-- Knots k in 6, 9, 12
-- Knot strategies: "quantiles" and "equal"
+- With and without total_precipitation_prev_t_mo (t=0) or total_precipitation_prev_t_mo_avg (t=3, 6, 9)
 
-Total number of models run = 192
+Total number of models run = 64
 
 """
 
@@ -38,10 +36,10 @@ import os
 specification_filepath = Path(
     "/ihme/homes/elyeb/repos/rra-climate-health/specifications"
 )
-base_spec = "neonatal_sensitivity_2.yaml"
+base_spec = "neonatal_custom_linear_small.yaml"
 
 measure = "neonatal_mortality"
-output_root = Path(DEFAULT_ROOT) / "spec_v2"
+output_root = Path(DEFAULT_ROOT)
 os.makedirs(output_root, exist_ok=True)
 queue = "all.q"
 model_versions = []
@@ -61,19 +59,12 @@ cm_data = ClimateMalnutritionData(measure_root)
 
 # Make yaml-building function
 def build_model_spec(
-    k: int,
-    s: str,
     climate_var: str,
     precip_var: str,
     model_specification_path: Path,
     base_model_spec: ModelSpecification,
 ) -> ModelSpecification:
 
-    # custom knots only applies to consumption:
-    if s == "custom_knots":
-        s_climate = "quantiles"
-    else:
-        s_climate = s
     model_spec = ModelSpecification.from_yaml(model_specification_path)
 
     other_predictors = [
@@ -95,8 +86,6 @@ def build_model_spec(
         )
     )
     new_pred.name = climate_var
-    new_pred.spline.k = k
-    new_pred.spline.knot_strategy = s_climate
     model_spec.predictors.append(new_pred)
 
     # Add precip if applicable
@@ -115,93 +104,80 @@ def build_model_spec(
     new_pred = copy.deepcopy(
         next(p for p in base_model_spec.predictors if p.name == "consumption_pd")
     )
-    new_pred.spline.k = k
-    new_pred.spline.knot_strategy = s
-    if s == "custom_knots":
-        new_pred.spline.knots = [2, 5, 10, 20, 40]
-        new_pred.spline.k = 9
     model_spec.predictors.append(new_pred)
 
     return model_spec
 
 
-for k in [6, 9, 12]:
-    # number of knots
-    for strategy in ["quantiles", "equal", "custom_knots"]:
-        # knot_stragey
-        for precip in [True, False]:
-            # with or without precipitation
-            for absolute in [True, False]:
-                # absolute vs relative thresholds for days_over_xC
-                for t in [0, 3]:
-                    # birth month or prev month avgs time horizon
+for precip in [True, False]:
+    # with or without precipitation
+    for absolute in [True, False]:
+        # absolute vs relative thresholds for days_over_xC
+        for t in [0, 3, 6, 9]:
+            # birth month or prev month avgs time horizon
 
-                    # determine primary climate variable
-                    climate_var = ""
-                    precip_var = None
-                    if absolute:
-                        for threshold in [30, 28, 32]:
-                            if t == 0:
-                                climate_var = f"days_over_{threshold}C_prev_{t}_mo"
-                                if precip:
-                                    precip_var = f"total_precipitation_prev_{t}_mo"
-
-                            else:
-                                climate_var = f"days_over_{threshold}C_prev_{t}_mo_avg"
-                                if precip:
-                                    precip_var = f"total_precipitation_prev_{t}_mo_avg"
-
-                            # Create yaml at this level of loop
-                            model_spec = build_model_spec(
-                                k=k,
-                                s=strategy,
-                                climate_var=climate_var,
-                                precip_var=precip_var,
-                                model_specification_path=model_specification_path,
-                                base_model_spec=base_model_spec,
-                            )
-                            model_spec.measure = measure
-                            model_version = cm_data.new_model_version()
-                            version_root = cm_data.models / model_version
-                            model_spec.version.model = model_version
-                            cm_data.save_model_specification(model_spec, model_version)
-                            model_versions.append(model_version)
-                            print(
-                                "Running model training for model version",
-                                model_version,
-                            )
+            # determine primary climate variable
+            climate_var = ""
+            precip_var = None
+            if absolute:
+                for threshold in [30, 28, 32]:
+                    if t == 0:
+                        climate_var = f"days_over_{threshold}C_prev_{t}_mo"
+                        if precip:
+                            precip_var = f"total_precipitation_prev_{t}_mo"
 
                     else:
-                        for threshold in [95, 9, 99]:  # 75,
-                            if t == 0:
-                                climate_var = f"q{threshold}_prev_{t}_mo"
-                                if precip:
-                                    precip_var = f"total_precipitation_prev_{t}_mo"
+                        climate_var = f"days_over_{threshold}C_prev_{t}_mo_avg"
+                        if precip:
+                            precip_var = f"total_precipitation_prev_{t}_mo_avg"
 
-                            else:
-                                climate_var = f"q{threshold}_prev_{t}_mo_avg"
-                                if precip:
-                                    precip_var = f"total_precipitation_prev_{t}_mo_avg"
+                    # Create yaml at this level of loop
+                    model_spec = build_model_spec(
+                        climate_var=climate_var,
+                        precip_var=precip_var,
+                        model_specification_path=model_specification_path,
+                        base_model_spec=base_model_spec,
+                    )
+                    model_spec.measure = measure
+                    model_version = cm_data.new_model_version()
+                    version_root = cm_data.models / model_version
+                    model_spec.version.model = model_version
+                    cm_data.save_model_specification(model_spec, model_version)
+                    model_versions.append(model_version)
+                    print(
+                        "Running model training for model version",
+                        model_version,
+                    )
 
-                            # Create yaml at this level of loop
-                            model_spec = build_model_spec(
-                                k=k,
-                                s=strategy,
-                                climate_var=climate_var,
-                                precip_var=precip_var,
-                                model_specification_path=model_specification_path,
-                                base_model_spec=base_model_spec,
-                            )
-                            model_spec.measure = measure
-                            model_version = cm_data.new_model_version()
-                            version_root = cm_data.models / model_version
-                            model_spec.version.model = model_version
-                            cm_data.save_model_specification(model_spec, model_version)
-                            model_versions.append(model_version)
-                            print(
-                                "Running model training for model version",
-                                model_version,
-                            )
+            else:
+                for threshold in [8, 85, 9, 95, 99]:  # 75,
+                    if t == 0:
+                        climate_var = f"q{threshold}_prev_{t}_mo"
+                        if precip:
+                            precip_var = f"total_precipitation_prev_{t}_mo"
+
+                    else:
+                        climate_var = f"q{threshold}_prev_{t}_mo_avg"
+                        if precip:
+                            precip_var = f"total_precipitation_prev_{t}_mo_avg"
+
+                    # Create yaml at this level of loop
+                    model_spec = build_model_spec(
+                        climate_var=climate_var,
+                        precip_var=precip_var,
+                        model_specification_path=model_specification_path,
+                        base_model_spec=base_model_spec,
+                    )
+                    model_spec.measure = measure
+                    model_version = cm_data.new_model_version()
+                    version_root = cm_data.models / model_version
+                    model_spec.version.model = model_version
+                    cm_data.save_model_specification(model_spec, model_version)
+                    model_versions.append(model_version)
+                    print(
+                        "Running model training for model version",
+                        model_version,
+                    )
 
 model_versions = list(set(model_versions))
 node_args["model-version"] = model_versions
