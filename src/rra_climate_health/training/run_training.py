@@ -9,9 +9,11 @@ import numpy as np
 import rasterra as rt
 from pymer4.models.Lmer import Lmer
 
+from rpy2 import robjects
 from rpy2.robjects import pandas2ri, packages, ListVector, FloatVector
 from rpy2.robjects import pandas2ri, default_converter
 from rpy2.robjects.conversion import localconverter
+
 from rra_tools import jobmon
 
 from rra_climate_health import cli_options as clio
@@ -212,10 +214,54 @@ def model_training_main(
         raw_df["fits"] = fits
         df["fits"] = fits
 
-        no_re_pred = scam_lib.predict_scam(
-            model, newdata=r_df, type="response", exclude="s(ihme_loc_id)"
-        )
-        no_re_pred = np.array(no_re_pred)
+        # Predict no_re_pred over average
+        # previous method:
+        # no_re_pred = scam_lib.predict_scam(
+        #     model, newdata=r_df, type="response", exclude="s(ihme_loc_id)"
+        # )
+        # no_re_pred = np.array(no_re_pred)
+        # raw_df["no_re_fits"] = no_re_pred
+        # df["no_re_fits"] = no_re_pred
+
+        # current method:
+        # Work directly in R to avoid pandas<->R type conversion issues
+        r_df_avg = base.data_frame(r_df)
+        robjects.globalenv["r_df_avg"] = r_df_avg
+
+        # Average numeric covariates — replace in R to ensure type change
+        if "total_precipitation_prev_0_mo" in df.columns:
+            mean_val = float(df["total_precipitation_prev_0_mo"].mean())
+            robjects.r(
+                f"r_df_avg$total_precipitation_prev_0_mo <- rep({mean_val}, nrow(r_df_avg))"
+            )
+
+        if "birth_year" in df.columns:
+            mean_val = float(df["birth_year"].astype(float).mean())
+            robjects.r(f"r_df_avg$birth_year <- rep({mean_val}, nrow(r_df_avg))")
+
+        r_df_avg = robjects.globalenv["r_df_avg"]
+
+        # sex_id: predict per factor level, weight by observed proportion
+        sex_levels = df["sex_id"].cat.categories
+        no_re_pred = np.zeros(len(df))
+        orig_sex_levels = base.levels(r_df.rx2("sex_id"))
+
+        for sex_val in sex_levels:
+            robjects.globalenv["rdf_temp"] = base.data_frame(r_df_avg)
+            # Build the levels string for R
+            levels_str = ", ".join(f'"{str(lv)}"' for lv in orig_sex_levels)
+            robjects.r(
+                f'rdf_temp$sex_id <- factor(rep("{sex_val}", nrow(rdf_temp)), '
+                f"levels = c({levels_str}))"
+            )
+            r_df_temp = robjects.globalenv["rdf_temp"]
+
+            pred = scam_lib.predict_scam(
+                model, newdata=r_df_temp, type="response", exclude="s(ihme_loc_id)"
+            )
+            weight = (df["sex_id"] == sex_val).mean()
+            no_re_pred += np.array(pred) * weight
+
         raw_df["no_re_fits"] = no_re_pred
         df["no_re_fits"] = no_re_pred
 

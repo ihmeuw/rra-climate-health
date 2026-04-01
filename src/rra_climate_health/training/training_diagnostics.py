@@ -135,6 +135,99 @@ def plot_scam_spline(
         plt.show()
 
 
+def plot_scam_spline_presentation(
+    effect_df, original_data, var_name, knots=None, title=None, filepath=None
+):
+    """
+    Plots a SCAM spline effect with 95% CI and a rug plot.
+
+    Parameters:
+    - effect_df: DataFrame with ['value', 'effect', 'se']
+    - original_data: The full DataFrame (used for the rug plot)
+    - var_name: Name of the variable being plotted (e.g., 'temperature')
+    - knots: List of knot values (optional)
+    """
+    var_dict = {
+        "consumption_pd": "Daily Consumption per capita",
+        "days_over_30C_prev_0_mo": "Days over 30°C during birth month",
+        "days_over_28C_prev_0_mo": "Days over 28°C during birth month",
+        "days_over_28C_prev_3_mo_avg": "Average number of days over 28°C for 3 months prior to birth month",
+    }
+    if var_name in var_dict:
+        var_name_plt = var_dict[var_name]
+    else:
+        var_name_plt = var_name
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # 1. Plot the Partial Effect (Spline)
+    ax.plot(
+        effect_df["value"],
+        effect_df["effect"],
+        color="#2c3e50",
+        lw=2.5,
+        label="Partial Effect",
+    )
+
+    # 2. Add 95% Confidence Interval (1.96 * SE)
+    lower_ci = effect_df["effect"] - (1.96 * effect_df["se"])
+    upper_ci = effect_df["effect"] + (1.96 * effect_df["se"])
+
+    ax.fill_between(
+        effect_df["value"],
+        lower_ci,
+        upper_ci,
+        color="#3498db",
+        alpha=0.2,
+        label="95% CI",
+    )
+
+    # 3. Add the Rug Plot (The 'Rug' represents actual data distribution)
+    # We place it at the very bottom of the current Y-axis
+    obs = original_data[var_name].dropna()
+    y_min = ax.get_ylim()[0]
+    # ax.plot(
+    #     obs,
+    #     np.full_like(obs, y_min),
+    #     "|",
+    #     color="black",
+    #     alpha=0.2,
+    #     markersize=12,
+    #     markeredgewidth=0.4,
+    # )
+
+    # 4. Reference line at 0 (No effect)
+    # ax.axhline(0, color="red", linestyle="--", alpha=0.4, lw=1)
+
+    # 5. Add vertical lines for knots if provided
+    # if knots is not None:
+    #     for knot in knots:
+    #         ax.axvline(
+    #             knot,
+    #             color="green",
+    #             linestyle=":",
+    #             alpha=0.7,
+    #             lw=1.5,
+    #             label="Knot" if knot == knots[0] else None,
+    #         )
+
+    # 5. Aesthetics
+    ax.set_xlabel(f"{var_name_plt}", fontsize=12, fontweight="bold")
+    ax.set_ylabel("Partial Effect (Log-Odds)", fontsize=12, fontweight="bold")
+
+    full_title = title if title else f"SCAM Spline Effect: {var_name_plt}"
+    ax.set_title(full_title, fontsize=14, pad=15)
+
+    ax.grid(True, linestyle=":", alpha=0.6)
+    ax.legend(frameon=True, loc="best")
+
+    plt.tight_layout()
+    if filepath:
+        plt.savefig(filepath, dpi=300)
+    else:
+        plt.show()
+
+
 def merge_gbd_data(  # noqa: PLR0915
     measure: str, fitted_data: pd.DataFrame, fitted_column="fits"
 ) -> plt.Figure:  # type: ignore[name-defined]
@@ -225,6 +318,8 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
     import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
 
+    df = df.copy()
+
     threshold_varname = next(
         (x for x in df.columns if (x.startswith("days_over")) | x.startswith("q")), None
     )
@@ -237,12 +332,54 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
     axislabel_size = 18
     paneltitle_size = 18
 
-    df[threshold_varname], o30_bins = pd.qcut(
-        df.loc[df[threshold_varname] > 0, threshold_varname], 8, retbins=True
-    )
-    o30_bins = [0] + o30_bins
+    custom_x_bins = [
+        1,
+        3,
+        8,
+        15,
+        22,
+        31,
+    ]
+
+    custom_y_bins = [
+        0,
+        0.784781,
+        1.180789,
+        1.541445,
+        1.950251,
+        2.465952,
+        3.103463,
+        4.003564,
+        5.541124,
+        9.413681,
+        112.879922,
+    ]
+
     if measure == "neonatal_mortality":
-        df["ldi"], ldi_bins = pd.qcut(df["consumption_pd"], 10, retbins=True)
+        df[threshold_varname], o30_bins = pd.cut(
+            df.loc[df[threshold_varname] > 0, threshold_varname],
+            bins=custom_x_bins,
+            include_lowest=True,
+            right=False,
+            retbins=True,
+        )
+        # df[threshold_varname], o30_bins = pd.qcut(
+        #     df.loc[df[threshold_varname] > 0, threshold_varname], 5, retbins=True
+        # )
+        # o30_bins = [0] + list(o30_bins)
+    else:
+        df[threshold_varname], o30_bins = pd.qcut(
+            df.loc[df[threshold_varname] > 0, threshold_varname], 8, retbins=True
+        )
+        o30_bins = [0] + o30_bins
+    if measure == "neonatal_mortality":
+        df["ldi"], ldi_bins = pd.cut(
+            df["consumption_pd"],
+            bins=custom_y_bins,
+            include_lowest=True,
+            right=False,
+            retbins=True,
+        )
     else:
         df["ldi"], ldi_bins = pd.qcut(df.ldi_pc_pd, 10, retbins=True)
 
@@ -251,16 +388,26 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
 
     y_ticks = range(len(ldi_bins))
     y_labs = [f"{x:.1f}" for x in ldi_bins]
+    # y_labs = [f"{y_tick_vals[i]:.1f}" for i in range(len(ldi_bins))]
 
     vmin = 0
+    vmin_dict = {
+        "stunting": 0,
+        "wasting": 0,
+        "underweight": 0,
+        "anemia": 0,
+        "lbw": 0,
+        "neonatal_mortality": 20,
+    }
     vmax_dict = {
         "stunting": 0.5,
         "wasting": 0.25,
         "underweight": 0.40,
         "anemia": 0.7,
         "lbw": 0.25,
-        "neonatal_mortality": 45,
+        "neonatal_mortality": 50,
     }
+    vmin = vmin_dict[measure]
     vmax = vmax_dict[measure]
     colorbin_interval = (vmax - vmin) / 10
     boundaries = np.arange(vmin, vmax + colorbin_interval, colorbin_interval)
@@ -327,10 +474,20 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
         ax.set_xlabel("")
         ax.set_ylabel("")
 
-    axes[1].set_xlabel(
-        threshold_varname.replace("_", " ").title(), fontsize=axislabel_size
-    )
-    axes[0].set_ylabel("Income", fontsize=axislabel_size)
+    if threshold_varname == "days_over_30C_prev_0_mo":
+        axes[1].set_xlabel("Days over 30°C during birth month", fontsize=axislabel_size)
+    elif threshold_varname == "days_over_28C_prev_0_mo":
+        axes[1].set_xlabel("Days over 28°C during birth month", fontsize=axislabel_size)
+    elif threshold_varname == "days_over_28C_prev_3_mo_avg":
+        axes[1].set_xlabel(
+            "Average number of days over 28°C for 3 months prior to birth month",
+            fontsize=axislabel_size,
+        )
+    else:
+        axes[1].set_xlabel(
+            threshold_varname.replace("_", " ").title(), fontsize=axislabel_size
+        )
+    axes[0].set_ylabel("Daily Consumption per capita", fontsize=axislabel_size)
     # axes[2].collections[0].colorbar.set_label(
     #     f"{measure.capitalize()} Prevalence", size=18
     # )
@@ -360,7 +517,7 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
     # Create the colorbar in the new axes
     mappable = axes[0].collections[0] if axes[0].collections else axes[0].images[0]
     cb = fig.colorbar(mappable, cax=cbar_ax, norm=norm, ticks=boundaries)
-    cb.set_label(f"{measure.capitalize()} Prevalence", size=axislabel_size)
+    cb.set_label(f"{measure.replace("_"," ").capitalize()}", size=axislabel_size)
     cb.ax.tick_params(labelsize=tick_size)
     cb.outline.set_edgecolor("none")
 
@@ -409,6 +566,16 @@ def run_training_diagnostics(
                 / f"spline_effect_{var.name}{submodel}.png",
             )
 
+            plot_scam_spline_presentation(
+                effect_df,
+                raw_df,
+                var.name,
+                knots=transformed_knots,
+                # title=f"Spline Effect for {var.name}",
+                filepath=cm_data.models
+                / model_version
+                / f"spline_effect_{var.name}{submodel}_ppt.png",
+            )
     # save predictions to raw data:
     raw_df.to_parquet(cm_data.models / model_version / f"predictions{submodel}.parquet")
 
