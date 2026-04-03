@@ -6,21 +6,15 @@ from pathlib import Path
 from rra_climate_health.data import DEFAULT_ROOT
 
 
-SPLINE_ROOT = Path(DEFAULT_ROOT) / "neonatal_mortality" / "models"
-
-PLOT_SPLINES = [
-    ("2026_03_29.08/spline_effect_consumption_pd.parquet", "Model v29.08"),
-    (
-        "archive/run_2026_03_25/2026_03_26.85/spline_effect_consumption_pd.parquet",
-        "Model v26.85",
-    ),
-]
+SPLINE_ROOT = Path(DEFAULT_ROOT)
+OUTPATH_ROOT = Path(DEFAULT_ROOT) / "plots"
 
 VAR_DICT = {
     "consumption_pd": "Daily Consumption per capita",
     "days_over_30C_prev_0_mo": "Days over 30°C during birth month",
     "days_over_28C_prev_0_mo": "Days over 28°C during birth month",
-    "days_over_28C_prev_3_mo_avg": "Average number of days over 28°C for 3 months prior to birth month",
+    "days_over_28C_prev_3_mo_avg": "Average days over 28°C for 3 months prior to birth month",
+    "days_over_28C_prev_9_mo_avg": "Average days over 28°C during 9 months before birth month",
 }
 
 LINE_STYLES = ["-", "--", "-.", ":", (0, (3, 1, 1, 1))]
@@ -29,10 +23,10 @@ CI_COLORS = ["#3498db", "#e74c3c", "#27ae60", "#8e44ad", "#d35400"]
 
 
 def plot_multiple_splines(
-    spline_paths: list[tuple[str, str]],
+    spline_paths: list[tuple[Path, str]],  # Updated to use Path objects directly
     var_name: str,
     title: str | None = None,
-    filepath: str | None = None,
+    filepath: Path | None = None,  # Updated to use Path objects directly
 ):
     """
     Plots multiple SCAM spline effects on the same axes for comparison.
@@ -49,7 +43,7 @@ def plot_multiple_splines(
     fig, ax = plt.subplots(figsize=(10, 6))
 
     for i, (path, label) in enumerate(spline_paths):
-        effect_df = pd.read_parquet(SPLINE_ROOT / path)
+        effect_df = pd.read_parquet(path)
         color = COLORS[i % len(COLORS)]
         ci_color = CI_COLORS[i % len(CI_COLORS)]
         ls = LINE_STYLES[i % len(LINE_STYLES)]
@@ -93,5 +87,50 @@ def plot_multiple_splines(
         plt.show()
 
 
-# Example usage:
-plot_multiple_splines(PLOT_SPLINES, var_name="consumption_pd")
+# Update PLOT_SPLINES to use Path objects directly
+PLOT_SPLINES = [
+    (
+        SPLINE_ROOT
+        / "neonatal_mortality/models/2026_04_01.43/spline_effect_consumption_pd.parquet",
+        "NMR Model using Avg Days over 28°C during 9 months prior to birth month",
+    ),
+    (
+        SPLINE_ROOT
+        / "neonatal_mortality/models/archive/run_2026_03_29/2026_03_29.08/spline_effect_consumption_pd.parquet",
+        "NMR Model using Days over 30°C during birth month",
+    ),
+    (
+        SPLINE_ROOT / "lbw/models/2026_03_30.139/spline_effect_ldi_pc_pd.parquet",
+        "LBW model using Average days over 30°C during 9 months prior to birth month",
+    ),
+]
+
+plot_multiple_splines(
+    PLOT_SPLINES,
+    var_name="consumption_pd",
+    filepath=OUTPATH_ROOT / "consumption_spline_comparison.png",
+)
+
+PLOT_SPLINES = [
+    (
+        SPLINE_ROOT
+        / "neonatal_mortality/models/2026_04_01.43/spline_effect_days_over_28C_prev_9_mo_avg.parquet",
+        "NMR model using Avg Days over 28°C during 9 months prior to birth month",
+    ),
+    (
+        SPLINE_ROOT
+        / "neonatal_mortality/models/archive/run_2026_03_29/2026_03_29.08/spline_effect_days_over_30C_prev_0_mo.parquet",
+        "NMR model using Days over 30°C during birth month",
+    ),
+    (
+        SPLINE_ROOT
+        / "lbw/models/2026_03_30.139/spline_effect_days_over_30C_past_9m.parquet",
+        "LBW model using Avg Days over 30°C during 9 months prior to birth month",
+    ),
+]
+
+plot_multiple_splines(
+    PLOT_SPLINES,
+    var_name="Days over Threshold",
+    filepath=OUTPATH_ROOT / "days_over_threshold_spline_comparison.png",
+)
