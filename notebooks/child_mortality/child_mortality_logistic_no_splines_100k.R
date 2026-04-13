@@ -38,7 +38,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_logistic_no_splines"
+summary_file <- "cm_100k_logistic_no_splines"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_03_23.01/child_mortality_exploded_binned_age_month.parquet"
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_03_23.01/"
@@ -85,7 +85,12 @@ cols <- c(time_vars,other_vars,climate_vars)
 
 df_model <- df[, ..cols]
 
-# format vars
+
+
+# Get data sample ~100k rows
+sample_percent <- 100000/nrow(df_model) # 
+indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
+indv_counts <- indv_dt[, .N, by = ihme_loc_id]# format vars
 df_model <- data.table(df_model)
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
 df_model[,days_over_30C:=as.numeric(days_over_30C)] # this is now a weighted avg
@@ -94,11 +99,6 @@ df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Femal
 df_model[,birth_year:=as.integer(birth_year)]
 df_model[, child_mortality := as.integer(child_mortality)]
 df_model[, indv_id := factor(as.character(indv_id))]
-
-# Get data sample ~50k rows
-sample_percent <- 50000/nrow(df_model) # 2.2 %
-indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
-indv_counts <- indv_dt[, .N, by = ihme_loc_id]
 indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
 indv_dt[, n_sample := floor(sample_percent * N)]
 

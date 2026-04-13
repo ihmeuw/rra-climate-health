@@ -10,6 +10,7 @@ import logging
 import numpy as np
 import os
 import pandas as pd
+import polars as pl
 import rioxarray
 from tqdm import tqdm
 import sys
@@ -353,11 +354,15 @@ def get_all_climate_vars_year_months_for_latlongs(
     df: pd.DataFrame,
     lat_col: str = "lat",
     long_col: str = "long",
+    year_var: str = "birth_year",
+    month_var: str = "birth_month",
 ) -> pd.DataFrame:
     """
-    df = df_min_age.copy()
+    df = df_climate.copy()
     lat_col = "lat"
     long_col= "long"
+    year_var="int_year"
+    month_var="int_month"
     """
     var_names = [
         "mean_temperature",
@@ -380,8 +385,8 @@ def get_all_climate_vars_year_months_for_latlongs(
 
     unique_coords = df[[lat_col, long_col]].drop_duplicates()
 
-    min_year = df["birth_year"].min() - 1  # need prior year
-    max_year = df["birth_year"].max()
+    min_year = df[year_var].min() - 1  # need prior year
+    max_year = df[year_var].max()
 
     # get all years and months for each climate variable for all coordinates
     df_splits = []
@@ -465,6 +470,8 @@ def get_all_climate_thresholds_year_months_for_latlongs(
     df: pd.DataFrame,
     lat_col: str = "lat",
     long_col: str = "long",
+    year_var: str = "birth_year",
+    month_var: str = "birth_month",
 ) -> pd.DataFrame:
     """
     df = df_min_age.copy()
@@ -474,8 +481,8 @@ def get_all_climate_thresholds_year_months_for_latlongs(
 
     unique_coords = df[[lat_col, long_col]].drop_duplicates()
 
-    min_year = df["birth_year"].min() - 1  # need prior year
-    max_year = df["birth_year"].max()
+    min_year = df[year_var].min() - 1  # need prior year
+    max_year = df[year_var].max()
 
     # get all years and months for each climate variable for all coordinates
     df_splits = []
@@ -2612,17 +2619,11 @@ def run_training_data_prep_child_mortality_monthly(
     # India = location_id 163, ihme_loc_id IND
 
     """
-    Overall structure of child_mortality data prep:
-    1. Load and format child_mortality data from DEM_BR module
-    2. Extracting and merging wealth dataset
-    3. Extract and merging annual climate variables
-    4. Extract monthly climate variables for previous months
-    5. Merge in monthly climate variables for previous months
-    6. Calculate averages over time periods analyzed for monthly climate variables
-    7. Extract monthly relative climate thresholds for previous months
-    8. Merge monthly relative climate thresholds with child_mortality data
-    9. Calculate averages over time periods analyzed for monthly relative climate thresholds
-    10. Add in temperature zones
+    Updates:
+    - Load previously-processed monthly data for time
+    - Merge on monthly absolute thresholds
+    - Merge on monthly relative thresholds
+    - Create bins
     """
 
     ## 1. Load and format child_mortality data from DEM_BR module
@@ -2665,6 +2666,10 @@ def run_training_data_prep_child_mortality_monthly(
     data_raw = pd.read_parquet(
         "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/extractions/dem_br/dem_br_matched_2025_10_14.parquet"
     )
+    # data_raw = pd.read_parquet(
+    #     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_03_23.01/child_mortality_exploded_updated_wealth_decremented_age_mo.parquet"
+    # )
+    print(f"num rows = {len(data_raw):,}")
 
     logging.info(f"Total rows in concatenated raw data: {len(data_raw):,}")
     logging.info(
@@ -2673,6 +2678,14 @@ def run_training_data_prep_child_mortality_monthly(
 
     df = data_raw.copy()
     df = check_columns(df, module)
+
+    for c in df.columns:
+        if c.endswith("_x"):
+            root = c[:-2]
+            df.rename(columns={c: root}, inplace=True)
+            y_version = f"{root}_y"
+            if y_version in df.columns:
+                df.drop(columns=y_version, inplace=True)
 
     # drop rows with missing key variables
     # Special note on India. India surveys contain age_month, which is the difference
@@ -2970,7 +2983,7 @@ def run_training_data_prep_child_mortality_monthly(
     # are rounded down, such that age_month 0 is not stillborns, but deaths between
     # 0 and 1 month. This is required for a survival modeling approach, for which
     # time to event cannot be 0.
-    df_exploded["age_month"] += 1
+    # df_exploded["age_month"] += 1
 
     # for rows with child_alive==0, replace with child_alive=1 if int_year < year_of_recorded_age
     df_exploded["child_alive"] = df_exploded["child_alive"].astype(int)
@@ -3056,23 +3069,252 @@ def run_training_data_prep_child_mortality_monthly(
     # Write to output
     df_climate.to_parquet(Path(output_path_version) / "data.parquet", index=False)
 
-    for measure in MEASURES_IN_SOURCE[data_source_type]:
-        measure_df = df_climate[df_climate[measure].notna()].copy()
-        measure_df["measure"] = measure
-        measure_df["value"] = measure_df[measure]
-        logging.info(
-            f"Saving data for {measure} to {output_path_version} {len(measure_df)} rows"
+    # TODO: Add absolute monthly climate vars thresholds
+    climate_vars_da = get_all_climate_vars_year_months_for_latlongs(
+        df_climate, year_var="int_year", month_var="int_month"
+    )
+    climate_vars_da.to_netcdf(Path(output_path_version) / "abs_month_climate_vars.nc")
+    climate_vars_df = climate_vars_da.to_dataframe().reset_index()
+
+    # set names to merge
+    climate_vars_df.drop(columns=["point", "longitude", "latitude"], inplace=True)
+    climate_vars_df.rename(
+        columns={
+            "year": "int_year",
+            "month": "int_month",
+            "lat_orig": "lat",
+            "long_orig": "long",
+        },
+        inplace=True,
+    )
+    # pivot wide
+    climate_vars_wide_df = climate_vars_df.pivot_table(
+        index=["int_year", "int_month", "lat", "long"],
+        columns="climate_var",
+        values="value",
+    ).reset_index()
+
+    climate_vars_wide_df.rename(
+        columns={
+            "mean_temperature": "mean_temperature_monthly",
+            "total_precipitation": "total_precipitation_monthly",
+            "days_over_24C": "days_over_24C_monthly",
+            "days_over_25C": "days_over_25C_monthly",
+            "days_over_26C": "days_over_26C_monthly",
+            "days_over_27C": "days_over_27C_monthly",
+            "days_over_28C": "days_over_28C_monthly",
+            "days_over_29C": "days_over_29C_monthly",
+            "days_over_30C": "days_over_30C_monthly",
+            "days_over_31C": "days_over_31C_monthly",
+            "days_over_32C": "days_over_32C_monthly",
+        },
+        inplace=True,
+    )
+
+    # merge onto df_climate
+    df_climate = merge_left_without_inflating(
+        df_climate,
+        climate_vars_wide_df,
+        on=["int_year", "int_month", "lat", "long"],
+    )
+
+    df_climate.to_parquet(
+        Path(output_path_version) / "data_monthly_expanded_abs_thresholds.parquet",
+        index=False,
+    )
+
+    # TODO: Add relative monthly climate vars thresholds
+    thresholds_da = get_all_climate_thresholds_year_months_for_latlongs(
+        df_climate, year_var="int_year", month_var="int_month"
+    )
+    thresholds_da.to_netcdf(Path(output_path_version) / "rel_month_climate_vars.nc")
+    thresholds_df = thresholds_da.to_dataframe().reset_index()
+
+    # set names to merge
+    thresholds_df.drop(columns=["point", "longitude", "latitude"], inplace=True)
+    thresholds_df.rename(
+        columns={
+            "year": "int_year",
+            "month": "int_month",
+            "lat_orig": "lat",
+            "long_orig": "long",
+        },
+        inplace=True,
+    )
+
+    thresholds_df["quantile_str"] = (
+        thresholds_df["quantile"].astype(str).str.replace("0.", "q")
+    )
+
+    thresholds_df.drop(columns="quantile", inplace=True)
+
+    # pivot wide
+    thresholds_wide_df = thresholds_df.pivot_table(
+        index=["int_year", "int_month", "lat", "long"],
+        columns="quantile_str",
+        values="value",
+    ).reset_index()
+
+    # CHANGEME
+    thresholds_wide_df.rename(
+        columns={
+            "q75": "q75_monthly",
+            "q8": "q80_monthly",
+            "q85": "q85_monthly",
+            "q9": "q90_monthly",
+            "q95": "q95_monthly",
+        },
+        inplace=True,
+    )
+
+    # merge onto df_climate
+    df_climate = merge_left_without_inflating(
+        df_climate,
+        thresholds_wide_df,
+        on=["int_year", "int_month", "lat", "long"],
+    )
+
+    df_climate.to_parquet(
+        Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet",
+        index=False,
+    )
+
+    # TODO: Create binned version of data
+    # check:
+    print(f"max age_month: {df_climate['age_month'].max()}")
+
+    time_bin_dict = {
+        "age_1_m": (0, 1),
+        "age_3_m": (1, 3),
+        "age_6_m": (3, 6),
+        "age_12_m": (6, 12),
+        "age_24_m": (12, 24),
+        "age_36_m": (24, 36),
+        "age_48_m": (36, 48),
+        "age_60_m": (48, 60),
+    }
+
+    # bin_name will define what range of time the month falls into
+    for bin_name, bin_month in time_bin_dict.items():
+        df_climate[bin_name] = (
+            (df_climate["age_month"] >= bin_month[0])
+            & (df_climate["age_month"] < bin_month[1])
+        ).astype(int)
+
+    ## Get weighted averages (by number of months in bin) of explanatory variables, grouping by binned age_month and child_alive status
+    get_max_vars = [
+        "year_start",
+        "year_end",
+        "nid",
+        # "survey_name",
+        "int_year",
+        "int_month",
+        "sex_id",
+        # "mothers_age_year",
+        # "aod_months",
+        "age_month",
+        # "hhweight",
+        "pweight",
+        "birth_year",
+        "birth_month",
+        "int_birth_year_diff_months",
+        "age_month_original",
+        "int_year_original",
+        "int_month_original",
+        # "age_group_id_agg",
+        "any_days_over_30C",
+        "child_alive",
+        "child_mortality",
+    ]
+
+    get_avg_vars = [
+        "mean_temperature",
+        "days_over_30C",
+        "precipitation_days",
+        "total_precipitation",
+        "mean_low_temperature",
+        "mean_high_temperature",
+        "relative_humidity",
+        "elevation",
+        "consumption",
+        "consumption_pd",
+        "days_over_24C_monthly",
+        "days_over_25C_monthly",
+        "days_over_26C_monthly",
+        "days_over_27C_monthly",
+        "days_over_28C_monthly",
+        "days_over_29C_monthly",
+        "days_over_30C_monthly",
+        "days_over_31C_monthly",
+        "days_over_32C_monthly",
+        "mean_temperature_monthly",
+        "total_precipitation_monthly",
+        "q75_monthly",
+        "q80_monthly",
+        "q85_monthly",
+        "q90_monthly",
+        "q95_monthly",
+    ]
+
+    group_by_vars = [
+        "ihme_loc_id",
+        "geospatial_id",
+        "psu",
+        "strata",
+        "line_id",
+        "hh_id",
+        "lat",
+        "long",
+        "lbd_admin2_id",
+        "indv_id",
+        "age_1_m",
+        "age_3_m",
+        "age_6_m",
+        "age_12_m",
+        "age_24_m",
+        "age_36_m",
+        "age_48_m",
+        "age_60_m",
+    ]
+
+    # Attempt polars
+    df_pl = pl.from_pandas(df_climate)
+
+    df_grouped = (
+        df_pl.group_by(group_by_vars)
+        .agg(
+            [pl.col(var).max() for var in get_max_vars]
+            + [pl.col(var).mean() for var in get_avg_vars]
         )
-        for ldi_col in ["ldipc_weighted_no_match"]:  # ldi_cols:
-            measure_df["ldi_pc_pd"] = measure_df[ldi_col] / 365
-            logging.info(
-                f"Saving data for {measure} to version {version} with {ldi_col} as LDI"
-            )
-            cm_data.save_training_data(measure_df, version)
-            message = "Used " + ldi_col + " as LDI"
-            # Save a small file with a record of which ldi column was used for this version
-            with open(cm_data.training_data / version / "ldi_col.txt", "w") as f:
-                f.write(message)
+        .to_pandas()
+    )
+
+    # Add the aod_months back onto data:
+    aod_df = df_climate[["indv_id", "aod_months"]].drop_duplicates()
+    df_grouped = df_grouped.merge(aod_df, on="indv_id", how="left")
+
+    df_grouped.to_parquet(
+        Path(output_path_version) / "data_binned.parquet",
+        index=False,
+    )
+
+    # for measure in MEASURES_IN_SOURCE[data_source_type]:
+    #     measure_df = df_climate[df_climate[measure].notna()].copy()
+    #     measure_df["measure"] = measure
+    #     measure_df["value"] = measure_df[measure]
+    #     logging.info(
+    #         f"Saving data for {measure} to {output_path_version} {len(measure_df)} rows"
+    #     )
+    #     for ldi_col in ["ldipc_weighted_no_match"]:  # ldi_cols:
+    #         measure_df["ldi_pc_pd"] = measure_df[ldi_col] / 365
+    #         logging.info(
+    #             f"Saving data for {measure} to version {version} with {ldi_col} as LDI"
+    #         )
+    #         cm_data.save_training_data(measure_df, version)
+    #         message = "Used " + ldi_col + " as LDI"
+    #         # Save a small file with a record of which ldi column was used for this version
+    #         with open(cm_data.training_data / version / "ldi_col.txt", "w") as f:
+    #             f.write(message)
 
 
 def run_training_data_prep_neonatal(
@@ -3735,6 +3977,18 @@ def run_training_data_prep_neonatal(
         # "zone",
     ]
     df_min_age_final = df_min_age_final.dropna(subset=new_vars)
+
+    # drop rows with NAs for any other import vars
+    no_na_vars = ["sex_id", "ihme_loc_id", "birth_year", "consumption_pd"]
+    df_min_age_final = df_min_age_final.dropna(subset=no_na_vars)
+
+    # Add variables required for validation against gbd: year_id and age_group_id
+    df_min_age_final["year_id"] = df_min_age_final["birth_year"]
+    df_min_age_final["age_group_id"] = 42
+
+    df_min_age_final["int_birth_year_diff_months"] = df_min_age_final[
+        "age_month_original"
+    ]
 
     # save final version
     df_min_age_final.to_parquet(Path(output_path_version) / "data.parquet")
