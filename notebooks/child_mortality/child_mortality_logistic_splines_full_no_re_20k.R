@@ -38,7 +38,7 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_10yr_cutoff_splines_no_re" 
+summary_file <- "cm_20k_10yr_cutoff_splines_no_re" 
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_13.01/data_binned.parquet" 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_13.01/"
@@ -92,21 +92,21 @@ df_model[, child_mortality := as.integer(child_mortality)]
 df_model[, indv_id := factor(as.character(indv_id))]
 
 # # Get data sample if needed
-# sample_percent <- 7000000/nrow(df_model) # 
-# indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
-# indv_counts <- indv_dt[, .N, by = ihme_loc_id]# format vars
+sample_percent <- 20000/nrow(df_model) # 
+indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
+indv_counts <- indv_dt[, .N, by = ihme_loc_id]# format vars
 
-# indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
-# indv_dt[, n_sample := floor(sample_percent * N)]
+indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
+indv_dt[, n_sample := floor(sample_percent * N)]
 
-# set.seed(42)
-# sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
-# df_sample <- df_model[indv_id %in% sampled_indv]
+set.seed(42)
+sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
+df_sample <- df_model[indv_id %in% sampled_indv]
 
 print("Number of rows after cutoff")
-print(length(df_model$indv_id))
+print(length(df_sample$indv_id))
 print("Number of unique individuals in sample:")
-print(length(unique(df_model$indv_id))) #3,164,900
+print(length(unique(df_sample$indv_id)))
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
@@ -129,7 +129,7 @@ model <- scam(child_mortality ~
                 birth_year+
                 s(ihme_loc_id, bs = "re"),
               family = binomial(link = "logit"),
-              data = df_model)
+              data = df_sample)
 
 summary(model)
 

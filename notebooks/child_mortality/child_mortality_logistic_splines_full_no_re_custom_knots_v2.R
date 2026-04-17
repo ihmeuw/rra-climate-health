@@ -38,7 +38,8 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_10yr_cutoff_splines_no_re" 
+summary_file <- "cm_splines_full_no_re_custom_knots_v2" 
+# summary_file <- "cm_10yr_cutoff_splines_no_re"
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_13.01/data_binned.parquet" 
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_13.01/"
@@ -82,6 +83,10 @@ cols <- c(time_vars,other_vars,climate_vars)
 df_model <- df[, ..cols]
 
 df_model <- data.table(df_model)
+
+# Make sure all NAs are removed
+df_model <- na.omit(df_model)
+
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
 df_model[,days_over_30C_monthly:=as.numeric(days_over_30C_monthly)] # this is now a weighted avg
 df_model[,total_precipitation_monthly:=as.numeric(total_precipitation_monthly)]
@@ -112,26 +117,69 @@ print(length(unique(df_model$indv_id))) #3,164,900
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
 
-# Testing on sample data:
+# Check data distributions
+quantile(df_model[days_over_30C_monthly>0]$days_over_30C_monthly,probs=c(0.25, 0.5, 0.75))
+quantile(df_model[days_over_30C_monthly>0]$days_over_30C_monthly,probs=c(0.3,0.6,0.9))
+
+# Define interior breakpoints only — data boundaries are added automatically
+thresh_knots      <- c(1.5, 5.25, 9.3,15.5)    # days_over_30C_monthly
+consumption_knots <- c(2.0, 5.0, 10.0,20.0, 30.0)   # consumption_pd
+
+# Builds the full augmented knot vector for scam mpi/mpd smooths.
+#   inner_knots : interior breakpoints (data boundaries added automatically)
+#   x_data      : raw data vector used to set boundary knots
+#   m           : I-spline order passed to s(..., m=m); default 2
+#                 → underlying B-spline order = m+1; exterior knots per side = m+1
+# Returns list(knots, k) for s(x, k=k, bs="mpi") + knots=list(x=knots)
+make_scam_knots <- function(inner_knots, x_data, m = 2L) {
+  breaks <- sort(unique(c(range(x_data, na.rm = TRUE), inner_knots)))
+  n      <- length(breaks)
+  
+  h_L <- breaks[2]   - breaks[1]      # gap near left boundary
+  h_R <- breaks[n]   - breaks[n - 1]  # gap near right boundary
+  
+  knots <- c(
+    breaks[1] - seq(m + 1L, 1L) * h_L,   # m+1 left exterior knots
+    breaks,                                # boundary + inner breakpoints
+    breaks[n] + seq(1L, m + 1L) * h_R    # m+1 right exterior knots
+  )
+  # total knots = n + 2*(m+1)
+  # k (basis dimension) = total_knots - (m+1) = n + m
+  list(knots = knots, k = n + m)
+}
+
+res_thresh      <- make_scam_knots(thresh_knots,      df_model$days_over_30C_monthly)
+res_consumption <- make_scam_knots(consumption_knots, df_model$consumption_pd)
+
 model <- scam(child_mortality ~
-                age_1_m+
-                age_3_m+
-                age_6_m+
-                age_12_m+
-                age_24_m+
-                age_36_m+
-                age_48_m+
-                age_60_m+
-                sex_id + 
-                s(consumption_pd, bs="mpd") +
-                s(days_over_30C_monthly, bs="mpi")+
-                total_precipitation_monthly+
-                birth_year+
+                age_1_m + age_3_m + age_6_m + age_12_m +
+                age_24_m + age_36_m + age_48_m + age_60_m +
+                sex_id +
+                s(consumption_pd, k = res_consumption$k, bs = "mpd") +
+                s(days_over_30C_monthly, k = res_thresh$k, bs = "mpi") +
+                total_precipitation_monthly +
+                birth_year +
                 s(ihme_loc_id, bs = "re"),
+              knots = list(
+                consumption_pd        = res_consumption$knots,
+                days_over_30C_monthly = res_thresh$knots
+              ),
               family = binomial(link = "logit"),
               data = df_model)
 
 summary(model)
+
+
+# Verify knots actually used by the fitted model
+# model$smooth[[1]] = consumption_pd, [[2]] = days_over_30C_monthly, [[3]] = ihme_loc_id RE
+m_ord <- 2  # spline order (default)
+cons_full_knots <- model$smooth[[1]]$knots
+days_full_knots <- model$smooth[[2]]$knots
+# Inner knots = full vector minus (m+1) boundary knots on each side
+cons_inner_knots_verified <- cons_full_knots[(m_ord + 2):(length(cons_full_knots) - (m_ord + 1))]
+days_inner_knots_verified <- days_full_knots[(m_ord + 2):(length(days_full_knots) - (m_ord + 1))]
+cat("Consumption inner knots (from model):", cons_inner_knots_verified, "\n")
+cat("Days over 30C inner knots (from model):", days_inner_knots_verified, "\n")
 
 
 # save model parameters for future use:
@@ -236,8 +284,14 @@ days_effect <- pred_days[, "s(days_over_30C_monthly)"]
 p1 <- ggplot(data.frame(consumption_pd = cons_seq, effect = cons_effect),
              aes(x = consumption_pd, y = effect)) +
   geom_line(color = "steelblue", linewidth = 1) +
+  geom_vline(xintercept = cons_inner_knots_verified, linetype = "dashed",
+             color = "gray40", alpha = 0.7) +
   labs(x = "Consumption per day", y = "Partial effect (log-odds)",
        title = "Monotone decreasing spline: consumption_pd") +
+  # scale_x_continuous(
+  #   breaks = sort(unique(c(pretty(cons_seq), cons_inner_knots_verified))),
+  #   labels = scales::label_number()
+  # ) +
   theme_minimal()
 ggsave(paste0(plot_dir, summary_file, "_spline_consumption.png"), p1,
        width = 6, height = 4, dpi = 150)
@@ -245,8 +299,14 @@ ggsave(paste0(plot_dir, summary_file, "_spline_consumption.png"), p1,
 p2 <- ggplot(data.frame(days_over_30C_monthly = days_seq, effect = days_effect),
              aes(x = days_over_30C_monthly, y = effect)) +
   geom_line(color = "firebrick", linewidth = 1) +
-  labs(x = "Days over 30\u00B0C", y = "Partial effect (log-odds)",
+  geom_vline(xintercept = days_inner_knots_verified, linetype = "dashed",
+             color = "gray40", alpha = 0.7) +
+  labs(x = "Days over 30°C", y = "Partial effect (log-odds)",
        title = "Monotone increasing spline: days_over_30C_monthly") +
+  # scale_x_continuous(
+  #   breaks = sort(unique(c(pretty(days_seq), days_inner_knots_verified))),
+  #   labels = scales::label_number()
+  # ) +
   theme_minimal()
 ggsave(paste0(plot_dir, summary_file, "_spline_days_over_30C.png"), p2,
        width = 6, height = 4, dpi = 150)
@@ -257,6 +317,42 @@ ggsave(paste0(plot_dir, summary_file, "_spline_days_over_30C.png"), p2,
 df_model[, pred_prob_re := predict(model, newdata = df_model, type = "response")]
 write_parquet(df_model, paste0(results_dir, summary_file, "_input_predictions_with_re.parquet"))
 print("Input-data predictions (with RE) saved.")
+
+df_avg <- copy(df_model)
+df_avg[, `:=`(
+  sex_id = factor("Male", levels = c("Male", "Female")),
+  total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
+  birth_year = median(df_model$birth_year, na.rm = TRUE),
+  ihme_loc_id = df_model$ihme_loc_id[1]
+)]
+
+table(df_avg$sex_id)
+table(df_avg$total_precipitation_monthly)
+table(df_avg$birth_year)
+table(df_avg$ihme_loc_id)
+range(df_avg$days_over_30C_monthly)
+range(df_avg$consumption_pd)
+
+df_avg[, pred_prob_fe := predict(model, newdata = df_avg, type = "response",
+                                 exclude = "s(ihme_loc_id)")]
+
+
+df_avg_merge <- unique(df_avg[,.(indv_id,age_month,pred_prob_fe)])
+
+df_model_merged <- merge(df_model,df_avg_merge,by=c("indv_id","age_month"),all.x=TRUE)
+
+# Sort by individual and age
+setorder(df_model_merged, indv_id, age_month)
+
+# Cumulative mortality with RE (equivalent to mortality_me from Cox)
+df_model_merged[, mortality_me := 1 - cumprod(1 - pred_prob_re), by = indv_id]
+
+# Cumulative mortality with FE only (equivalent to mortality_fe from Cox)
+df_model_merged[, mortality_fe := 1 - cumprod(1 - pred_prob_fe), by = indv_id]
+
+
+write_parquet(df_model_merged, paste0(results_dir, summary_file, "_input_predictions_both_re_fe.parquet"))
+
 
 #==============================================================================
 # SECTION 4: PREDICT ON NEW DATA — CUMULATIVE MORTALITY THROUGH 60 MONTHS
@@ -273,7 +369,7 @@ age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m",
 
 # Helper: given a data.table with all non-age covariates (age dummies will be
 # overwritten), returns the cumulative mortality probability for each row.
-predict_cumulative_mortality <- function(model, newdata, age_vars) {
+predict_cumulative_mortality_fe <- function(model, newdata, age_vars) {
   survival <- rep(1, nrow(newdata))
   for (av in age_vars) {
     row_data <- copy(newdata)
@@ -290,10 +386,10 @@ predict_cumulative_mortality <- function(model, newdata, age_vars) {
 pred_grid <- CJ(
   days_over_30C_monthly = seq(min(df_model$days_over_30C_monthly, na.rm = TRUE),
                               max(df_model$days_over_30C_monthly, na.rm = TRUE),
-                              length.out = 50),
+                              length.out = 1000),
   consumption_pd        = seq(min(df_model$consumption_pd, na.rm = TRUE),
                               max(df_model$consumption_pd, na.rm = TRUE),
-                              length.out = 50)
+                              length.out = 1000)
 )
 pred_grid[, `:=`(
   age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
@@ -305,9 +401,36 @@ pred_grid[, `:=`(
   indv_id             = df_model$indv_id[1]
 )]
 
-pred_grid[, pred_prob := predict_cumulative_mortality(model, pred_grid, age_vars)]
+pred_grid[, pred_prob := predict_cumulative_mortality_fe(model, pred_grid, age_vars)]
 
 fwrite(pred_grid, paste0(results_dir, summary_file, "_predictions_with_both_splines_ranged.csv"))
+
+# Repeat cumulative approach with mixed effects
+
+age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m",
+              "age_24_m","age_36_m","age_48_m","age_60_m")
+
+# Helper: given a data.table with all non-age covariates (age dummies will be
+# overwritten), returns the cumulative mortality probability for each row.
+predict_cumulative_mortality_me <- function(model, newdata, age_vars) {
+  survival <- rep(1, nrow(newdata))
+  for (av in age_vars) {
+    row_data <- copy(newdata)
+    row_data[, (age_vars) := 0L]
+    row_data[, (av) := 1L]
+    h <- predict(model, newdata = row_data, type = "response")
+    survival <- survival * (1 - h)
+  }
+  return(1 - survival)
+}
+
+# Create single indv dataset
+df_max_age <- copy(df_model)
+df_max_age <- df_max_age[order(age_month), .SD[.N], by = indv_id]
+
+df_max_age[, pred_prob_me := predict_cumulative_mortality_me(model, df_max_age, age_vars)]
+
+fwrite(df_max_age, paste0(results_dir, summary_file, "_predictions_cumulative_me.csv"))
 
 # --- Marginal effect of days_over_30C at median consumption ---
 marginal_days <- data.table(
@@ -327,8 +450,14 @@ marginal_days[, pred_prob := predict_cumulative_mortality(model, marginal_days, 
 
 p4 <- ggplot(marginal_days, aes(x = days_over_30C_monthly, y = pred_prob)) +
   geom_line(color = "firebrick", linewidth = 1) +
-  labs(x = "Days over 30\u00B0C", y = "P(mortality before 60 months)",
+  geom_vline(xintercept = days_inner_knots_verified, linetype = "dashed",
+             color = "gray40", alpha = 0.7) +
+  labs(x = "Days over 30°C", y = "P(mortality before 60 months)",
        title = "Marginal effect of heat days (at median consumption)") +
+  # scale_x_continuous(
+  #   breaks = sort(unique(c(pretty(marginal_days$days_over_30C_monthly), days_inner_knots_verified))),
+  #   labels = scales::label_number()
+  # ) +
   theme_minimal()
 ggsave(paste0(plot_dir, summary_file, "_marginal_days.png"), p4,
        width = 6, height = 4, dpi = 150)
@@ -351,11 +480,43 @@ marginal_cons[, pred_prob := predict_cumulative_mortality(model, marginal_cons, 
 
 p5 <- ggplot(marginal_cons, aes(x = consumption_pd, y = pred_prob)) +
   geom_line(color = "steelblue", linewidth = 1) +
+  geom_vline(xintercept = cons_inner_knots_verified, linetype = "dashed",
+             color = "gray40", alpha = 0.7) +
   labs(x = "Consumption per day", y = "P(mortality before 60 months)",
        title = "Marginal effect of consumption (at median heat days)") +
+  # scale_x_continuous(
+  #   breaks = sort(unique(c(pretty(marginal_cons$consumption_pd), cons_inner_knots_verified))),
+  #   labels = scales::label_number()
+  # ) +
   theme_minimal()
-
 ggsave(paste0(plot_dir, summary_file, "_marginal_consumption.png"), p5,
        width = 6, height = 4, dpi = 150)
 
 message("Prediction and plotting complete. Outputs saved to: ", plot_dir)
+
+
+# --- Make density plots of variables ---
+# days_over_30C_monthly
+df_model[is.na(days_over_30C_monthly),.N]
+h1 <- ggplot(df_model,aes(x=days_over_30C_monthly))+
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
+  labs(title = "Histogram of days_over_30C_monthly", x = "days_over_30C_monthly", y = "Frequency") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma)
+ggsave(paste0(plot_dir, summary_file, "_days_over_30C_monthly_hist.png"), h1,
+       width = 6, height = 4, dpi = 150)
+
+
+
+# days_over_30C_monthly
+df_model[is.na(consumption_pd),.N]
+h2 <- ggplot(df_model,aes(x=consumption_pd))+
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
+  labs(title = "Histogram of consumption_pd", x = "consumption_pd", y = "Frequency") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma)
+ggsave(paste0(plot_dir, summary_file, "_consumption_pd_hist.png"), h2,
+       width = 6, height = 4, dpi = 150)
+
+
+

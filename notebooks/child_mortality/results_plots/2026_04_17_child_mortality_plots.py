@@ -45,7 +45,7 @@ from pathlib import Path
 
 DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_13.01/data_binned.parquet"
 RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_13.01/"
-PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2026_04_13.01/"
+PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2026_04_17.01/"
 
 os.makedirs(PLOT_PATH, exist_ok=True, mode=0o777)
 
@@ -53,25 +53,74 @@ os.makedirs(PLOT_PATH, exist_ok=True, mode=0o777)
 
 # Raw data
 df_raw = pd.read_parquet(DATA_PATH)
+df_raw = df_raw[df_raw["int_birth_year_diff_months"] <= 120]
+
+# Scatter days_over_30C and days_over_30C_monthly
+df_raw_scatter = df_raw[["days_over_30C", "days_over_30C_monthly"]].drop_duplicates()
+plt.figure(figsize=(6, 6))
+sns.scatterplot(
+    data=df_raw,
+    x="days_over_30C",
+    y="days_over_30C_monthly",
+    alpha=0.1,
+)
+plt.xlabel("Days over 30°C (avg annual weighted by time bin)", fontsize=13)
+plt.ylabel("Days over 30°C (avg monthly weighted by time bin)", fontsize=13)
+plt.tight_layout()
+plt.savefig(
+    os.path.join(PLOT_PATH, f"days_over_30_annual_vs_monthly_scatter.png"),
+    bbox_inches="tight",
+)
 
 # Modeled data
-df_model_me = pd.read_parquet(
+df_model = pd.read_parquet(
     RESULTS_PATH
-    + "cm_splines_1m_no_re_custom_knots_input_predictions_both_re_fe.parquet"
+    + "cm_splines_full_no_re_custom_knots_v2_input_predictions_both_re_fe.parquet"
 )
+# df_model["age_month_old"] = df_model["age_month"]
+# df_model = df_model.rename(columns={"days_over_30C_monthly": "days_over_30C"})
+
+
+# df_model_me = pd.read_parquet(
+#     RESULTS_PATH
+#     + "cm_splines_full_no_re_custom_knots_v2_input_predictions_both_re_fe.parquet"
+# )
+df_model_me = pd.read_csv(
+    RESULTS_PATH + "cm_splines_full_no_re_custom_knots_v2_predictions_cumulative_me.csv"
+)
+
+
 df_model_fe = pd.read_csv(
     RESULTS_PATH
-    + "cm_splines_1m_no_re_custom_knots_predictions_with_both_splines_ranged.csv"
+    + "cm_splines_full_no_re_custom_knots_v2_predictions_with_both_splines_ranged.csv"
 )
-df_model_me = df_model_me.rename(columns={"days_over_30C_monthly": "days_over_30C"})
+
+# Preliminary formatting
+df_model = df_model.rename(columns={"days_over_30C_monthly": "days_over_30C"})
+df_model.dropna(subset=["consumption_pd", "days_over_30C"], inplace=True)
+df_model["age_month_old"] = df_model["age_month"]
+df_model["age_month"] = 0
+for v in [
+    "age_1_m",
+    "age_3_m",
+    "age_6_m",
+    "age_12_m",
+    "age_24_m",
+    "age_36_m",
+    "age_48_m",
+    "age_60_m",
+]:
+    months = int(v.split("_")[1])
+    df_model.loc[df_model[v] == 1, "age_month"] = months
+
+
 df_model_fe = df_model_fe.rename(columns={"days_over_30C_monthly": "days_over_30C"})
 df_model_fe["age_month"] = 60
-df_model_me.dropna(subset=["consumption_pd", "days_over_30C"], inplace=True)
 
 # Get max age obs for me
-df_max_age = df_model_me.copy()
+df_max_age = df_model.copy()
 df_max_age = (
-    df_model_me.sort_values("age_month")
+    df_model.sort_values("age_month")
     .groupby("indv_id", as_index=False)
     .tail(1)
     .reset_index(drop=True)
@@ -452,7 +501,8 @@ multiply_by_val = 1000
 
 versions = [
     "child_mortality",
-    "pred_prob_re",
+    "pred_prob_me",
+    # "pred_prob_re",
 ]
 
 # Compute shared color scale across observed and predicted
@@ -489,34 +539,36 @@ versions_labeled = [
 ]
 
 model_name = "Child Mortality"
-pdf_path = os.path.join(PLOT_PATH, "child_mortality_version_2026_04_13.pdf")
-with PdfPages(pdf_path) as pdf:
-    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(12, 5), constrained_layout=True)
 
-    for col_idx, (version, version_label) in enumerate(versions_labeled):
-        data = df_model.rename(columns={version: "model_predictions"})
-        plot_heat_map_person_time_grid(
-            data=data,
-            bin_cols=columns_to_bin,
-            ax=axes[col_idx],
-            title=f"{model_name} - {version_label}",
-            multiply_by=multiply_by_val,
-            vmin=vmin,
-            vmax=vmax,
-            show_colorbar=(col_idx == 1),
-            # x_bins=custom_x_bins,
-            # y_bins=custom_y_bins,
-        )
 
-    pdf.savefig(fig)
-    plt.close(fig)
+# pdf_path = os.path.join(PLOT_PATH, "child_mortality_version_2026_04_13.pdf")
+# with PdfPages(pdf_path) as pdf:
+#     fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(12, 5), constrained_layout=True)
 
-print(f"PDF saved to {pdf_path}")
+#     for col_idx, (version, version_label) in enumerate(versions_labeled):
+#         data = df_model.rename(columns={version: "model_predictions"})
+#         plot_heat_map_person_time_grid(
+#             data=data,
+#             bin_cols=columns_to_bin,
+#             ax=axes[col_idx],
+#             title=f"{model_name} - {version_label}",
+#             multiply_by=multiply_by_val,
+#             vmin=vmin,
+#             vmax=vmax,
+#             show_colorbar=(col_idx == 1),
+#             # x_bins=custom_x_bins,
+#             # y_bins=custom_y_bins,
+#         )
+
+#     pdf.savefig(fig)
+#     plt.close(fig)
+
+# print(f"PDF saved to {pdf_path}")
 
 
 # Individual plots
 vmin = 0.05
-vmax = 1.95
+vmax = 3.3
 plot_heat_map_person_time(
     data=df_model_me.rename(columns={"child_mortality": "model_predictions"}),
     outfile="raw_heatmap_child_mortality_2026_04_16",
@@ -531,8 +583,23 @@ plot_heat_map_person_time(
     y_bins=custom_y_bins,
 )
 
+
+# plot_heat_map_person_time(
+#     data=df_model_me.rename(columns={"pred_prob_re": "model_predictions"}),
+#     outfile="predicted_heatmap_child_mortality_2026_04_16_me",
+#     title="Predicted Mortality with RE (per 1000 person-months)",
+#     bin_cols=columns_to_bin,
+#     format=".2f",
+#     multiply_by=multiply_by_val,
+#     # vmin=vmin,
+#     # vmax=vmax,
+#     show_colorbar=False,
+#     x_bins=custom_x_bins,
+#     y_bins=custom_y_bins,
+# )
+
 plot_heat_map_person_time(
-    data=df_model_me.rename(columns={"pred_prob_re": "model_predictions"}),
+    data=df_model_me.rename(columns={"pred_prob_me": "model_predictions"}),
     outfile="predicted_heatmap_child_mortality_2026_04_16_me",
     title="Predicted Mortality with RE (per 1000 person-months)",
     bin_cols=columns_to_bin,
@@ -544,7 +611,6 @@ plot_heat_map_person_time(
     x_bins=custom_x_bins,
     y_bins=custom_y_bins,
 )
-
 
 plot_heat_map_person_time(
     data=df_model_fe.rename(columns={"pred_prob": "model_predictions"}),
@@ -562,16 +628,63 @@ plot_heat_map_person_time(
 
 
 # Test out other heat maps
+# plot_heat_map_person_time(
+#     data=df_max_age.rename(columns={"pred_prob_re": "model_predictions"}),
+#     outfile="test",
+#     title="Predicted Mortality with RE (per 1000 person-months)",
+#     bin_cols=columns_to_bin,
+#     format=".2f",
+#     multiply_by=multiply_by_val,
+#     # vmin=vmin,
+#     # vmax=vmax,
+#     show_colorbar=False,
+#     x_bins=custom_x_bins,
+#     y_bins=custom_y_bins,
+# )
+
+
+# Trying cumulative hazard equivalent
+vmin = 0.05
+vmax = 3.0
 plot_heat_map_person_time(
-    data=df_max_age.rename(columns={"pred_prob_re": "model_predictions"}),
-    outfile="test",
+    data=df_max_age.rename(columns={"child_mortality": "model_predictions"}),
+    outfile="raw_heatmap_child_mortality_2026_04_16",
+    title="Observed Mortality (per 1000 person-months)",
+    bin_cols=columns_to_bin,
+    format=".2f",
+    multiply_by=multiply_by_val,
+    vmin=vmin,
+    vmax=vmax,
+    show_colorbar=False,
+    x_bins=custom_x_bins,
+    y_bins=custom_y_bins,
+)
+
+
+plot_heat_map_person_time(
+    data=df_max_age.rename(columns={"mortality_me": "model_predictions"}),
+    outfile="predicted_heatmap_child_mortality_2026_04_16_me",
     title="Predicted Mortality with RE (per 1000 person-months)",
     bin_cols=columns_to_bin,
     format=".2f",
     multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
+    vmin=vmin,
+    vmax=vmax,
     show_colorbar=False,
+    x_bins=custom_x_bins,
+    y_bins=custom_y_bins,
+)
+
+plot_heat_map_person_time(
+    data=df_max_age.rename(columns={"mortality_fe": "model_predictions"}),
+    outfile="predicted_heatmap_child_mortality_2026_04_16_fe",
+    title="Predicted Mortality with FE (per 1000 person-months)",
+    bin_cols=columns_to_bin,
+    format=".2f",
+    multiply_by=multiply_by_val,
+    vmin=vmin,
+    vmax=vmax,
+    show_colorbar=True,
     x_bins=custom_x_bins,
     y_bins=custom_y_bins,
 )

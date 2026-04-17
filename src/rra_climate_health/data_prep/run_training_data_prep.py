@@ -3179,6 +3179,25 @@ def run_training_data_prep_child_mortality_monthly(
         index=False,
     )
 
+    # df_climate = pd.read_parquet(
+    #     Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet"
+    # )
+
+    # remove nulls from key variables that have been merged on
+    before_rows = len(df_climate)
+    df_climate.dropna(
+        subset=[
+            "consumption_pd",
+            "days_over_30C_monthly",
+            "total_precipitation_monthly",
+        ],
+        inplace=True,
+    )
+    after_rows = len(df_climate)
+    logging.info(
+        f"Dropped {before_rows - after_rows:,} rows with missing values in key merged variables (consumption_pd, days_over_30C_monthly) after merging monthly climate variables"
+    )
+
     # TODO: Create binned version of data
     # check:
     print(f"max age_month: {df_climate['age_month'].max()}")
@@ -3289,9 +3308,22 @@ def run_training_data_prep_child_mortality_monthly(
         .to_pandas()
     )
 
-    # Add the aod_months back onto data:
-    aod_df = df_climate[["indv_id", "aod_months"]].drop_duplicates()
-    df_grouped = df_grouped.merge(aod_df, on="indv_id", how="left")
+    # check for duplicates
+    dedup_vars = [
+        "indv_id",
+        "age_1_m",
+        "age_3_m",
+        "age_6_m",
+        "age_12_m",
+        "age_24_m",
+        "age_36_m",
+        "age_48_m",
+        "age_60_m",
+        "child_mortality",
+    ]
+    df_grouped_dups = df_grouped[df_grouped.duplicated(subset=dedup_vars, keep=False)]
+
+    assert len(df_grouped_dups) == 0
 
     df_grouped.to_parquet(
         Path(output_path_version) / "data_binned.parquet",
