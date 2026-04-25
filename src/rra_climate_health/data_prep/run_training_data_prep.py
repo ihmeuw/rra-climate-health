@@ -3174,15 +3174,6 @@ def run_training_data_prep_child_mortality_monthly(
         on=["int_year", "int_month", "lat", "long"],
     )
 
-    df_climate.to_parquet(
-        Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet",
-        index=False,
-    )
-
-    # df_climate = pd.read_parquet(
-    #     Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet"
-    # )
-
     # remove nulls from key variables that have been merged on
     before_rows = len(df_climate)
     df_climate.dropna(
@@ -3197,6 +3188,15 @@ def run_training_data_prep_child_mortality_monthly(
     logging.info(
         f"Dropped {before_rows - after_rows:,} rows with missing values in key merged variables (consumption_pd, days_over_30C_monthly) after merging monthly climate variables"
     )
+
+    df_climate.to_parquet(
+        Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet",
+        index=False,
+    )
+
+    # df_climate = pd.read_parquet(
+    #     Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet"
+    # )
 
     # TODO: Create binned version of data
     # check:
@@ -3218,6 +3218,12 @@ def run_training_data_prep_child_mortality_monthly(
         df_climate[bin_name] = (
             (df_climate["age_month"] >= bin_month[0])
             & (df_climate["age_month"] < bin_month[1])
+        ).astype(int)
+
+    # make second version that's cumulative rather than only within bin
+    for bin_name, bin_month in time_bin_dict.items():
+        df_climate[f"cumulative_{bin_name}"] = (
+            df_climate["age_month"] < bin_month[1]
         ).astype(int)
 
     ## Get weighted averages (by number of months in bin) of explanatory variables, grouping by binned age_month and child_alive status
@@ -3275,7 +3281,7 @@ def run_training_data_prep_child_mortality_monthly(
         "q95_monthly",
     ]
 
-    group_by_vars = [
+    group_by_vars_within_bin = [
         "ihme_loc_id",
         "geospatial_id",
         "psu",
@@ -3296,11 +3302,32 @@ def run_training_data_prep_child_mortality_monthly(
         "age_60_m",
     ]
 
-    # Attempt polars
+    group_by_vars_cumulative = [
+        "ihme_loc_id",
+        "geospatial_id",
+        "psu",
+        "strata",
+        "line_id",
+        "hh_id",
+        "lat",
+        "long",
+        "lbd_admin2_id",
+        "indv_id",
+        "cumulative_age_1_m",
+        "cumulative_age_3_m",
+        "cumulative_age_6_m",
+        "cumulative_age_12_m",
+        "cumulative_age_24_m",
+        "cumulative_age_36_m",
+        "cumulative_age_48_m",
+        "cumulative_age_60_m",
+    ]
+    # Use polars
     df_pl = pl.from_pandas(df_climate)
 
-    df_grouped = (
-        df_pl.group_by(group_by_vars)
+    # within bin
+    df_grouped_within_bin = (
+        df_pl.group_by(group_by_vars_within_bin)
         .agg(
             [pl.col(var).max() for var in get_max_vars]
             + [pl.col(var).mean() for var in get_avg_vars]
@@ -3308,25 +3335,83 @@ def run_training_data_prep_child_mortality_monthly(
         .to_pandas()
     )
 
-    # check for duplicates
-    dedup_vars = [
-        "indv_id",
-        "age_1_m",
-        "age_3_m",
-        "age_6_m",
-        "age_12_m",
-        "age_24_m",
-        "age_36_m",
-        "age_48_m",
-        "age_60_m",
-        "child_mortality",
-    ]
-    df_grouped_dups = df_grouped[df_grouped.duplicated(subset=dedup_vars, keep=False)]
+    df_grouped_within_bin.to_parquet(
+        Path(output_path_version) / "data_within_bin.parquet",
+        index=False,
+    )
 
-    assert len(df_grouped_dups) == 0
+    # cumulative
+    df_grouped_cumulative = (
+        df_pl.group_by(group_by_vars_cumulative)
+        .agg(
+            [pl.col(var).max() for var in get_max_vars]
+            + [pl.col(var).mean() for var in get_avg_vars]
+        )
+        .to_pandas()
+    )
 
-    df_grouped.to_parquet(
-        Path(output_path_version) / "data_binned.parquet",
+    # Keep only 1 dummy in max age for cumulative age
+    # vars. Equivalent to adding back on binned age vars
+    time_bin_dict = {
+        "age_1_m": (0, 1),
+        "age_3_m": (1, 3),
+        "age_6_m": (3, 6),
+        "age_12_m": (6, 12),
+        "age_24_m": (12, 24),
+        "age_36_m": (24, 36),
+        "age_48_m": (36, 48),
+        "age_60_m": (48, 60),
+    }
+
+    # bin_name will define what range of time the month falls into
+    for bin_name, bin_month in time_bin_dict.items():
+        df_grouped_cumulative[bin_name] = (
+            (df_grouped_cumulative["age_month"] >= bin_month[0])
+            & (df_grouped_cumulative["age_month"] < bin_month[1])
+        ).astype(int)
+
+    df_grouped_cumulative.to_parquet(
+        Path(output_path_version) / "data_cumulative_bins.parquet",
+        index=False,
+    )
+
+    # get max age per indv and add on
+    df_max_age = (
+        df_grouped_cumulative.sort_values("age_month")
+        .groupby("indv_id", as_index=False)
+        .tail(1)
+        .reset_index(drop=True)
+    )
+
+    # keep_cols
+    keep_cols = ["indv_id"] + get_avg_vars
+    df_max_age_constant_vars = df_max_age[keep_cols]
+    for v in get_avg_vars:
+        df_max_age_constant_vars.rename(columns={v: f"{v}_constant"}, inplace=True)
+
+    df_grouped_cumulative = pd.merge(
+        df_grouped_cumulative, df_max_age_constant_vars, on="indv_id", how="left"
+    )
+
+    # # check for duplicates
+    # dedup_vars = [
+    #     "indv_id",
+    #     "age_1_m",
+    #     "age_3_m",
+    #     "age_6_m",
+    #     "age_12_m",
+    #     "age_24_m",
+    #     "age_36_m",
+    #     "age_48_m",
+    #     "age_60_m",
+    #     "child_mortality",
+    # ]
+    # df_grouped_dups = df_grouped[df_grouped.duplicated(subset=dedup_vars, keep=False)]
+
+    # assert len(df_grouped_dups) == 0
+
+    df_grouped_cumulative.to_parquet(
+        Path(output_path_version) / "data_constant_vars.parquet",
         index=False,
     )
 

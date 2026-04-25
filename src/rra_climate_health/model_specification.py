@@ -100,9 +100,9 @@ class SplineSpecification(BaseModel):
 
 
 # SplineSpecification: TypeAlias = dict[str, str]
-class SplineSpecification(BaseModel):
-    bs: str
-    k: int | None = None
+# class SplineSpecification(BaseModel):
+#     bs: str
+#     k: int | None = None
 
 
 class OutcomeVariable(StrEnum):
@@ -113,7 +113,7 @@ class OutcomeVariable(StrEnum):
     ANEMIA = "anemia"
     LOW_BIRTH_WEIGHT = "lbw"
     CHILD_MORTALITY = "child_mortality"
-    NEONATAL_MORTALITY = "child_mortality"
+    NEONATAL_MORTALITY = "neonatal_mortality"
 
 
 class PredictorSpecification(BaseModel):

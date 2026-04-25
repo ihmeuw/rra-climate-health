@@ -647,7 +647,7 @@ def extract_fixed_effects_from_scam(model):
 
     # 1. Get the model summary
     # base = ro.baseenv["summary"]
-    model_summary = base(model)
+    model_summary = base.summary(model)
 
     # 2. Extract the parametric table (p.table)
     p_table = model_summary.rx2("p.table")

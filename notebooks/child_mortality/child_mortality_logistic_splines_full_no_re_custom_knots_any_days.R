@@ -1,6 +1,6 @@
 ################################################################################
 # PROJECT: Climate nutrition
-# DATE: 2026-04-13
+# DATE: 2026-04-24
 ################################################################################
 
 #==============================================================================
@@ -38,11 +38,10 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_splines_full_no_re_custom_knots_v2" 
-# summary_file <- "cm_10yr_cutoff_splines_no_re"
+summary_file <- "cm_any_days" 
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_13.01/data_binned.parquet" 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_13.01/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_21.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
 
@@ -57,6 +56,7 @@ df <- data.table(df) # 54 m obs
 df <- df[int_birth_year_diff_months<=120] # 22.8 m obs
 
 climate_vars <- c(
+  "any_days_over_30C",
   "mean_temperature_monthly",
   "total_precipitation_monthly",
   "days_over_30C_monthly"
@@ -95,6 +95,7 @@ df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Femal
 df_model[,birth_year:=as.integer(birth_year)]
 df_model[, child_mortality := as.integer(child_mortality)]
 df_model[, indv_id := factor(as.character(indv_id))]
+df_model[,any_days_over_30C := factor(any_days_over_30C)]
 
 # # Get data sample if needed
 # sample_percent <- 7000000/nrow(df_model) # 
@@ -155,6 +156,7 @@ model <- scam(child_mortality ~
                 age_1_m + age_3_m + age_6_m + age_12_m +
                 age_24_m + age_36_m + age_48_m + age_60_m +
                 sex_id +
+                any_days_over_30C+
                 s(consumption_pd, k = res_consumption$k, bs = "mpd") +
                 s(days_over_30C_monthly, k = res_thresh$k, bs = "mpi") +
                 total_precipitation_monthly +
@@ -299,6 +301,7 @@ template <- data.table(
   age_1_m  = 1, age_3_m  = 1, age_6_m  = 1, age_12_m = 1,
   age_24_m = 1, age_36_m = 1, age_48_m = 1, age_60_m = 1,
   sex_id   = factor("Male", levels = c("Male", "Female")),
+  any_days_over_30C = factor(levels(df_model$any_days_over_30C)[1], levels = levels(df_model$any_days_over_30C)),
   total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
   birth_year          = median(df_model$birth_year, na.rm = TRUE),
   consumption_pd      = median(df_model$consumption_pd, na.rm = TRUE),
@@ -414,6 +417,7 @@ pred_grid[, `:=`(
   age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
   age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
   sex_id   = factor("Male", levels = c("Male", "Female")),
+  any_days_over_30C = factor(levels(df_model$any_days_over_30C)[1], levels = levels(df_model$any_days_over_30C)),
   total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
   birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
   ihme_loc_id         = df_model$ihme_loc_id[1],
@@ -462,6 +466,7 @@ marginal_days <- data.table(
   age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
   age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
   sex_id   = factor("Male", levels = c("Male", "Female")),
+  any_days_over_30C = factor(levels(df_model$any_days_over_30C)[1], levels = levels(df_model$any_days_over_30C)),
   total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
   birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
   ihme_loc_id         = df_model$ihme_loc_id[1],
@@ -492,6 +497,7 @@ marginal_cons <- data.table(
   age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
   age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
   sex_id   = factor("Male", levels = c("Male", "Female")),
+  any_days_over_30C = factor(levels(df_model$any_days_over_30C)[1], levels = levels(df_model$any_days_over_30C)),
   total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
   birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
   ihme_loc_id         = df_model$ihme_loc_id[1],
@@ -541,3 +547,8 @@ ggsave(paste0(plot_dir, summary_file, "_consumption_pd_hist.png"), h2,
 
 
 
+# Create table of correlations between days_over_30C_monthly and child_mortality, and between consumption_pd and child_mortality,
+# grouped by int_month
+cor_table <- df_model[, .(
+  cor_days = cor(days_over_30C_monthly, child_mortality, use = "complete.obs")
+), by = int_month]

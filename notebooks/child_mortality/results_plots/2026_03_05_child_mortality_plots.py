@@ -129,11 +129,9 @@ def plot_heat_map_person_time(
         cmap = plt.get_cmap("RdYlBu_r", len(boundaries) - 1)
         norm = mcolors.BoundaryNorm(boundaries, cmap.N, clip=True)
 
-        x_tick_vals = heatmap_df.groupby(
-            ["days_over_30C_bin"]
-        ).days_over_30C.min().astype(int).values.tolist() + [
-            int(heatmap_df.days_over_30C.max())
-        ]
+        x_tick_vals = heatmap_df.groupby([f"{col}_bin"])[f"{col}"].min().astype(
+            int
+        ).values.tolist() + [int(heatmap_df[f"{col}"].max())]
         y_tick_vals = heatmap_df.groupby(
             ["consumption_pd_bin"]
         ).consumption_pd.min().values.tolist() + [heatmap_df.consumption_pd.max()]
@@ -239,11 +237,9 @@ def plot_heat_map_person_time_grid(
         cmap = plt.get_cmap("RdYlBu_r", len(boundaries) - 1)
         norm = mcolors.BoundaryNorm(boundaries, cmap.N, clip=True)
 
-        x_tick_vals = heatmap_df.groupby(
-            ["days_over_30C_bin"]
-        ).days_over_30C.min().astype(int).values.tolist() + [
-            int(heatmap_df.days_over_30C.max())
-        ]
+        x_tick_vals = heatmap_df.groupby([f"{col}_bin"])[f"{col}"].min().astype(
+            int
+        ).values.tolist() + [int(heatmap_df[f"{col}"].max())]
         y_tick_vals = heatmap_df.groupby(
             ["consumption_pd_bin"]
         ).consumption_pd.min().values.tolist() + [heatmap_df.consumption_pd.max()]

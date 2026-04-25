@@ -43,9 +43,9 @@ from rra_climate_health.data import ClimateMalnutritionData, DEFAULT_ROOT
 from pathlib import Path
 
 
-DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_13.01/data_binned.parquet"
-RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_13.01/"
-PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2026_04_17.01/"
+DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_21.01/data_within_bin.parquet"
+RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_21.01/"
+PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2026_04_21.01/"
 
 os.makedirs(PLOT_PATH, exist_ok=True, mode=0o777)
 
@@ -406,6 +406,113 @@ for ax, age in zip(axes.flatten(), ages):
 pdf_path = os.path.join(PLOT_PATH, "avg_mortality_per_do30_knot_bin_by_age.pdf")
 with PdfPages(pdf_path) as pdf:
     pdf.savefig(fig)
+plt.close(fig)
+
+
+# Custom plot: x axis has age group bins. Two bars in each: one of alive and one 
+# for dead, with the bars showing the average days_over_30C_monthly in each group. 
+# Also create a box-and-whiskers plot of avg days_over_30C_monthly by age group, disaggregated by alive vs dead.
+bins = [0, 1, 3, 6, 12, 24, 36, 48, 60]
+labels = ["0-1m", "2-3m", "4-6m", "7-12m", "13-24m", "25-36m", "37-48m", "49-60m"]
+df_raw["age_group"] = pd.Categorical(df_raw["age_group"], categories=labels, ordered=True)
+df_raw["age_group"] = pd.cut(
+    df_raw["age_month"],
+    bins=bins,
+    labels=labels,
+    include_lowest=True  # Include the lowest value in the first bin
+)
+
+# df_raw["age_group"] = pd.Categorical(
+#     df_raw["age_month"].map(
+#         {a: f"{0 if a == 1 else ages[ages.index(a)-1]+1}-{a}m" for a in ages}
+#     ),
+#     categories=[f"{0 if a == 1 else ages[ages.index(a)-1]+1}-{a}m" for a in ages],
+#     ordered=True,
+# )
+df_raw["status"] = df_raw["child_mortality"].map({0: "Alive", 1: "Dead"})
+df_raw["age_group"].value_counts()
+df_raw["status"].value_counts()
+
+# Grouped bar chart: avg days_over_30C_monthly by age group & alive/dead
+fig, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
+sns.barplot(
+    data=df_raw,
+    x="age_group",
+    y="days_over_30C_monthly_within_bin",
+    hue="status",
+    estimator="mean",
+    errorbar="ci",
+    ax=ax,
+)
+ax.set_xlabel("Age Group", fontsize=13)
+ax.set_ylabel("Avg Days over 30°C (monthly)", fontsize=13)
+ax.set_title("Avg Days over 30°C by Age Group: Alive vs Dead", fontsize=16)
+ax.legend(title="Status")
+plt.savefig(
+    os.path.join(PLOT_PATH, "avg_do30_monthly_by_age_alive_vs_dead_bar.png"),
+    bbox_inches="tight",
+)
+plt.close(fig)
+
+# Box-and-whiskers plot
+# fig, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
+# sns.boxplot(
+#     data=df_raw,
+#     x="age_group",
+#     y="days_over_30C_monthly",
+#     hue="status",
+#     showfliers=False,
+#     ax=ax,
+# )
+# ax.set_xlabel("Age Group", fontsize=13)
+# ax.set_ylabel("Days over 30°C (monthly)", fontsize=13)
+# ax.set_title("Days over 30°C by Age Group: Alive vs Dead", fontsize=16)
+# ax.legend(title="Status")
+# plt.savefig(
+#     os.path.join(PLOT_PATH, "do30_monthly_by_age_alive_vs_dead_boxplot.png"),
+#     bbox_inches="tight",
+# )
+# plt.close(fig)
+
+### Create version not disaggregated:
+
+fig, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
+sns.barplot(
+    data=df_raw,
+    x="age_group",
+    y="days_over_30C_monthly_within_bin",
+    # hue="status",
+    estimator="mean",
+    errorbar="ci",
+    ax=ax,
+)
+ax.set_xlabel("Age Group", fontsize=13)
+ax.set_ylabel("Avg Days over 30°C (monthly)", fontsize=13)
+ax.set_title("Avg Days over 30°C by Age Group", fontsize=16)
+plt.savefig(
+    os.path.join(PLOT_PATH, "avg_do30_monthly_by_age_bar.png"),
+    bbox_inches="tight",
+)
+plt.close(fig)
+
+# Box-and-whiskers plot
+fig, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
+sns.boxplot(
+    data=df_raw,
+    x="age_group",
+    y="days_over_30C_monthly",
+    hue="status",
+    showfliers=False,
+    ax=ax,
+)
+ax.set_xlabel("Age Group", fontsize=13)
+ax.set_ylabel("Days over 30°C (monthly)", fontsize=13)
+ax.set_title("Days over 30°C by Age Group: Alive vs Dead", fontsize=16)
+ax.legend(title="Status")
+plt.savefig(
+    os.path.join(PLOT_PATH, "do30_monthly_by_age_alive_vs_dead_boxplot.png"),
+    bbox_inches="tight",
+)
 plt.close(fig)
 
 
@@ -1100,21 +1207,35 @@ plot_heat_map_person_time(
 )
 
 
+multiply_by_val = 1000
+
 # Build a single PDF with one row per age_month and three columns:
 # observed child_mortality, cumhaz_me, cumhaz_fe.
 # Use a global color scale across all grouped values in all 3 x N panels.
+
+df_model["age_month_fixed"] = df_model["age_month"]
+df_model["age_month"] = df_model["age_month_old"]
+df_model["age_month"] = df_model["age_month_fixed"]
+
 age_month_values = np.sort(df_model["age_month"].dropna().unique())
 
 versions_labeled_age = [
     ("child_mortality", "Observed Mortality"),
-    ("cumhaz_me", "Predicted CumHaz with RE"),
-    ("cumhaz_fe", "Predicted CumHaz without RE"),
+    ("cumhaz_me", "Predicted with RE"),
+    ("cumhaz_fe", "Predicted without RE"),
 ]
 
 all_grouped_values = []
 row_scales = {}
 for age_month_val in age_month_values:
     age_subset = df_model[df_model["age_month"] <= age_month_val].copy()
+    # Apply the same deduplication as in the plot loop
+    age_subset = (
+        age_subset.sort_values("age_month")
+        .groupby("indv_id", as_index=False)
+        .tail(1)
+        .reset_index(drop=True)
+    )
     row_grouped_values = []
     for version, _ in versions_labeled_age:
         heatmap_df = age_subset.rename(columns={version: "model_predictions"}).copy()
@@ -1191,17 +1312,17 @@ with PdfPages(pdf_path_age_panels) as pdf:
             .reset_index(drop=True)
         )
 
-        # row_vmin, row_vmax = row_scales[age_month_val]
+        row_vmin, row_vmax = row_scales[age_month_val]
 
         for col_idx, (version, version_label) in enumerate(versions_labeled_age):
             plot_heat_map_person_time_grid(
                 data=df_max_age_subset.rename(columns={version: "model_predictions"}),
                 bin_cols=columns_to_bin,
                 ax=axes[row_idx, col_idx],
-                title=f"{version_label} | age_month={int(age_month_val)}",
+                title=f"{version_label}\nage_month<={int(age_month_val)}",
                 multiply_by=multiply_by_val,
-                # vmin=row_vmin,
-                # vmax=row_vmax,
+                vmin=row_vmin,
+                vmax=row_vmax,
                 show_colorbar=(col_idx == 2),
                 x_bins=custom_x_bins,
                 y_bins=custom_y_bins,
@@ -1214,6 +1335,75 @@ print(
     f"Saved age-specific 8x3 heatmap PDF to {pdf_path_age_panels} "
     f"with row-specific scales by age_month."
 )
+
+
+# Make plot of synthic data
+vmin = 0.1
+vmax = 3.3
+plot_heat_map_person_time(
+    data=df_model_fe.rename(columns={"cumhaz_fe": "model_predictions"}),
+    outfile="predicted_heatmap_child_mortality_2026_04_16_fe",
+    title="Predicted without RE (age_month==60)",
+    bin_cols=columns_to_bin,
+    format=".2f",
+    multiply_by=multiply_by_val,
+    vmin=vmin,
+    vmax=vmax,
+    show_colorbar=True,
+    x_bins=custom_x_bins,
+    y_bins=custom_y_bins,
+)
+
+# Can I make fixed effects plot monotonic with fine-grained y bins?
+df_model["age_month"] = df_model["age_month_old"]
+df_model["age_month"] = df_model["age_month_fixed"]
+custom_y_bins = [0,0.05,0.1,0.15,0.2,0.25,0.5,0.75, 1, 1.25,1.3,1.4,1.45,1.5, 1.75,2,2.25,2.5,3,4,5.25, 9.3, 15.5,17,18,20,22.5,23.5,25,27.5,31,40]
+
+custom_y_bins = [0, 1.5, 5.25, 9.3, 15.5, 31]
+plot_heat_map_person_time(
+    data=df_model[df_model["age_month"]==60].rename(
+        columns={"cumhaz_fe": "model_predictions"}
+    ),
+    outfile="predicted_heatmap_child_mortality_2026_04_21_fe_fine_grained",
+    title="Predicted Mortality PPT without RE",
+    bin_cols=columns_to_bin,
+    format=".2f",
+    multiply_by=multiply_by_val,
+    # vmin=vmin,
+    # vmax=vmax,
+    show_colorbar=True,
+    x_bins=custom_x_bins,
+    y_bins=custom_y_bins,
+)
+
+
+
+# Check underlying predictions for non-monotonicity:
+# Use the discretized age periods (not age_month_old)
+df_check = df_model.copy()
+df_check["age_month_period"] = df_model["age_month_fixed"]  # 1,3,6,12,24,36,48,60
+
+df_check["cumhaz_fe_rounded"] = df_check["cumhaz_fe"].round(8)
+
+# Sort once, then use groupby + shift — no Python loops
+df_check = df_check.sort_values(["age_month_period", "days_over_30C", "consumption_pd"])
+
+df_check["cumhaz_fe_lag"] = df_check.groupby(
+    ["age_month_period", "days_over_30C"], observed=True
+)["cumhaz_fe_rounded"].shift(1)
+
+# Drop NaN lags and rows where value didn't change
+df_check = df_check.dropna(subset=["cumhaz_fe_lag"])
+df_check = df_check[df_check["cumhaz_fe_rounded"] != df_check["cumhaz_fe_lag"]]
+
+# Non-monotonic: cumhaz_fe went UP as consumption_pd increased
+examine_all = df_check[df_check["cumhaz_fe_rounded"] > df_check["cumhaz_fe_lag"]].copy()
+
+print(f"Non-monotonic rows: {len(examine_all):,}")
+print(f"Unique age periods affected: {sorted(examine_all['age_month_period'].unique())}")
+print(f"Unique days_over_30C affected: {examine_all['days_over_30C'].nunique()}")
+examine_all[["age_month_period", "days_over_30C", "consumption_pd", "cumhaz_fe_rounded", "cumhaz_fe_lag"]].head(20)
+
 
 
 # Investigate remaining non-montonicities between top left cells
@@ -1317,21 +1507,3 @@ l3_explain["days_over_30C"].describe()
 
 # Compare against
 # originial 
-custom_y_bins = [0, 1.5, 5.25, 9.3, 15.5, 31]
-
-custom_y_bins = [0,0.25,0.5,0.75, 1, 1.25,1.3,1.4,1.45,1.5, 1.75,2,2.25,2.5,3,4,5.25, 9.3, 15.5,17,18,20,22.5,23.5,25,27.5,31,40]
-plot_heat_map_person_time(
-    data=df_model[df_model["age_month"] == 1].rename(
-        columns={"cumhaz_fe": "model_predictions"}
-    ),
-    outfile="fine_grained_consumption_pd_demo_monotonicity.png",
-    title="Observed Mortality",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)

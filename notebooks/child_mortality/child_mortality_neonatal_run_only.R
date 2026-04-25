@@ -38,11 +38,10 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_splines_full_no_re_custom_knots_v2" 
-# summary_file <- "cm_10yr_cutoff_splines_no_re"
+summary_file <- "cm_neo" 
 
 data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_13.01/data_binned.parquet" 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_13.01/"
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_21.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
 
@@ -51,10 +50,10 @@ dir.create(model_summary_dir, recursive = TRUE, showWarnings = FALSE)
 
 ## Read and format data
 df <- read_parquet(data_version)
-df <- data.table(df) # 54 m obs
+df <- data.table(df) 
 
 # Impose time cutoff between interview year and birth year of 10 years
-df <- df[int_birth_year_diff_months<=120] # 22.8 m obs
+df <- df[int_birth_year_diff_months<=120] 
 
 climate_vars <- c(
   "mean_temperature_monthly",
@@ -151,9 +150,11 @@ make_scam_knots <- function(inner_knots, x_data, m = 2L) {
 res_thresh      <- make_scam_knots(thresh_knots,      df_model$days_over_30C_monthly)
 res_consumption <- make_scam_knots(consumption_knots, df_model$consumption_pd)
 
+
+# limit to age_1_m only
+df_model <- df_model[age_1_m==1]
+
 model <- scam(child_mortality ~
-                age_1_m + age_3_m + age_6_m + age_12_m +
-                age_24_m + age_36_m + age_48_m + age_60_m +
                 sex_id +
                 s(consumption_pd, k = res_consumption$k, bs = "mpd") +
                 s(days_over_30C_monthly, k = res_thresh$k, bs = "mpi") +
@@ -227,57 +228,8 @@ write.csv(
   row.names = FALSE
 )
 
-
 #==============================================================================
-# SECTION 3: PREDICT ON INPUT DATA FOR HEATMAP GENERATION
-#==============================================================================
-
-
-df_avg <- copy(df_model)
-df_avg[, `:=`(
-  sex_id = factor("Male", levels = c("Male", "Female")),
-  total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
-  birth_year = median(df_model$birth_year, na.rm = TRUE),
-  ihme_loc_id = df_model$ihme_loc_id[1]
-)]
-
-table(df_avg$sex_id)
-table(df_avg$total_precipitation_monthly)
-table(df_avg$birth_year)
-table(df_avg$ihme_loc_id)
-range(df_avg$days_over_30C_monthly)
-range(df_avg$consumption_pd)
-mean(df_avg$age_month) # 19
-
-# Make prediction excluding location random effects - probability at each row
-setorder(df_avg, indv_id, age_month)
-df_avg[, pred_prob_fe := predict(model, newdata = df_avg, type = "response",
-                                 exclude = "s(ihme_loc_id)")]
-df_avg[, cumhaz_fe := cumsum(-log(1 - pred_prob_fe)), by = indv_id]
-df_avg[, survival_fe := exp(-cumhaz_fe)]
-df_avg[, mortality_fe := 1 - survival_fe]
-
-# Only keep predictions
-df_avg_merge <- unique(df_avg[,.(indv_id,age_month,cumhaz_fe,pred_prob_fe)])
-df_model_merged <- merge(df_model,df_avg_merge,by=c("indv_id","age_month"),all.x=TRUE)
-
-# Make prediction that includes location random effects
-setorder(df_model_merged, indv_id, age_month)
-df_model_merged[, pred_prob_re := predict(model, newdata = df_model_merged, type = "response")]
-
-# cumulative hazard with mixed effects
-# -log(1 - p) converts discrete hazard to continuous-time hazard contribution per interval
-df_model_merged[, cumhaz_me := cumsum(-log(1 - pred_prob_re)), by = indv_id]
-df_model_merged[, survival_me := exp(-cumhaz_me)]
-df_model_merged[, mortality_me := 1 - survival_me]
-
-write_parquet(df_model_merged, paste0(results_dir, summary_file, "_input_predictions_both_re_fe.parquet"))
-
-print("Predictions on input data saved.")
-
-
-#==============================================================================
-# SECTION 4: PLOT ISOLATED SPLINE TERM CONTRIBUTIONS
+# SECTION 3: PLOT ISOLATED SPLINE TERM CONTRIBUTIONS
 #==============================================================================
 
 plot_dir <- paste0(results_dir, "plots/")
@@ -296,8 +248,6 @@ dev.off()
 # --- ggplot versions using predict(type="terms") ---
 # Build a template row: all age dummies = 1, median for continuous covariates
 template <- data.table(
-  age_1_m  = 1, age_3_m  = 1, age_6_m  = 1, age_12_m = 1,
-  age_24_m = 1, age_36_m = 1, age_48_m = 1, age_60_m = 1,
   sex_id   = factor("Male", levels = c("Male", "Female")),
   total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
   birth_year          = median(df_model$birth_year, na.rm = TRUE),
@@ -361,7 +311,90 @@ ggsave(paste0(plot_dir, summary_file, "_spline_days_over_30C.png"), p2,
        width = 6, height = 4, dpi = 150)
 
 #==============================================================================
-# SECTION 5: PREDICT ON NEW DATA — CUMULATIVE MORTALITY THROUGH 60 MONTHS
+# SECTION 3b: PREDICT ON INPUT DATA WITH RANDOM EFFECTS
+#==============================================================================
+
+
+df_avg <- copy(df_model)
+df_avg[, `:=`(
+  sex_id = factor("Male", levels = c("Male", "Female")),
+  total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
+  birth_year = median(df_model$birth_year, na.rm = TRUE),
+  ihme_loc_id = df_model$ihme_loc_id[1]
+)]
+
+table(df_avg$sex_id)
+table(df_avg$total_precipitation_monthly)
+table(df_avg$birth_year)
+table(df_avg$ihme_loc_id)
+range(df_avg$days_over_30C_monthly)
+range(df_avg$consumption_pd)
+
+setorder(df_avg, indv_id, age_month)
+# df_avg[, pred_prob_fe := predict(model, newdata = df_avg, type = "response",
+#                                  exclude = "s(ihme_loc_id)")]
+df_avg[, pred_prob_fe := predict(model, newdata = df_avg, type = "response",
+                                 exclude = "s(ihme_loc_id)")]
+
+df_avg[, cumhaz_fe := cumsum(-log(1 - pred_prob_fe)), by = indv_id]
+
+# Step 3: derived quantities (same relationships as your Cox model)
+df_avg[, survival_fe := exp(-cumhaz_fe)]
+df_avg[, mortality_fe := 1 - survival_fe]
+
+# Check for any non-monotonicity
+age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m","age_24_m","age_36_m","age_48_m","age_60_m")
+df_avg$age_month_period <- 0L
+for (v in age_vars) {
+  months <- as.integer(strsplit(v, "_")[[1]][2])
+  df_avg[df_avg[[v]] == 1, "age_month_period"] <- months
+}
+
+table(df_avg$age_month_period)
+examine_all <- data.table()
+for (a in unique(df_avg$age_month_period)){
+  df_tmp <- df_avg[age_month_period==a]
+  for (b in unique(df_tmp$days_over_30C_monthly)){
+    df_tmp_b <- df_tmp[days_over_30C_monthly==b]
+    setorderv(df_tmp_b,"consumption_pd") # consumption is increasing
+    df_tmp_b[,pred_prob_fe:= round(pred_prob_fe,8)]
+    df_tmp_b[, pred_prob_fe_lag :=  shift(pred_prob_fe, type = "lag")]
+    df_tmp_b <- na.omit(df_tmp_b)
+    df_tmp_b <- df_tmp_b[pred_prob_fe!=pred_prob_fe_lag]
+    examine <- df_tmp_b[pred_prob_fe>pred_prob_fe_lag]
+    examine_all <- rbind(examine_all,examine)
+  }
+  
+}
+
+
+df_avg_merge <- unique(df_avg[,.(indv_id,age_month,cumhaz_fe,pred_prob_fe)])
+
+df_model_merged <- merge(df_model,df_avg_merge,by=c("indv_id","age_month"),all.x=TRUE)
+
+# Sort by individual and age (important for cumsum)
+setorder(df_model_merged, indv_id, age_month)
+
+# Step 1: predict with RE (you already have this)
+df_model_merged[, pred_prob_re := predict(model, newdata = df_model_merged, type = "response")]
+
+# Step 2: cumulative hazard with mixed effects
+# -log(1 - p) converts discrete hazard to continuous-time hazard contribution per interval
+df_model_merged[, cumhaz_me := cumsum(-log(1 - pred_prob_re)), by = indv_id]
+
+# Step 3: derived quantities (same relationships as your Cox model)
+df_model_merged[, survival_me := exp(-cumhaz_me)]
+df_model_merged[, mortality_me := 1 - survival_me]
+
+# Try rounding the fe to see if that's the cause of the non-monotonicities
+setDT(df_model_merged)
+df_model_merged[,cumhaz_fe:=round(cumhaz_fe,8)]
+write_parquet(df_model_merged, paste0(results_dir, summary_file, "_input_predictions_both_re_fe.parquet"))
+
+print("Predictions on input data saved.")
+
+#==============================================================================
+# SECTION 4: PREDICT ON NEW DATA — CUMULATIVE MORTALITY THROUGH 60 MONTHS
 #==============================================================================
 # Discrete-time survival: for each age interval, activate only that interval's
 # dummy (all others = 0) and predict the conditional hazard h_t(x). Then
@@ -369,175 +402,175 @@ ggsave(paste0(plot_dir, summary_file, "_spline_days_over_30C.png"), p2,
 #   P(die before 60m) = 1 - prod_t(1 - h_t(x))
 # This stays within the training data's feature space, unlike setting all
 # age dummies to 1 simultaneously (which is severe extrapolation).
-
-age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m",
-              "age_24_m","age_36_m","age_48_m","age_60_m")
-
-# Helper: given a data.table with all non-age covariates (age dummies will be
-# overwritten), returns the cumulative mortality probability for each row.
-predict_cumulative_mortality_fe <- function(model, newdata, age_vars) {
-  survival <- rep(1, nrow(newdata))
-  for (av in age_vars) {
-    row_data <- copy(newdata)
-    row_data[, (age_vars) := 0L]
-    row_data[, (av) := 1L]
-    h <- predict(model, newdata = row_data, type = "response",
-                 exclude = "s(ihme_loc_id)")
-    survival <- survival * (1 - h)
-  }
-  return(1 - survival)
-}
-
-predict_cumulative_hazard_fe <- function(model, newdata, age_vars) {
-  cumhaz <- rep(0, nrow(newdata))
-  for (av in age_vars) {
-    row_data <- copy(newdata)
-    row_data[, (age_vars) := 0L]
-    row_data[, (av) := 1L]
-    h <- predict(model, newdata = row_data, type = "response",
-                 exclude = "s(ihme_loc_id)")
-    cumhaz <- cumhaz + (-log(1 - h))
-  }
-  return(cumhaz)
-}
-
-# 2-D grid over both spline variables
-pred_grid <- CJ(
-  days_over_30C_monthly = seq(min(df_model$days_over_30C_monthly, na.rm = TRUE),
-                              max(df_model$days_over_30C_monthly, na.rm = TRUE),
-                              length.out = 1000),
-  consumption_pd        = seq(min(df_model$consumption_pd, na.rm = TRUE),
-                              max(df_model$consumption_pd, na.rm = TRUE),
-                              length.out = 1000)
-)
-pred_grid[, `:=`(
-  age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
-  age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
-  sex_id   = factor("Male", levels = c("Male", "Female")),
-  total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
-  birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
-  ihme_loc_id         = df_model$ihme_loc_id[1],
-  indv_id             = df_model$indv_id[1]
-)]
-
-
+# 
+# age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m",
+#               "age_24_m","age_36_m","age_48_m","age_60_m")
+# 
+# # Helper: given a data.table with all non-age covariates (age dummies will be
+# # overwritten), returns the cumulative mortality probability for each row.
+# predict_cumulative_mortality_fe <- function(model, newdata, age_vars) {
+#   survival <- rep(1, nrow(newdata))
+#   for (av in age_vars) {
+#     row_data <- copy(newdata)
+#     row_data[, (age_vars) := 0L]
+#     row_data[, (av) := 1L]
+#     h <- predict(model, newdata = row_data, type = "response",
+#                  exclude = "s(ihme_loc_id)")
+#     survival <- survival * (1 - h)
+#   }
+#   return(1 - survival)
+# }
+# 
+# predict_cumulative_hazard_fe <- function(model, newdata, age_vars) {
+#   cumhaz <- rep(0, nrow(newdata))
+#   for (av in age_vars) {
+#     row_data <- copy(newdata)
+#     row_data[, (age_vars) := 0L]
+#     row_data[, (av) := 1L]
+#     h <- predict(model, newdata = row_data, type = "response",
+#                  exclude = "s(ihme_loc_id)")
+#     cumhaz <- cumhaz + (-log(1 - h))
+#   }
+#   return(cumhaz)
+# }
+# 
+# # 2-D grid over both spline variables
+# pred_grid <- CJ(
+#   days_over_30C_monthly = seq(min(df_model$days_over_30C_monthly, na.rm = TRUE),
+#                               max(df_model$days_over_30C_monthly, na.rm = TRUE),
+#                               length.out = 1000),
+#   consumption_pd        = seq(min(df_model$consumption_pd, na.rm = TRUE),
+#                               max(df_model$consumption_pd, na.rm = TRUE),
+#                               length.out = 1000)
+# )
+# pred_grid[, `:=`(
+#   age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
+#   age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
+#   sex_id   = factor("Male", levels = c("Male", "Female")),
+#   total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
+#   birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
+#   ihme_loc_id         = df_model$ihme_loc_id[1],
+#   indv_id             = df_model$indv_id[1]
+# )]
+# 
+# 
 # pred_grid[, cum_mortality_prob := predict_cumulative_mortality_fe(model, pred_grid, age_vars)]
-pred_grid[, cumhaz_fe := predict_cumulative_hazard_fe(model, pred_grid, age_vars)]
-
-fwrite(pred_grid, paste0(results_dir, summary_file, "_predictions_with_both_splines_ranged.csv"))
-
-# Repeat cumulative approach with mixed effects
-
-age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m",
-              "age_24_m","age_36_m","age_48_m","age_60_m")
-
-# Helper: given a data.table with all non-age covariates (age dummies will be
-# overwritten), returns the cumulative mortality probability for each row.
-predict_cumulative_mortality_me <- function(model, newdata, age_vars) {
-  survival <- rep(1, nrow(newdata))
-  for (av in age_vars) {
-    row_data <- copy(newdata)
-    row_data[, (age_vars) := 0L]
-    row_data[, (av) := 1L]
-    h <- predict(model, newdata = row_data, type = "response")
-    survival <- survival * (1 - h)
-  }
-  return(1 - survival)
-}
-
-# Create single indv dataset
-df_max_age <- copy(df_model)
-df_max_age <- df_max_age[order(age_month), .SD[.N], by = indv_id]
-
-df_max_age[, pred_prob_me := predict_cumulative_mortality_me(model, df_max_age, age_vars)]
-
-fwrite(df_max_age, paste0(results_dir, summary_file, "_predictions_cumulative_me.csv"))
-
-# --- Marginal effect of days_over_30C at median consumption ---
-marginal_days <- data.table(
-  days_over_30C_monthly = seq(min(df_model$days_over_30C_monthly, na.rm = TRUE),
-                              max(df_model$days_over_30C_monthly, na.rm = TRUE),
-                              length.out = 200),
-  consumption_pd      = median(df_model$consumption_pd, na.rm = TRUE),
-  age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
-  age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
-  sex_id   = factor("Male", levels = c("Male", "Female")),
-  total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
-  birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
-  ihme_loc_id         = df_model$ihme_loc_id[1],
-  indv_id             = df_model$indv_id[1]
-)
-marginal_days[, pred_prob := predict_cumulative_mortality(model, marginal_days, age_vars)]
-
-p4 <- ggplot(marginal_days, aes(x = days_over_30C_monthly, y = pred_prob)) +
-  geom_line(color = "firebrick", linewidth = 1) +
-  geom_vline(xintercept = days_inner_knots_verified, linetype = "dashed",
-             color = "gray40", alpha = 0.7) +
-  labs(x = "Days over 30°C", y = "P(mortality before 60 months)",
-       title = "Marginal effect of heat days (at median consumption)") +
-  # scale_x_continuous(
-  #   breaks = sort(unique(c(pretty(marginal_days$days_over_30C_monthly), days_inner_knots_verified))),
-  #   labels = scales::label_number()
-  # ) +
-  theme_minimal()
-ggsave(paste0(plot_dir, summary_file, "_marginal_days.png"), p4,
-       width = 6, height = 4, dpi = 150)
-
-# --- Marginal effect of consumption_pd at median days_over_30C ---
-marginal_cons <- data.table(
-  consumption_pd = seq(min(df_model$consumption_pd, na.rm = TRUE),
-                       max(df_model$consumption_pd, na.rm = TRUE),
-                       length.out = 200),
-  days_over_30C_monthly = median(df_model$days_over_30C_monthly, na.rm = TRUE),
-  age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
-  age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
-  sex_id   = factor("Male", levels = c("Male", "Female")),
-  total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
-  birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
-  ihme_loc_id         = df_model$ihme_loc_id[1],
-  indv_id             = df_model$indv_id[1]
-)
-marginal_cons[, pred_prob := predict_cumulative_mortality(model, marginal_cons, age_vars)]
-
-p5 <- ggplot(marginal_cons, aes(x = consumption_pd, y = pred_prob)) +
-  geom_line(color = "steelblue", linewidth = 1) +
-  geom_vline(xintercept = cons_inner_knots_verified, linetype = "dashed",
-             color = "gray40", alpha = 0.7) +
-  labs(x = "Consumption per day", y = "P(mortality before 60 months)",
-       title = "Marginal effect of consumption (at median heat days)") +
-  # scale_x_continuous(
-  #   breaks = sort(unique(c(pretty(marginal_cons$consumption_pd), cons_inner_knots_verified))),
-  #   labels = scales::label_number()
-  # ) +
-  theme_minimal()
-ggsave(paste0(plot_dir, summary_file, "_marginal_consumption.png"), p5,
-       width = 6, height = 4, dpi = 150)
-
-message("Prediction and plotting complete. Outputs saved to: ", plot_dir)
-
-
-# --- Make density plots of variables ---
-# days_over_30C_monthly
-df_model[is.na(days_over_30C_monthly),.N]
-h1 <- ggplot(df_model,aes(x=days_over_30C_monthly))+
-  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
-  labs(title = "Histogram of days_over_30C_monthly", x = "days_over_30C_monthly", y = "Frequency") +
-  theme_minimal() +
-  scale_y_continuous(labels = scales::comma)
-ggsave(paste0(plot_dir, summary_file, "_days_over_30C_monthly_hist.png"), h1,
-       width = 6, height = 4, dpi = 150)
-
-
-
-# days_over_30C_monthly
-df_model[is.na(consumption_pd),.N]
-h2 <- ggplot(df_model,aes(x=consumption_pd))+
-  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
-  labs(title = "Histogram of consumption_pd", x = "consumption_pd", y = "Frequency") +
-  theme_minimal() +
-  scale_y_continuous(labels = scales::comma)
-ggsave(paste0(plot_dir, summary_file, "_consumption_pd_hist.png"), h2,
-       width = 6, height = 4, dpi = 150)
+# pred_grid[, cumhaz_fe := predict_cumulative_hazard_fe(model, pred_grid, age_vars)]
+# 
+# fwrite(pred_grid, paste0(results_dir, summary_file, "_predictions_with_both_splines_ranged.csv"))
+# 
+# # Repeat cumulative approach with mixed effects
+# 
+# age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m",
+#               "age_24_m","age_36_m","age_48_m","age_60_m")
+# 
+# # Helper: given a data.table with all non-age covariates (age dummies will be
+# # overwritten), returns the cumulative mortality probability for each row.
+# predict_cumulative_mortality_me <- function(model, newdata, age_vars) {
+#   survival <- rep(1, nrow(newdata))
+#   for (av in age_vars) {
+#     row_data <- copy(newdata)
+#     row_data[, (age_vars) := 0L]
+#     row_data[, (av) := 1L]
+#     h <- predict(model, newdata = row_data, type = "response")
+#     survival <- survival * (1 - h)
+#   }
+#   return(1 - survival)
+# }
+# 
+# # Create single indv dataset
+# df_max_age <- copy(df_model)
+# df_max_age <- df_max_age[order(age_month), .SD[.N], by = indv_id]
+# 
+# df_max_age[, pred_prob_me := predict_cumulative_mortality_me(model, df_max_age, age_vars)]
+# 
+# fwrite(df_max_age, paste0(results_dir, summary_file, "_predictions_cumulative_me.csv"))
+# 
+# # --- Marginal effect of days_over_30C at median consumption ---
+# marginal_days <- data.table(
+#   days_over_30C_monthly = seq(min(df_model$days_over_30C_monthly, na.rm = TRUE),
+#                               max(df_model$days_over_30C_monthly, na.rm = TRUE),
+#                               length.out = 200),
+#   consumption_pd      = median(df_model$consumption_pd, na.rm = TRUE),
+#   age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
+#   age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
+#   sex_id   = factor("Male", levels = c("Male", "Female")),
+#   total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
+#   birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
+#   ihme_loc_id         = df_model$ihme_loc_id[1],
+#   indv_id             = df_model$indv_id[1]
+# )
+# marginal_days[, pred_prob := predict_cumulative_mortality(model, marginal_days, age_vars)]
+# 
+# p4 <- ggplot(marginal_days, aes(x = days_over_30C_monthly, y = pred_prob)) +
+#   geom_line(color = "firebrick", linewidth = 1) +
+#   geom_vline(xintercept = days_inner_knots_verified, linetype = "dashed",
+#              color = "gray40", alpha = 0.7) +
+#   labs(x = "Days over 30°C", y = "P(mortality before 60 months)",
+#        title = "Marginal effect of heat days (at median consumption)") +
+#   # scale_x_continuous(
+#   #   breaks = sort(unique(c(pretty(marginal_days$days_over_30C_monthly), days_inner_knots_verified))),
+#   #   labels = scales::label_number()
+#   # ) +
+#   theme_minimal()
+# ggsave(paste0(plot_dir, summary_file, "_marginal_days.png"), p4,
+#        width = 6, height = 4, dpi = 150)
+# 
+# # --- Marginal effect of consumption_pd at median days_over_30C ---
+# marginal_cons <- data.table(
+#   consumption_pd = seq(min(df_model$consumption_pd, na.rm = TRUE),
+#                        max(df_model$consumption_pd, na.rm = TRUE),
+#                        length.out = 200),
+#   days_over_30C_monthly = median(df_model$days_over_30C_monthly, na.rm = TRUE),
+#   age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
+#   age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
+#   sex_id   = factor("Male", levels = c("Male", "Female")),
+#   total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
+#   birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
+#   ihme_loc_id         = df_model$ihme_loc_id[1],
+#   indv_id             = df_model$indv_id[1]
+# )
+# marginal_cons[, pred_prob := predict_cumulative_mortality(model, marginal_cons, age_vars)]
+# 
+# p5 <- ggplot(marginal_cons, aes(x = consumption_pd, y = pred_prob)) +
+#   geom_line(color = "steelblue", linewidth = 1) +
+#   geom_vline(xintercept = cons_inner_knots_verified, linetype = "dashed",
+#              color = "gray40", alpha = 0.7) +
+#   labs(x = "Consumption per day", y = "P(mortality before 60 months)",
+#        title = "Marginal effect of consumption (at median heat days)") +
+#   # scale_x_continuous(
+#   #   breaks = sort(unique(c(pretty(marginal_cons$consumption_pd), cons_inner_knots_verified))),
+#   #   labels = scales::label_number()
+#   # ) +
+#   theme_minimal()
+# ggsave(paste0(plot_dir, summary_file, "_marginal_consumption.png"), p5,
+#        width = 6, height = 4, dpi = 150)
+# 
+# message("Prediction and plotting complete. Outputs saved to: ", plot_dir)
+# 
+# 
+# # --- Make density plots of variables ---
+# # days_over_30C_monthly
+# df_model[is.na(days_over_30C_monthly),.N]
+# h1 <- ggplot(df_model,aes(x=days_over_30C_monthly))+
+#   geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
+#   labs(title = "Histogram of days_over_30C_monthly", x = "days_over_30C_monthly", y = "Frequency") +
+#   theme_minimal() +
+#   scale_y_continuous(labels = scales::comma)
+# ggsave(paste0(plot_dir, summary_file, "_days_over_30C_monthly_hist.png"), h1,
+#        width = 6, height = 4, dpi = 150)
+# 
+# 
+# 
+# # days_over_30C_monthly
+# df_model[is.na(consumption_pd),.N]
+# h2 <- ggplot(df_model,aes(x=consumption_pd))+
+#   geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
+#   labs(title = "Histogram of consumption_pd", x = "consumption_pd", y = "Frequency") +
+#   theme_minimal() +
+#   scale_y_continuous(labels = scales::comma)
+# ggsave(paste0(plot_dir, summary_file, "_consumption_pd_hist.png"), h2,
+#        width = 6, height = 4, dpi = 150)
 
 
 
