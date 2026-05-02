@@ -38,10 +38,10 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_splines_full_no_re_custom_knots_constant_thresholds" 
+summary_file <- "cm_splines_full_no_re_custom_knots_constant_thresholds_4_28" 
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_21.01/data_cumulative_bins.parquet" 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_21.01/"
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_28.01/data_cumulative_bins.parquet" 
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_28.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -54,10 +54,14 @@ df <- data.table(df) # 54 m obs
 # Impose time cutoff between interview year and birth year of 10 years
 df <- df[int_birth_year_diff_months<=120] # 22.8 m obs
 
+setnames(df,old=c("days_over_30C_monthly_constant","consumption_pd_constant","mean_temperature_monthly_constant","total_precipitation_monthly_constant"),
+         new=c("days_over_30C_monthly","consumption_pd","mean_temperature_monthly","total_precipitation_monthly"))
+
+
 climate_vars <- c(
   "mean_temperature_monthly",
   "total_precipitation_monthly",
-  "days_over_30C_monthly_constant"
+  "days_over_30C_monthly"
 )
 time_vars <- c("age_1_m",
                "age_3_m",
@@ -86,7 +90,7 @@ df_model <- data.table(df_model)
 df_model <- na.omit(df_model)
 
 df_model[,ihme_loc_id:=as.factor(ihme_loc_id)]
-df_model[,days_over_30C_monthly_constant:=as.numeric(days_over_30C_monthly_constant)] # this is now a weighted avg
+df_model[,days_over_30C_monthly:=as.numeric(days_over_30C_monthly)] # this is now a weighted avg
 df_model[,total_precipitation_monthly:=as.numeric(total_precipitation_monthly)]
 df_model[,sex_id:= factor(sex_id,levels = c("1", "2"), labels = c("Male", "Female"))]
 # new changes
@@ -95,13 +99,13 @@ df_model[, child_mortality := as.integer(child_mortality)]
 df_model[, indv_id := factor(as.character(indv_id))]
 
 # # Get data sample if needed
-# sample_percent <- 7000000/nrow(df_model) # 
+# sample_percent <- 20000000/nrow(df_model) # 
 # indv_dt <- unique(df_model[, .(indv_id, ihme_loc_id)])
 # indv_counts <- indv_dt[, .N, by = ihme_loc_id]# format vars
-
+# 
 # indv_dt <- merge(indv_dt, indv_counts, by = "ihme_loc_id", suffixes = c("", "_total"))
 # indv_dt[, n_sample := floor(sample_percent * N)]
-
+# 
 # set.seed(42)
 # sampled_indv <- indv_dt[, .SD[sample(.N, n_sample[1])], by = ihme_loc_id]$indv_id
 # df_sample <- df_model[indv_id %in% sampled_indv]
@@ -111,16 +115,34 @@ print(length(df_model$indv_id))
 print("Number of unique individuals in sample:")
 print(length(unique(df_model$indv_id))) #3,164,900
 
+rm(df) # free space
+#drop any  unused columns
+df_model <- df_model[,.(child_mortality,
+                        age_1_m,
+                        age_3_m,
+                        age_6_m,
+                        age_12_m,
+                        age_24_m,
+                        age_36_m,
+                        age_48_m,
+                        age_60_m,
+                        sex_id,
+                        consumption_pd,
+                        days_over_30C_monthly,
+                        total_precipitation_monthly,
+                        birth_year,
+                        ihme_loc_id)]
+
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
 #==============================================================================
 
 # Check data distributions
-quantile(df_model[days_over_30C_monthly_constant>0]$days_over_30C_monthly_constant,probs=c(0.25, 0.5, 0.75))
-quantile(df_model[days_over_30C_monthly_constant>0]$days_over_30C_monthly_constant,probs=c(0.3,0.6,0.9))
+quantile(df_model[days_over_30C_monthly>0]$days_over_30C_monthly,probs=c(0.25, 0.5, 0.75))
+quantile(df_model[days_over_30C_monthly>0]$days_over_30C_monthly,probs=c(0.3,0.6,0.9))
 
 # Define interior breakpoints only — data boundaries are added automatically
-thresh_knots      <- c(1.5, 5.25, 9.3,15.5)    # days_over_30C_monthly_constant
+thresh_knots      <- c(1.5, 5.25, 9.3,15.5)    # days_over_30C_monthly
 consumption_knots <- c(2.0, 5.0, 10.0,20.0, 30.0)   # consumption_pd
 
 # Builds the full augmented knot vector for scam mpi/mpd smooths.
@@ -146,7 +168,7 @@ make_scam_knots <- function(inner_knots, x_data, m = 2L) {
   list(knots = knots, k = n + m)
 }
 
-res_thresh      <- make_scam_knots(thresh_knots,      df_model$days_over_30C_monthly_constant)
+res_thresh      <- make_scam_knots(thresh_knots,      df_model$days_over_30C_monthly)
 res_consumption <- make_scam_knots(consumption_knots, df_model$consumption_pd)
 
 model <- scam(child_mortality ~
@@ -154,7 +176,7 @@ model <- scam(child_mortality ~
                 age_24_m + age_36_m + age_48_m + age_60_m +
                 sex_id +
                 s(consumption_pd, k = res_consumption$k, bs = "mpd") +
-                s(days_over_30C_monthly_constant, k = res_thresh$k, bs = "mpi") +
+                s(days_over_30C_monthly, k = res_thresh$k, bs = "mpi") +
                 total_precipitation_monthly +
                 birth_year +
                 s(ihme_loc_id, bs = "re"),
@@ -251,7 +273,7 @@ template <- data.table(
   total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
   birth_year          = median(df_model$birth_year, na.rm = TRUE),
   consumption_pd      = median(df_model$consumption_pd, na.rm = TRUE),
-  days_over_30C_monthly_constant       = median(df_model$days_over_30C_monthly_constant, na.rm = TRUE),
+  days_over_30C_monthly       = median(df_model$days_over_30C_monthly, na.rm = TRUE),
   ihme_loc_id         = df_model$ihme_loc_id[1],
   indv_id             = df_model$indv_id[1]
 )
@@ -264,11 +286,11 @@ newdata_cons <- template[rep(1, length(cons_seq))]
 newdata_cons[, consumption_pd := cons_seq]
 
 # Grid for days_over_30C
-days_seq <- seq(min(df_model$days_over_30C_monthly_constant, na.rm = TRUE),
-                max(df_model$days_over_30C_monthly_constant, na.rm = TRUE),
+days_seq <- seq(min(df_model$days_over_30C_monthly, na.rm = TRUE),
+                max(df_model$days_over_30C_monthly, na.rm = TRUE),
                 length.out = 200)
 newdata_days <- template[rep(1, length(days_seq))]
-newdata_days[, days_over_30C_monthly_constant := days_seq]
+newdata_days[, days_over_30C_monthly := days_seq]
 
 # Extract per-term contributions (linear predictor scale), zeroing out REs
 pred_cons <- predict(model, newdata = newdata_cons, type = "terms",
@@ -277,7 +299,7 @@ pred_days <- predict(model, newdata = newdata_days, type = "terms",
                      exclude = "s(ihme_loc_id)")
 
 cons_effect <- pred_cons[, "s(consumption_pd)"]
-days_effect <- pred_days[, "s(days_over_30C_monthly_constant)"]
+days_effect <- pred_days[, "s(days_over_30C_monthly)"]
 
 p1 <- ggplot(data.frame(consumption_pd = cons_seq, effect = cons_effect),
              aes(x = consumption_pd, y = effect)) +
@@ -294,13 +316,13 @@ p1 <- ggplot(data.frame(consumption_pd = cons_seq, effect = cons_effect),
 ggsave(paste0(plot_dir, summary_file, "_spline_consumption.png"), p1,
        width = 6, height = 4, dpi = 150)
 
-p2 <- ggplot(data.frame(days_over_30C_monthly_constant = days_seq, effect = days_effect),
-             aes(x = days_over_30C_monthly_constant, y = effect)) +
+p2 <- ggplot(data.frame(days_over_30C_monthly = days_seq, effect = days_effect),
+             aes(x = days_over_30C_monthly, y = effect)) +
   geom_line(color = "firebrick", linewidth = 1) +
   geom_vline(xintercept = days_inner_knots_verified, linetype = "dashed",
              color = "gray40", alpha = 0.7) +
   labs(x = "Days over 30°C", y = "Partial effect (log-odds)",
-       title = "Monotone increasing spline: days_over_30C_monthly_constant") +
+       title = "Monotone increasing spline: days_over_30C_monthly") +
   # scale_x_continuous(
   #   breaks = sort(unique(c(pretty(days_seq), days_inner_knots_verified))),
   #   labels = scales::label_number()
@@ -326,7 +348,7 @@ table(df_avg$sex_id)
 table(df_avg$total_precipitation_monthly)
 table(df_avg$birth_year)
 table(df_avg$ihme_loc_id)
-range(df_avg$days_over_30C_monthly_constant)
+range(df_avg$days_over_30C_monthly)
 range(df_avg$consumption_pd)
 
 setorder(df_avg, indv_id, age_month)
@@ -353,8 +375,8 @@ table(df_avg$age_month_period)
 examine_all <- data.table()
 for (a in unique(df_avg$age_month_period)){
   df_tmp <- df_avg[age_month_period==a]
-  for (b in unique(df_tmp$days_over_30C_monthly_constant)){
-    df_tmp_b <- df_tmp[days_over_30C_monthly_constant==b]
+  for (b in unique(df_tmp$days_over_30C_monthly)){
+    df_tmp_b <- df_tmp[days_over_30C_monthly==b]
     setorderv(df_tmp_b,"consumption_pd") # consumption is increasing
     df_tmp_b[,pred_prob_fe:= round(pred_prob_fe,8)]
     df_tmp_b[, pred_prob_fe_lag :=  shift(pred_prob_fe, type = "lag")]
@@ -435,9 +457,9 @@ predict_cumulative_hazard_fe <- function(model, newdata, age_vars) {
 
 # 2-D grid over both spline variables
 pred_grid <- CJ(
-  days_over_30C_monthly_constant = seq(min(df_model$days_over_30C_monthly_constant, na.rm = TRUE),
-                                       max(df_model$days_over_30C_monthly_constant, na.rm = TRUE),
-                                       length.out = 1000),
+  days_over_30C_monthly = seq(min(df_model$days_over_30C_monthly, na.rm = TRUE),
+                              max(df_model$days_over_30C_monthly, na.rm = TRUE),
+                              length.out = 1000),
   consumption_pd        = seq(min(df_model$consumption_pd, na.rm = TRUE),
                               max(df_model$consumption_pd, na.rm = TRUE),
                               length.out = 1000)
@@ -487,9 +509,9 @@ fwrite(df_max_age, paste0(results_dir, summary_file, "_predictions_cumulative_me
 
 # --- Marginal effect of days_over_30C at median consumption ---
 marginal_days <- data.table(
-  days_over_30C_monthly_constant = seq(min(df_model$days_over_30C_monthly_constant, na.rm = TRUE),
-                                       max(df_model$days_over_30C_monthly_constant, na.rm = TRUE),
-                                       length.out = 200),
+  days_over_30C_monthly = seq(min(df_model$days_over_30C_monthly, na.rm = TRUE),
+                              max(df_model$days_over_30C_monthly, na.rm = TRUE),
+                              length.out = 200),
   consumption_pd      = median(df_model$consumption_pd, na.rm = TRUE),
   age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
   age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
@@ -501,14 +523,14 @@ marginal_days <- data.table(
 )
 marginal_days[, pred_prob := predict_cumulative_mortality(model, marginal_days, age_vars)]
 
-p4 <- ggplot(marginal_days, aes(x = days_over_30C_monthly_constant, y = pred_prob)) +
+p4 <- ggplot(marginal_days, aes(x = days_over_30C_monthly, y = pred_prob)) +
   geom_line(color = "firebrick", linewidth = 1) +
   geom_vline(xintercept = days_inner_knots_verified, linetype = "dashed",
              color = "gray40", alpha = 0.7) +
   labs(x = "Days over 30°C", y = "P(mortality before 60 months)",
        title = "Marginal effect of heat days (at median consumption)") +
   # scale_x_continuous(
-  #   breaks = sort(unique(c(pretty(marginal_days$days_over_30C_monthly_constant), days_inner_knots_verified))),
+  #   breaks = sort(unique(c(pretty(marginal_days$days_over_30C_monthly), days_inner_knots_verified))),
   #   labels = scales::label_number()
   # ) +
   theme_minimal()
@@ -520,7 +542,7 @@ marginal_cons <- data.table(
   consumption_pd = seq(min(df_model$consumption_pd, na.rm = TRUE),
                        max(df_model$consumption_pd, na.rm = TRUE),
                        length.out = 200),
-  days_over_30C_monthly_constant = median(df_model$days_over_30C_monthly_constant, na.rm = TRUE),
+  days_over_30C_monthly = median(df_model$days_over_30C_monthly, na.rm = TRUE),
   age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
   age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
   sex_id   = factor("Male", levels = c("Male", "Female")),
@@ -549,19 +571,19 @@ message("Prediction and plotting complete. Outputs saved to: ", plot_dir)
 
 
 # --- Make density plots of variables ---
-# days_over_30C_monthly_constant
-df_model[is.na(days_over_30C_monthly_constant),.N]
-h1 <- ggplot(df_model,aes(x=days_over_30C_monthly_constant))+
+# days_over_30C_monthly
+df_model[is.na(days_over_30C_monthly),.N]
+h1 <- ggplot(df_model,aes(x=days_over_30C_monthly))+
   geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
-  labs(title = "Histogram of days_over_30C_monthly_constant", x = "days_over_30C_monthly_constant", y = "Frequency") +
+  labs(title = "Histogram of days_over_30C_monthly", x = "days_over_30C_monthly", y = "Frequency") +
   theme_minimal() +
   scale_y_continuous(labels = scales::comma)
-ggsave(paste0(plot_dir, summary_file, "_days_over_30C_monthly_constant_hist.png"), h1,
+ggsave(paste0(plot_dir, summary_file, "_days_over_30C_monthly_hist.png"), h1,
        width = 6, height = 4, dpi = 150)
 
 
 
-# consumtption
+# days_over_30C_monthly
 df_model[is.na(consumption_pd),.N]
 h2 <- ggplot(df_model,aes(x=consumption_pd))+
   geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +

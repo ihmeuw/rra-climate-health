@@ -38,10 +38,11 @@ options(scipen = 999) # turn off scientific notation
 #==============================================================================
 
 ## set parameters
-summary_file <- "cm_splines_full_no_re_custom_knots_cum_thresholds" 
+summary_file <- "cm_splines_full_no_re_custom_knots_cum_thresholds_4_28" 
 
-data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_21.01/data_cumulative_bins.parquet" 
-results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_21.01/"
+
+data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_28.01/data_cumulative_bins.parquet" 
+results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_28.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
 
@@ -54,6 +55,9 @@ df <- data.table(df)
 
 # Impose time cutoff between interview year and birth year of 10 years
 df <- df[int_birth_year_diff_months<=120] 
+
+setnames(df,old=c("days_over_30C_monthly_cumul","consumption_pd_cumul","mean_temperature_monthly_cumul","total_precipitation_monthly_cumul"),
+         new=c("days_over_30C_monthly","consumption_pd","mean_temperature_monthly","total_precipitation_monthly"))
 
 climate_vars <- c(
   "mean_temperature_monthly",
@@ -110,7 +114,25 @@ df_model[, indv_id := factor(as.character(indv_id))]
 print("Number of rows after cutoff")
 print(length(df_model$indv_id))
 print("Number of unique individuals in sample:")
-print(length(unique(df_model$indv_id))) #3,164,900
+print(length(unique(df_model$indv_id))) #3,149,184
+
+rm(df) # free space
+#drop any  unused columns
+df_model <- df_model[,.(child_mortality,
+                        age_1_m,
+                        age_3_m,
+                        age_6_m,
+                        age_12_m,
+                        age_24_m,
+                        age_36_m,
+                        age_48_m,
+                        age_60_m,
+                        sex_id,
+                        consumption_pd,
+                        days_over_30C_monthly,
+                        total_precipitation_monthly,
+                        birth_year,
+                        ihme_loc_id)]
 
 #==============================================================================
 # SECTION 2: FIT MODEL ON ALL AGES
@@ -168,6 +190,11 @@ model <- scam(child_mortality ~
 
 summary(model)
 
+# save model parameters for future use:
+saveRDS(model, file = paste0(results_dir, summary_file,".rds"))
+
+# Read back in if necessary
+# model = readRDS(file = paste0(results_dir, summary_file,".rds"))
 
 # Verify knots actually used by the fitted model
 # model$smooth[[1]] = consumption_pd, [[2]] = days_over_30C_monthly, [[3]] = ihme_loc_id RE
@@ -181,11 +208,7 @@ cat("Consumption inner knots (from model):", cons_inner_knots_verified, "\n")
 cat("Days over 30C inner knots (from model):", days_inner_knots_verified, "\n")
 
 
-# save model parameters for future use:
-saveRDS(model, file = paste0(results_dir, summary_file,".rds"))
 
-# Read back in if necessary
-# model = readRDS(file = paste0(results_dir, summary_file,".rds"))
 # save model summary:
 summary_file_path <- paste0(model_summary_dir, summary_file, ".txt")
 capture.output(summary(model), file = summary_file_path)
@@ -500,7 +523,7 @@ marginal_days <- data.table(
   ihme_loc_id         = df_model$ihme_loc_id[1],
   indv_id             = df_model$indv_id[1]
 )
-marginal_days[, pred_prob := predict_cumulative_mortality(model, marginal_days, age_vars)]
+marginal_days[, pred_prob := predict_cumulative_mortality_fe(model, marginal_days, age_vars)]
 
 p4 <- ggplot(marginal_days, aes(x = days_over_30C_monthly, y = pred_prob)) +
   geom_line(color = "firebrick", linewidth = 1) +
@@ -530,7 +553,7 @@ marginal_cons <- data.table(
   ihme_loc_id         = df_model$ihme_loc_id[1],
   indv_id             = df_model$indv_id[1]
 )
-marginal_cons[, pred_prob := predict_cumulative_mortality(model, marginal_cons, age_vars)]
+marginal_cons[, pred_prob := predict_cumulative_mortality_fe(model, marginal_cons, age_vars)]
 
 p5 <- ggplot(marginal_cons, aes(x = consumption_pd, y = pred_prob)) +
   geom_line(color = "steelblue", linewidth = 1) +

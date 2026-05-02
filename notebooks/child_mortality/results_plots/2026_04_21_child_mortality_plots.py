@@ -44,7 +44,7 @@ from pathlib import Path
 
 
 DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_21.01/data_within_bin.parquet"
-RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_21.01/"
+RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_13.01/"
 PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2026_04_21.01/"
 
 os.makedirs(PLOT_PATH, exist_ok=True, mode=0o777)
@@ -97,6 +97,8 @@ for v in [
     months = int(v.split("_")[1])
     df_model.loc[df_model[v] == 1, "age_month"] = months
 
+
+df_model_me = df_model_me.rename(columns={"days_over_30C_monthly": "days_over_30C"})
 
 df_model_fe = df_model_fe.rename(columns={"days_over_30C_monthly": "days_over_30C"})
 df_model_fe["age_month"] = 60
@@ -627,11 +629,11 @@ def plot_heat_map_person_time(
         ax.set_title(title, fontsize=18)
 
         plt.tight_layout()
-        plt.savefig(
-            os.path.join(PLOT_PATH, f"{outfile}_{col}.png"), bbox_inches="tight"
-        )
-        plt.close()
-        # plt.show()
+        # plt.savefig(
+        #     os.path.join(PLOT_PATH, f"{outfile}_{col}.png"), bbox_inches="tight"
+        # )
+        # plt.close()
+        plt.show()
 
 
 def plot_heat_map_person_time_grid(

@@ -3220,12 +3220,6 @@ def run_training_data_prep_child_mortality_monthly(
             & (df_climate["age_month"] < bin_month[1])
         ).astype(int)
 
-    # make second version that's cumulative rather than only within bin
-    for bin_name, bin_month in time_bin_dict.items():
-        df_climate[f"cumulative_{bin_name}"] = (
-            df_climate["age_month"] < bin_month[1]
-        ).astype(int)
-
     ## Get weighted averages (by number of months in bin) of explanatory variables, grouping by binned age_month and child_alive status
     get_max_vars = [
         "year_start",
@@ -3281,7 +3275,7 @@ def run_training_data_prep_child_mortality_monthly(
         "q95_monthly",
     ]
 
-    group_by_vars_within_bin = [
+    identity_vars = [
         "ihme_loc_id",
         "geospatial_id",
         "psu",
@@ -3292,6 +3286,9 @@ def run_training_data_prep_child_mortality_monthly(
         "long",
         "lbd_admin2_id",
         "indv_id",
+    ]
+
+    group_by_vars_within_bin = identity_vars + [
         "age_1_m",
         "age_3_m",
         "age_6_m",
@@ -3300,27 +3297,6 @@ def run_training_data_prep_child_mortality_monthly(
         "age_36_m",
         "age_48_m",
         "age_60_m",
-    ]
-
-    group_by_vars_cumulative = [
-        "ihme_loc_id",
-        "geospatial_id",
-        "psu",
-        "strata",
-        "line_id",
-        "hh_id",
-        "lat",
-        "long",
-        "lbd_admin2_id",
-        "indv_id",
-        "cumulative_age_1_m",
-        "cumulative_age_3_m",
-        "cumulative_age_6_m",
-        "cumulative_age_12_m",
-        "cumulative_age_24_m",
-        "cumulative_age_36_m",
-        "cumulative_age_48_m",
-        "cumulative_age_60_m",
     ]
     # Use polars
     df_pl = pl.from_pandas(df_climate)
@@ -3340,40 +3316,73 @@ def run_training_data_prep_child_mortality_monthly(
         index=False,
     )
 
-    # cumulative
-    df_grouped_cumulative = (
-        df_pl.group_by(group_by_vars_cumulative)
-        .agg(
-            [pl.col(var).max() for var in get_max_vars]
-            + [pl.col(var).mean() for var in get_avg_vars]
+
+    cumulative_frames = []
+    for bin_name, bin_month in time_bin_dict.items():
+        lower = bin_month[0]
+        upper = bin_month[1]
+        # Only include individuals who have at least one observation within this bin,
+        # meaning they did not exit the interview before reaching this age period
+        individuals_in_bin = (
+            df_pl.filter((pl.col("age_month") >= lower) & (pl.col("age_month") < upper))
+            .select(identity_vars)
+            .unique()
         )
-        .to_pandas()
+        bin_frame = (
+            df_pl.filter(pl.col("age_month") < upper)
+            .join(individuals_in_bin, on=identity_vars, how="inner")
+            .group_by(identity_vars)
+            .agg(
+                [pl.col(var).max().alias(var) for var in get_max_vars]
+                + [pl.col(var).mean().alias(f"{var}_cumul") for var in get_avg_vars]
+            )
+            .with_columns(pl.lit(bin_name).alias("bin_name"))
+        )
+    # Add the within-bin dummy columns so the output mirrors df_grouped_within_bin
+    for other_bin in time_bin_dict:
+        bin_frame = bin_frame.with_columns(
+            pl.lit(1 if other_bin == bin_name else 0).alias(other_bin)
+        )
+    cumulative_frames.append(bin_frame)
+
+    df_grouped_cumulative = pl.concat(cumulative_frames).to_pandas()
+
+    # Perform quick fix. THe above loop resulted in extra
+    # duplicate rows for children who either died or exited interview
+    for ag in [
+        "age_1_m",
+        "age_3_m",
+        "age_6_m",
+        "age_12_m",
+        "age_24_m",
+        "age_36_m",
+        "age_48_m",
+        "age_60_m",
+    ]:
+        df_grouped_cumulative.loc[df_grouped_cumulative[ag] == 1, "age_group"] = ag
+
+    bounds_df = pd.DataFrame(
+        [
+            (bin_name, bounds[0], bounds[1])
+            for bin_name, bounds in time_bin_dict.items()
+        ],
+        columns=["bin_name", "lower_bound", "upper_bound"],
+    )
+    df_grouped_cumulative = df_grouped_cumulative.merge(
+        bounds_df, on="bin_name", how="left"
     )
 
-    # Keep only 1 dummy in max age for cumulative age
-    # vars. Equivalent to adding back on binned age vars
-    time_bin_dict = {
-        "age_1_m": (0, 1),
-        "age_3_m": (1, 3),
-        "age_6_m": (3, 6),
-        "age_12_m": (6, 12),
-        "age_24_m": (12, 24),
-        "age_36_m": (24, 36),
-        "age_48_m": (36, 48),
-        "age_60_m": (48, 60),
-    }
-
-    # bin_name will define what range of time the month falls into
-    for bin_name, bin_month in time_bin_dict.items():
-        df_grouped_cumulative[bin_name] = (
-            (df_grouped_cumulative["age_month"] >= bin_month[0])
-            & (df_grouped_cumulative["age_month"] < bin_month[1])
-        ).astype(int)
+    df_grouped_cumulative = df_grouped_cumulative[
+        df_grouped_cumulative["age_month"] >= df_grouped_cumulative["lower_bound"]
+    ]
 
     df_grouped_cumulative.to_parquet(
         Path(output_path_version) / "data_cumulative_bins.parquet",
         index=False,
     )
+
+    # Keep only 1 dummy in max age for cumulative age
+    # vars. Equivalent to adding back on binned age vars
 
     # get max age per indv and add on
     df_max_age = (
@@ -3384,32 +3393,22 @@ def run_training_data_prep_child_mortality_monthly(
     )
 
     # keep_cols
-    keep_cols = ["indv_id"] + get_avg_vars
+    get_avg_vars_cumul = [f"{var}_cumul" for var in get_avg_vars]
+    keep_cols = ["indv_id"] + get_avg_vars_cumul
     df_max_age_constant_vars = df_max_age[keep_cols]
     for v in get_avg_vars:
-        df_max_age_constant_vars.rename(columns={v: f"{v}_constant"}, inplace=True)
+        v_cumul = f"{v}_cumul"
+        df_max_age_constant_vars.rename(
+            columns={v_cumul: f"{v}_constant"}, inplace=True
+        )
 
     df_grouped_cumulative = pd.merge(
         df_grouped_cumulative, df_max_age_constant_vars, on="indv_id", how="left"
     )
 
-    # # check for duplicates
-    # dedup_vars = [
-    #     "indv_id",
-    #     "age_1_m",
-    #     "age_3_m",
-    #     "age_6_m",
-    #     "age_12_m",
-    #     "age_24_m",
-    #     "age_36_m",
-    #     "age_48_m",
-    #     "age_60_m",
-    #     "child_mortality",
-    # ]
-    # df_grouped_dups = df_grouped[df_grouped.duplicated(subset=dedup_vars, keep=False)]
-
-    # assert len(df_grouped_dups) == 0
-
+    print(len(df_grouped_cumulative))
+    df_grouped_cumulative = df_grouped_cumulative.drop_duplicates()
+    print(len(df_grouped_cumulative))
     df_grouped_cumulative.to_parquet(
         Path(output_path_version) / "data_constant_vars.parquet",
         index=False,
