@@ -1,0 +1,87 @@
+extra_terms: null
+grid_predictors: null
+holdout:
+  proportion: 0.2
+  seed: 42
+  type: no_holdout
+measure: neonatal_mortality
+model_type: scam
+predictors:
+- name: intercept
+  random_effect: ihme_loc_id
+  spline: null
+  transform:
+    scale_source: data
+    scale_variable_name: ''
+    scale_variable_version: ''
+    strategy: identity
+    type: scaling
+  version: ''
+- name: sex_id
+  random_effect: ''
+  spline: null
+  transform:
+    type: categorical
+  version: ''
+- name: birth_year
+  random_effect: ''
+  spline: null
+  transform:
+    scale_source: data
+    scale_variable_name: ''
+    scale_variable_version: ''
+    strategy: identity
+    type: scaling
+  version: ''
+- name: days_over_30C_prev_0_mo
+  random_effect: ''
+  spline:
+    bs: mpi
+    k: 8
+    knot_strategy: custom_knots
+    knots:
+    - 1.0
+    - 4.0
+    - 12.0
+    - 25.0
+  transform:
+    scale_source: data
+    scale_variable_name: ''
+    scale_variable_version: ''
+    strategy: identity
+    type: scaling
+  version: ''
+- name: total_precipitation_prev_0_mo
+  random_effect: ''
+  spline: null
+  transform:
+    scale_source: data
+    scale_variable_name: ''
+    scale_variable_version: ''
+    strategy: identity
+    type: scaling
+  version: ''
+- name: consumption_pd
+  random_effect: ''
+  spline:
+    bs: mpd
+    k: 9
+    knot_strategy: custom_knots
+    knots:
+    - 2.0
+    - 5.0
+    - 10.0
+    - 20.0
+    - 40.0
+  transform:
+    scale_source: data
+    scale_variable_name: ''
+    scale_variable_version: ''
+    strategy: identity
+    type: scaling
+  version: ''
+submodel_vars: null
+version:
+  description: null
+  model: '2026_04_01.01'
+  training_data: '2026_03_19.06'
