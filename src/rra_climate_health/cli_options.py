@@ -14,7 +14,7 @@ _T = TypeVar("_T")
 _P = ParamSpec("_P")
 
 
-VALID_MEASURES = ["wasting", "stunting", "underweight", "anemia", "lbw"]
+VALID_MEASURES = ["wasting", "stunting", "underweight", "anemia", "lbw", "neonatal_mortality"]
 
 
 def get_choice_callback(
@@ -106,9 +106,8 @@ def with_sex_id(
         callback=get_choice_callback(allow_all, choices),
     )
 
-
-VALID_AGE_GROUP_IDS = ['388', '389', '238', '34']
-
+VALID_AGE_GROUP_IDS = ['34', '8', '9', '10', '11', '12', '13', '14', '238', '389', '15', ]
+#['42',]#['388', '389', '238', '34']
 
 def with_age_group_id(
     *,
