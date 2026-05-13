@@ -11,7 +11,8 @@ import pandas as pd
 import rasterra as rt
 import xarray as xr
 from rra_tools.shell_tools import mkdir, touch
-from rpy2.robjects import pandas2ri, packages
+from rpy2.robjects import pandas2ri, packages, r
+import rpy2.robjects as ro
 
 from rra_climate_health.transforms import transform_column
 from rra_climate_health.model_specification import ModelSpecification, ModelType
@@ -74,6 +75,8 @@ class ClimateMalnutritionData:
             var_info[var] = {
                 "transformer": transformer,
                 "transform_spec": transform_spec,
+                "max": transformed.max(),
+                "min": transformed.min(),
             }
             # If it's spline mixed effects and the variabel is categorical, convert to category dtype for modeling
             if model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS and transform_spec.type == "categorical":
@@ -148,6 +151,7 @@ class ClimateMalnutritionData:
         model: "Lmer",
         version: str,
         model_spec: ModelSpecification,
+        df: pd.DataFrame,
         submodel: list[tuple[str, str]] | None = None,
     ) -> None:
         model_root = self.models / version
@@ -172,17 +176,96 @@ class ClimateMalnutritionData:
         random_effects_filepath = model_root / (model_filename_base + "_ranef.parquet")
         touch(random_effects_filepath, exist_ok=True)
 
-        try:
-            if model_spec.model_type == 'lmer':
-                model.coefs.to_parquet(coefs_filepath)
-                model.ranef.to_parquet(random_effects_filepath)
-            elif model_spec.model_type == 'scam':
-                extract_fixed_effects_from_scam(model).to_parquet(coefs_filepath)
-                extract_random_effects_from_scam(model, 'ihme_loc_id').to_parquet(random_effects_filepath)
-        except Exception as e:
-            print(e)
+        if model_spec.model_type == ModelType.LINEAR_MIXED_EFFECTS:
+            model.coefs.to_parquet(coefs_filepath)
+            model.ranef.to_parquet(random_effects_filepath)
+        elif model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS:
+            extract_fixed_effects_from_scam(model).to_parquet(coefs_filepath)
+            extract_random_effects_from_scam(model, 'ihme_loc_id').to_parquet(random_effects_filepath)
+            for predictor in model_spec.predictors:
+                if predictor.spline is not None:
+                    print(f"Saving spline effects for predictor {predictor.name}, spline {predictor.spline}")
+                    self.save_spline_effects(model, model_spec, predictor, df, model_root, model_filename_base)
 
+    def save_spline_effects(self, model, model_spec, predictor, df, model_root, model_filename_base):
+        # Extract the spline effects for this predictor and save to a file
+        spline_effects = self.extract_spline_effects_from_scam(model, predictor, df)
+        spline_effects_filepath = model_root / f"{model_filename_base}_{predictor.name}_spline_effects.parquet"
+        touch(spline_effects_filepath, exist_ok=True)
+        spline_effects.to_parquet(spline_effects_filepath)
+    
+    def load_spline_effects(self, version: str, predictor_name: str, submodel: list[tuple[str, str]] | None = None, **kwargs) -> pd.DataFrame:
+        model_root = self.models / version
+        if submodel:
+            submodel_str = self.SUBMODEL_VARIABLE_SEPARATOR.join(
+                [
+                    f"{name}{self.SUBMODEL_VALUE_SEPARATOR}{value}"
+                    for name, value in submodel
+                ]
+            )
+            model_filename_base = f"{submodel_str}"
+        else:
+            model_filename_base = "base_model"
+        spline_effects_filepath = model_root / f"{model_filename_base}_{predictor_name}_spline_effects.parquet"
+        return pd.read_parquet(spline_effects_filepath, **kwargs)
+        
+    def extract_spline_effects_from_scam(self, model, predictor, data_source):
+        scam_lib = packages.importr('scam')
+        pandas2ri.activate()
+        var_name = predictor.name
+        points_df = self.get_points_for_spline_effect(predictor, model)
+        n_points = len(points_df)
+        grid_df = data_source.iloc[[0]*n_points].reset_index(drop=True).copy()
+        grid_df[var_name] = points_df['transformed_value'].values
+        pred = scam_lib.predict_scam(model, newdata=grid_df, type='terms', se_fit=True)
+        pandas2ri.deactivate()
 
+        fit_matrix = np.array(pred.rx2('fit'))
+        #se_matrix = np.array(pred.rx2('se.fit'))
+        col_names = list(r.colnames(pred.rx2('fit')))
+        
+        target_col = [i for i, name in enumerate(col_names) if f"s({var_name})" in name][0]
+        points_df['effect'] = fit_matrix[:, target_col]
+        # points_df['se'] = se_matrix[:, target_col]
+        return points_df
+    
+    def get_points_for_spline_effect(self, predictor, model):
+        var_info = model.var_info[predictor.name]
+
+        # if predictor.name == 'days_over_30C':
+        #     initial_points = list(range(0, 366))
+        # elif predictor.name.startswith('days_over') and '9m' in predictor.name:
+        #     initial_points = [x/9 for x in list(range(0, 279))]
+        # elif predictor.name.startswith('days_over') and '6m' in predictor.name:
+        #     initial_points = [x/6 for x in list(range(0, 183))]
+        # elif predictor.name.startswith('days_over') and '3m' in predictor.name:
+        #     initial_points = [x/3 for x in list(range(0, 92))]
+        # elif predictor.name.startswith('days_over') and '1m' in predictor.name:
+        #     initial_points = [x for x in list(range(0, 31))]
+        # elif predictor.name.startswith('days_over') and 'month' in predictor.name:
+        #     initial_points = np.linspace(0, 31, num=1000).tolist()
+        if predictor.name.startswith('days_over'):
+            # Cover all possible values for yearly and monthly
+            initial_points = list(range(0, 366)) + [x/12 for x in list(range(0, 366))] + np.linspace(0, 31, num=1000).tolist()
+            # Remove duplicates and sort
+            initial_points = sorted(list(set(initial_points)))
+
+        if predictor.name == 'ldi_pc_pd' or predictor.name == 'consumption_pd':
+            points_df = self.load_ldi_distributions('admin2', predictor.version)
+            points_df['value'] = points_df['ldipc'] / 365.25
+        else:
+            points_df = pd.DataFrame({
+                'value': initial_points,
+            })
+
+        converted_points = var_info['transformer'](np.array(points_df['value']).reshape(-1, 1)).flatten()
+        points_df['transformed_value'] = converted_points
+        return points_df
+    
+    def load_admin2_raster(self):
+        path = self.shared_inputs / "admin2_1285_raster.tif"
+        return rt.load_raster(path)
+    
     def load_model_family(
         self,
         version: str,
@@ -312,11 +395,12 @@ class ClimateMalnutritionData:
         year: str | int,
         age_group_id: str | int,
         sex_id: str | int,
+        draw: int,
     ) -> Path:
         return (
             self.results
             / results_version
-            / f"{year}_{scenario}_{age_group_id}_{sex_id}.tif"
+            / f"{year}_{scenario}_{age_group_id}_{sex_id}_{draw}.tif"
         )
 
     def save_raster_results(
@@ -327,9 +411,10 @@ class ClimateMalnutritionData:
         year: str | int,
         age_group_id: str | int,
         sex_id: str | int,
+        draw: int,
     ) -> None:
         path = self.raster_results_path(
-            results_version, scenario, year, age_group_id, sex_id
+            results_version, scenario, year, age_group_id, sex_id, draw
         )
         mkdir(path.parent, parents=True, exist_ok=True)
         save_raster(results, path)
@@ -400,8 +485,8 @@ class ClimateMalnutritionData:
         return self.shared_inputs / "ldi_raster" / version / str(scenario) / f"{year}_{percentile}.tif"
 
     def load_ldi_raster(self, scenario: int | str, year: int | str, percentile: float | str, version: str) -> rt.RasterArray:
-        # Temporary: we don't actually use the scenarios for income/consumption so just use reference/4.5
-        return rt.load_raster(self.ldi_raster_path(0, year, percentile, version)).astype(np.float32)
+        return rt.load_raster(self.ldi_raster_path(scenario, year, percentile, version)).astype(np.float32)
+
 
     def save_ldi_raster(
         self,
@@ -452,7 +537,7 @@ class ClimateMalnutritionData:
         save_raster(variable_raster, path, **kwargs)
 
     def load_elevation(self) -> rt.RasterArray:
-        return rt.load_raster(self.shared_inputs / "GLOBE_DEM_MOSAIC_Y2016M02D09.TIF").set_no_data_value(-32768).astype(np.float32)
+        return rt.load_raster(self.shared_inputs / 'elevation' / "GLOBE_DEM_MOSAIC_Y2016M02D09.TIF").set_no_data_value(-32768).astype(np.float32)
 
     #########################
     # Upstream paths we own #
@@ -469,8 +554,13 @@ class ClimateMalnutritionData:
         gdf.to_parquet(path)
 
     def load_lbd_admin2_shapes(self) -> gpd.GeoDataFrame:
-        path = self._PROCESSED_DATA_ROOT / "ihme" / "lbd_admin2.parquet"
+        # path = self._PROCESSED_DATA_ROOT / "ihme" / "lbd_admin2.parquet"
+        path = self.shared_inputs / "shapefiles" / "admin2_1285.parquet"
         return gpd.read_parquet(path)
+
+    def load_lbd_admin2_location_id_rasater(self) -> rt.RasterArray:
+        path = self.shared_inputs / "input" / "admin2_1285_raster.tif"
+        return rt.load_raster(path).set_no_data_value(np.nan).astype(np.float32)
 
     def save_fhs_shapes(self, gdf: gpd.GeoDataFrame) -> None:
         path = self._PROCESSED_DATA_ROOT / "ihme" / "fhs_most_detailed.parquet"
@@ -536,6 +626,7 @@ class ClimateMalnutritionData:
         return xr.open_dataset(path).sel(year=year)["value"]
 
 
+
 def get_run_directory(output_root: str | Path) -> Path:
     """Gets a path to a datetime directory for a new output.
 
@@ -578,6 +669,33 @@ def save_raster(
     raster.to_file(output_path, **save_params)
 
 
+def get_scam_spline_effect(model, var_name, data_source, n_points=100, value_source=None):
+    scam_lib = packages.importr('scam')
+    pandas2ri.activate()
+    grid_df = data_source.iloc[[0]*n_points].reset_index(drop=True).copy()
+    vmin, vmax = data_source[var_name].min(), data_source[var_name].max()
+    grid_np = np.linspace(vmin, vmax, n_points)
+    grid_df[var_name] = grid_np
+    pred = scam_lib.predict_scam(model, newdata=grid_df, type='terms', se_fit=True)
+    pandas2ri.deactivate()
+
+    fit_matrix = np.array(pred.rx2('fit'))
+    se_matrix = np.array(pred.rx2('se.fit'))
+    col_names = list(r.colnames(pred.rx2('fit')))
+    
+    target_col = [i for i, name in enumerate(col_names) if f"s({var_name})" in name][0]
+
+    if value_source is not None:
+        real_min, real_max = value_source[var_name].min(), value_source[var_name].max()
+        real_value_grid_np = np.linspace(real_min, real_max, n_points)
+
+    return pd.DataFrame({
+        'value': real_value_grid_np if value_source is not None else grid_np,
+        'effect': fit_matrix[:, target_col],
+        'se': se_matrix[:, target_col]
+    })
+
+
 def extract_fixed_effects_from_scam(model):
     pandas2ri.deactivate()
     
@@ -599,11 +717,13 @@ def extract_fixed_effects_from_scam(model):
     # 5. Build the DataFrame
     fixed_effects_df = pd.DataFrame(
         p_table_values,
-        columns=['estimate', 'std_error', 'statistic', 'p_value']
+        columns=['Estimate', 'std_error', 'statistic', 'p_value']
     )
     
     # 6. Insert the perfectly matched terms
     fixed_effects_df.insert(0, 'term', p_table_names)
+
+    fixed_effects_df = fixed_effects_df.set_index('term')
     
     return fixed_effects_df
 
@@ -639,9 +759,11 @@ def extract_random_effects_from_scam(model, random_effect_name='ihme_loc_id'):
                 random_effect_name: re_levels,
                 'offset': re_values
             })
+            random_effects_df.set_index(random_effect_name, inplace=True)
             return random_effects_df
         else:
             raise ValueError(
                  f"Length mismatch: {len(re_levels)} levels vs {len(re_values)} coefficients."
             )
     raise ValueError("Could not find the random effect smooth or levels in the model.")
+

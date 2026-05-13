@@ -11,7 +11,8 @@ from rpy2.robjects import pandas2ri, packages,  ListVector, FloatVector
 from rra_tools import jobmon
 
 from rra_climate_health import cli_options as clio
-from rra_climate_health.data import DEFAULT_ROOT, ClimateMalnutritionData
+from rra_climate_health.data import DEFAULT_ROOT, ClimateMalnutritionData, extract_fixed_effects_from_scam, extract_random_effects_from_scam
+
 from rra_climate_health.model_specification import (
     ModelSpecification,
 )
@@ -86,6 +87,8 @@ def model_training_main(
         no_re_pred = model.predict(model.design_matrix, use_rfx=False, verify_predictions=False)
         raw_df['no_re_fits'] = no_re_pred
         df['no_re_fits'] = no_re_pred
+        coefs = model.coefs
+        ranefs = model.ranef
     elif model_type == ModelType.SPLINE_MIXED_EFFECTS:
         pandas2ri.activate()
         scam_lib = packages.importr('scam')
@@ -110,27 +113,31 @@ def model_training_main(
         no_re_pred = scam_lib.predict_scam(model, newdata=df, type="response", exclude="s(ihme_loc_id)")
         raw_df['no_re_fits'] = no_re_pred
         df['no_re_fits'] = no_re_pred
+        raw_df.to_parquet(cm_data.models / model_version / "raw_with_predictions.parquet")
+        coefs = extract_fixed_effects_from_scam(model)
+        ranefs = extract_random_effects_from_scam(model, 'ihme_loc_id')
 
     model.var_info = var_info
     model.raw_data = raw_df
     model.submodel = submodel
 
-    cm_data.save_model(model, model_version, model_spec, submodel)
+    cm_data.save_model(model, model_version, model_spec, df, submodel)
 
     # Validation
     target_measure = model_spec.measure.value
     if year_variable not in df.columns:
         df[year_variable] = raw_df[year_variable]
-    summary = training_validation.validate_model(df, model_spec, target_measure, year_variable)
-    summary.to_csv(cm_data.models / model_version / "validation_results.csv", index=False)
-    training_validation.update_results_file(summary, cm_data.models / "validation_results.csv", 
-                                            model_version, submodel)
-    
-    training_diagnostics.run_training_diagnostics(model, df, model_spec, cm_data, model_version, submodel, raw_df, var_info)
 
-    if not submodel and model_type != ModelType.SPLINE_MIXED_EFFECTS: #TODO Temporary
+    # summary = training_validation.validate_model(df, model_spec, target_measure, year_variable, var_info)
+    # summary.to_csv(cm_data.models / model_version / "validation_results.csv", index=False)
+    # training_validation.update_results_file(summary, cm_data.models / "validation_results.csv", 
+    #                                         model_version, submodel)
+    
+    # training_diagnostics.run_training_diagnostics(model, df, model_spec, cm_data, model_version, submodel, raw_df, var_info)
+
+    if not submodel:
         # Only save intercept raster for full model
-        icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
+        icept_raster = utils.get_intercept_raster(model_spec, coefs, ranefs, cm_data)
         cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
 
 
@@ -212,7 +219,7 @@ def model_training(
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "60Gb",
+            "memory": "150Gb",
             "runtime": "4h",
             "project": "proj_rapidresponse",
         },
