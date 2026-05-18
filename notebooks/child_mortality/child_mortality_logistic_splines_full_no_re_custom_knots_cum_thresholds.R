@@ -29,7 +29,7 @@ library(data.table)
 library(dplyr) # for anti_join function
 library(arrow) # to read parquet
 library(ggplot2)
-
+library(grid)
 
 options(scipen = 999) # turn off scientific notation
 
@@ -45,9 +45,11 @@ data_version <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutr
 results_dir <- "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_28.01/"
 model_summary_dir <- paste0(results_dir,"model_summaries/")
 
+plot_dir <- paste0(results_dir, "plots/")
 
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(model_summary_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 ## Read and format data
 df <- read_parquet(data_version)
@@ -144,7 +146,7 @@ quantile(df_model[days_over_30C_monthly>0]$days_over_30C_monthly,probs=c(0.3,0.6
 
 # Define interior breakpoints only — data boundaries are added automatically
 thresh_knots      <- c(1.5, 5.25, 9.3,15.5)    # days_over_30C_monthly
-consumption_knots <- c(2.0, 5.0, 10.0,20.0, 30.0)   # consumption_pd
+consumption_knots <- c(2.0, 5.0, 10.0,20.0, 40.0)   # consumption_pd
 
 # Builds the full augmented knot vector for scam mpi/mpd smooths.
 #   inner_knots : interior breakpoints (data boundaries added automatically)
@@ -253,8 +255,7 @@ write.csv(
 # SECTION 3: PLOT ISOLATED SPLINE TERM CONTRIBUTIONS
 #==============================================================================
 
-plot_dir <- paste0(results_dir, "plots/")
-dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+
 
 # --- Base-R spline plots via scam's plot method ---
 png(paste0(plot_dir, summary_file, "_spline_terms.png"),
@@ -333,98 +334,6 @@ p2 <- ggplot(data.frame(days_over_30C_monthly = days_seq, effect = days_effect),
 ggsave(paste0(plot_dir, summary_file, "_spline_days_over_30C.png"), p2,
        width = 6, height = 4, dpi = 150)
 
-#==============================================================================
-# SECTION 3b: PREDICT ON INPUT DATA WITH RANDOM EFFECTS
-#==============================================================================
-
-
-df_avg <- copy(df_model)
-df_avg[, `:=`(
-  sex_id = factor("Male", levels = c("Male", "Female")),
-  total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
-  birth_year = median(df_model$birth_year, na.rm = TRUE),
-  ihme_loc_id = df_model$ihme_loc_id[1]
-)]
-
-table(df_avg$sex_id)
-table(df_avg$total_precipitation_monthly)
-table(df_avg$birth_year)
-table(df_avg$ihme_loc_id)
-range(df_avg$days_over_30C_monthly)
-range(df_avg$consumption_pd)
-
-setorder(df_avg, indv_id, age_month)
-# df_avg[, pred_prob_fe := predict(model, newdata = df_avg, type = "response",
-#                                  exclude = "s(ihme_loc_id)")]
-df_avg[, pred_prob_fe := predict(model, newdata = df_avg, type = "response",
-                                 exclude = "s(ihme_loc_id)")]
-
-df_avg[, cumhaz_fe := cumsum(-log(1 - pred_prob_fe)), by = indv_id]
-
-# Step 3: derived quantities (same relationships as your Cox model)
-df_avg[, survival_fe := exp(-cumhaz_fe)]
-df_avg[, mortality_fe := 1 - survival_fe]
-
-# Check for any non-monotonicity
-age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m","age_24_m","age_36_m","age_48_m","age_60_m")
-df_avg$age_month_period <- 0L
-for (v in age_vars) {
-  months <- as.integer(strsplit(v, "_")[[1]][2])
-  df_avg[df_avg[[v]] == 1, "age_month_period"] <- months
-}
-
-table(df_avg$age_month_period)
-examine_all <- data.table()
-for (a in unique(df_avg$age_month_period)){
-  df_tmp <- df_avg[age_month_period==a]
-  for (b in unique(df_tmp$days_over_30C_monthly)){
-    df_tmp_b <- df_tmp[days_over_30C_monthly==b]
-    setorderv(df_tmp_b,"consumption_pd") # consumption is increasing
-    df_tmp_b[,pred_prob_fe:= round(pred_prob_fe,8)]
-    df_tmp_b[, pred_prob_fe_lag :=  shift(pred_prob_fe, type = "lag")]
-    df_tmp_b <- na.omit(df_tmp_b)
-    df_tmp_b <- df_tmp_b[pred_prob_fe!=pred_prob_fe_lag]
-    examine <- df_tmp_b[pred_prob_fe>pred_prob_fe_lag]
-    examine_all <- rbind(examine_all,examine)
-  }
-  
-}
-
-
-df_avg_merge <- unique(df_avg[,.(indv_id,age_month,cumhaz_fe,pred_prob_fe)])
-
-df_model_merged <- merge(df_model,df_avg_merge,by=c("indv_id","age_month"),all.x=TRUE)
-
-# Sort by individual and age (important for cumsum)
-setorder(df_model_merged, indv_id, age_month)
-
-# Step 1: predict with RE (you already have this)
-df_model_merged[, pred_prob_re := predict(model, newdata = df_model_merged, type = "response")]
-
-# Step 2: cumulative hazard with mixed effects
-# -log(1 - p) converts discrete hazard to continuous-time hazard contribution per interval
-df_model_merged[, cumhaz_me := cumsum(-log(1 - pred_prob_re)), by = indv_id]
-
-# Step 3: derived quantities (same relationships as your Cox model)
-df_model_merged[, survival_me := exp(-cumhaz_me)]
-df_model_merged[, mortality_me := 1 - survival_me]
-
-# Try rounding the fe to see if that's the cause of the non-monotonicities
-setDT(df_model_merged)
-df_model_merged[,cumhaz_fe:=round(cumhaz_fe,8)]
-write_parquet(df_model_merged, paste0(results_dir, summary_file, "_input_predictions_both_re_fe.parquet"))
-
-print("Predictions on input data saved.")
-
-#==============================================================================
-# SECTION 4: PREDICT ON NEW DATA — CUMULATIVE MORTALITY THROUGH 60 MONTHS
-#==============================================================================
-# Discrete-time survival: for each age interval, activate only that interval's
-# dummy (all others = 0) and predict the conditional hazard h_t(x). Then
-# combine via the survival product:
-#   P(die before 60m) = 1 - prod_t(1 - h_t(x))
-# This stays within the training data's feature space, unlike setting all
-# age dummies to 1 simultaneously (which is severe extrapolation).
 
 age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m",
               "age_24_m","age_36_m","age_48_m","age_60_m")
@@ -469,10 +378,10 @@ pred_grid <- CJ(
 pred_grid[, `:=`(
   age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
   age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
-  sex_id   = factor("Male", levels = c("Male", "Female")),
+  sex_id   = factor("Female", levels = c("Male", "Female")),
   total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
   birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
-  ihme_loc_id         = df_model$ihme_loc_id[1],
+  ihme_loc_id         = df_model$ihme_loc_id[6],
   indv_id             = df_model$indv_id[1]
 )]
 
@@ -501,13 +410,6 @@ predict_cumulative_mortality_me <- function(model, newdata, age_vars) {
   return(1 - survival)
 }
 
-# Create single indv dataset
-df_max_age <- copy(df_model)
-df_max_age <- df_max_age[order(age_month), .SD[.N], by = indv_id]
-
-df_max_age[, pred_prob_me := predict_cumulative_mortality_me(model, df_max_age, age_vars)]
-
-fwrite(df_max_age, paste0(results_dir, summary_file, "_predictions_cumulative_me.csv"))
 
 # --- Marginal effect of days_over_30C at median consumption ---
 marginal_days <- data.table(
@@ -525,7 +427,7 @@ marginal_days <- data.table(
 )
 marginal_days[, pred_prob := predict_cumulative_mortality_fe(model, marginal_days, age_vars)]
 
-p4 <- ggplot(marginal_days, aes(x = days_over_30C_monthly, y = pred_prob)) +
+p3 <- ggplot(marginal_days, aes(x = days_over_30C_monthly, y = pred_prob)) +
   geom_line(color = "firebrick", linewidth = 1) +
   geom_vline(xintercept = days_inner_knots_verified, linetype = "dashed",
              color = "gray40", alpha = 0.7) +
@@ -536,7 +438,7 @@ p4 <- ggplot(marginal_days, aes(x = days_over_30C_monthly, y = pred_prob)) +
   #   labels = scales::label_number()
   # ) +
   theme_minimal()
-ggsave(paste0(plot_dir, summary_file, "_marginal_days.png"), p4,
+ggsave(paste0(plot_dir, summary_file, "_marginal_days.png"), p3,
        width = 6, height = 4, dpi = 150)
 
 # --- Marginal effect of consumption_pd at median days_over_30C ---
@@ -555,7 +457,7 @@ marginal_cons <- data.table(
 )
 marginal_cons[, pred_prob := predict_cumulative_mortality_fe(model, marginal_cons, age_vars)]
 
-p5 <- ggplot(marginal_cons, aes(x = consumption_pd, y = pred_prob)) +
+p4 <- ggplot(marginal_cons, aes(x = consumption_pd, y = pred_prob)) +
   geom_line(color = "steelblue", linewidth = 1) +
   geom_vline(xintercept = cons_inner_knots_verified, linetype = "dashed",
              color = "gray40", alpha = 0.7) +
@@ -566,34 +468,316 @@ p5 <- ggplot(marginal_cons, aes(x = consumption_pd, y = pred_prob)) +
   #   labels = scales::label_number()
   # ) +
   theme_minimal()
-ggsave(paste0(plot_dir, summary_file, "_marginal_consumption.png"), p5,
+ggsave(paste0(plot_dir, summary_file, "_marginal_consumption.png"), p4,
        width = 6, height = 4, dpi = 150)
 
-message("Prediction and plotting complete. Outputs saved to: ", plot_dir)
+#==============================================================================
+# SECTION 3b: PREDICT ON INPUT DATA FOR BOTH RE AND FE
+#==============================================================================
 
 
-# --- Make density plots of variables ---
-# days_over_30C_monthly
-df_model[is.na(days_over_30C_monthly),.N]
-h1 <- ggplot(df_model,aes(x=days_over_30C_monthly))+
-  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
-  labs(title = "Histogram of days_over_30C_monthly", x = "days_over_30C_monthly", y = "Frequency") +
-  theme_minimal() +
-  scale_y_continuous(labels = scales::comma)
-ggsave(paste0(plot_dir, summary_file, "_days_over_30C_monthly_hist.png"), h1,
-       width = 6, height = 4, dpi = 150)
+df_avg <- copy(df_model)
+df_avg[, `:=`(
+  sex_id = factor("Male", levels = c("Male", "Female")),
+  total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
+  birth_year = median(df_model$birth_year, na.rm = TRUE),
+  ihme_loc_id = df_model$ihme_loc_id[1]
+)]
+
+table(df_avg$sex_id)
+table(df_avg$total_precipitation_monthly)
+table(df_avg$birth_year)
+table(df_avg$ihme_loc_id)
+range(df_avg$days_over_30C_monthly)
+range(df_avg$consumption_pd)
+
+setorder(df_avg, indv_id, age_month)
+# df_avg[, pred_prob_fe := predict(model, newdata = df_avg, type = "response",
+#                                  exclude = "s(ihme_loc_id)")]
+df_avg[, pred_prob_fe := predict(model, newdata = df_avg, type = "response",
+                                 exclude = "s(ihme_loc_id)")]
+# Currently pred_prob_re is used in heatmaps
+
+df_avg[, cumhaz_fe := cumsum(-log(1 - pred_prob_fe)), by = indv_id]
+
+# Step 3: derived quantities (same relationships as your Cox model)
+df_avg[, survival_fe := exp(-cumhaz_fe)]
+df_avg[, mortality_fe := 1 - survival_fe]
 
 
+df_avg_merge <- unique(df_avg[,.(indv_id,age_month,cumhaz_fe,pred_prob_fe)])
 
-# days_over_30C_monthly
-df_model[is.na(consumption_pd),.N]
-h2 <- ggplot(df_model,aes(x=consumption_pd))+
-  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
-  labs(title = "Histogram of consumption_pd", x = "consumption_pd", y = "Frequency") +
-  theme_minimal() +
-  scale_y_continuous(labels = scales::comma)
-ggsave(paste0(plot_dir, summary_file, "_consumption_pd_hist.png"), h2,
-       width = 6, height = 4, dpi = 150)
+df_model_merged <- merge(df_model,df_avg_merge,by=c("indv_id","age_month"),all.x=TRUE)
+
+# Sort by individual and age (important for cumsum)
+setorder(df_model_merged, indv_id, age_month)
+
+# Step 1: predict with RE (you already have this)
+df_model_merged[, pred_prob_re := predict(model, newdata = df_model_merged, type = "response")]
+
+# Step 2: cumulative hazard with mixed effects
+# -log(1 - p) converts discrete hazard to continuous-time hazard contribution per interval
+df_model_merged[, cumhaz_me := cumsum(-log(1 - pred_prob_re)), by = indv_id]
+
+# Step 3: derived quantities (same relationships as your Cox model)
+df_model_merged[, survival_me := exp(-cumhaz_me)]
+df_model_merged[, mortality_me := 1 - survival_me]
+
+# Try rounding the fe to see if that's the cause of the non-monotonicities
+setDT(df_model_merged)
+df_model_merged[,cumhaz_fe:=round(cumhaz_fe,8)]
+write_parquet(df_model_merged, paste0(results_dir, summary_file, "_input_predictions_both_re_fe.parquet"))
+
+print("Predictions on input data saved.")
+
+#==============================================================================
+# SECTION 3.c: PREDICT ON FIX EFFECT DATA USING PREDICT
+#==============================================================================
 
 
+## PREVIOUS METHOD
 
+age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m",
+              "age_24_m","age_36_m","age_48_m","age_60_m")
+
+
+overall_grid_p <- data.table()
+for (v in age_vars) {
+  
+    
+    # 2-D grid over both spline variables
+    pred_grid <- CJ(
+      days_over_30C_monthly = seq(min(df_model$days_over_30C_monthly, na.rm = TRUE),
+                                  max(df_model$days_over_30C_monthly, na.rm = TRUE),
+                                  length.out = 500),
+      consumption_pd        = seq(min(df_model$consumption_pd, na.rm = TRUE),
+                                  max(df_model$consumption_pd, na.rm = TRUE),
+                                  length.out = 500)
+    )
+    pred_grid[, `:=`(
+      age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
+      age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
+      sex_id   = factor("Female", levels = c("Male", "Female")),
+      total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
+      birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
+      ihme_loc_id         = df_model$ihme_loc_id[4]
+    )]
+    
+    pred_grid[,(v):=1L]
+    
+    overall_grid_p <- rbind(overall_grid_p,pred_grid)
+}
+
+
+overall_grid_p[, pred_prob_fe := predict(model, newdata = overall_grid_p, type = "response",exclude = "s(ihme_loc_id)")]
+overall_grid_p[,max(pred_prob_fe),by=ihme_loc_id]
+
+overall_grid_plast <- fread(paste0(results_dir, summary_file, "_predictions_with_both_splines_ranged_all_ages.csv"))
+overall_grid_plast[,max(pred_prob_fe),by=ihme_loc_id]
+write_parquet(overall_grid_p, paste0(results_dir, summary_file, "_predictions_with_both_splines_ranged_all_ages.parquet"))
+
+
+## CURRENT METHOD
+age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m",
+              "age_24_m","age_36_m","age_48_m","age_60_m")
+
+countries <- unique(df_model$ihme_loc_id)
+
+overall_grid <- data.table()
+for (v in age_vars) {
+  
+  for (c in levels(countries)){
+    
+    # 2-D grid over both spline variables
+    pred_grid <- CJ(
+      days_over_30C_monthly = seq(min(df_model$days_over_30C_monthly, na.rm = TRUE),
+                                  max(df_model$days_over_30C_monthly, na.rm = TRUE),
+                                  length.out = 250),
+      consumption_pd        = seq(min(df_model$consumption_pd, na.rm = TRUE),
+                                  max(df_model$consumption_pd, na.rm = TRUE),
+                                  length.out = 250)
+    )
+    pred_grid[, `:=`(
+      age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
+      age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
+      sex_id   = factor("Female", levels = c("Male", "Female")),
+      total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
+      birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
+      ihme_loc_id         = c
+    )]
+    
+    pred_grid[,(v):=1L]
+    
+    overall_grid <- rbind(overall_grid,pred_grid)}
+}
+
+overall_grid[, ihme_loc_id := factor(ihme_loc_id, levels = levels(df_model$ihme_loc_id))]
+
+
+overall_grid[, pred_prob_fe := predict(model, newdata = overall_grid, type = "response",exclude = "s(ihme_loc_id)")]
+overall_grid[, pred_prob_me := predict(model, newdata = overall_grid, type = "response")]
+
+overall_grid[,max(pred_prob_fe),by=ihme_loc_id]
+overall_grid[,max(pred_prob_me),by=ihme_loc_id]
+write_parquet(overall_grid, paste0(results_dir, summary_file, "_predictions_with_both_splines_ranged_all_ages_all_locs.parquet"))
+
+
+#==============================================================================
+# SECTION 6: SCAM SPLINE PLOTS (python-style aesthetics)
+# Replicates plot_scam_spline() in
+#   src/rra_climate_health/training/training_diagnostics.py
+#   - line color  #2c3e50  (dark navy), linewidth ~1.0
+#   - 95% CI fill #3498db  (blue),  alpha 0.2
+#   - rug at the bottom: black, alpha 0.2
+#   - red dashed reference line at y = 0
+#   - green dotted vertical lines at inner knots
+#   - bold axis labels, dotted minor/major grids, legend
+#==============================================================================
+
+
+plot_scam_spline <- function(model,
+                             var_name,
+                             original_data,
+                             knots         = NULL,
+                             n_points      = 100,
+                             title         = NULL,
+                             filepath      = NULL,
+                             width         = 10,
+                             height        = 6,
+                             dpi           = 300,
+                             exclude_terms = "s(ihme_loc_id)",
+                             show_rug      = FALSE,
+                             show_knots    = FALSE,
+                             show_zero     = FALSE,
+                             show_xlab     = FALSE,
+                             show_ylab     = FALSE,
+                             show_title    = FALSE,
+                             legend_pos    = c("auto", "topleft", "topright", "none")) {
+  legend_pos <- match.arg(legend_pos)
+
+  # Build template by repeating row 1 of original_data, then vary var_name
+  template <- as.data.table(original_data)[1L]
+  vmin     <- min(original_data[[var_name]], na.rm = TRUE)
+  vmax     <- max(original_data[[var_name]], na.rm = TRUE)
+  var_seq  <- seq(vmin, vmax, length.out = n_points)
+
+  newdata <- template[rep(1L, n_points)]
+  newdata[, (var_name) := var_seq]
+
+  # Partial effects with SEs on the link (log-odds) scale
+  pred    <- predict(model, newdata = newdata, type = "terms",
+                     se.fit = TRUE, exclude = exclude_terms)
+  fit_mat <- pred$fit
+  se_mat  <- pred$se.fit
+
+  target_col <- grep(paste0("s\\(", var_name, "\\)"),
+                     colnames(fit_mat), value = TRUE)[1]
+  if (is.na(target_col)) {
+    stop("No spline term s(", var_name, ") found in model.")
+  }
+
+  effect_df <- data.frame(
+    value  = var_seq,
+    effect = as.numeric(fit_mat[, target_col]),
+    se     = as.numeric(se_mat[, target_col])
+  )
+  effect_df$lower_ci <- effect_df$effect - 1.96 * effect_df$se
+  effect_df$upper_ci <- effect_df$effect + 1.96 * effect_df$se
+
+  full_title <- if (!is.null(title)) title else paste0("SCAM Spline Effect: ", var_name)
+
+  # Auto-detect legend corner based on overall slope: increasing → top-left empty,
+  # decreasing → top-right empty.
+  if (legend_pos == "auto") {
+    slope <- effect_df$effect[n_points] - effect_df$effect[1]
+    legend_pos <- if (slope >= 0) "topleft" else "topright"
+  }
+
+  p <- ggplot(effect_df, aes(x = value, y = effect)) +
+    geom_ribbon(aes(ymin = lower_ci, ymax = upper_ci, fill = "95% CI"),
+                alpha = 0.2) +
+    geom_line(aes(color = "Partial Effect"), linewidth = 1.0) +
+    scale_color_manual(name = NULL, values = c("Partial Effect" = "#2c3e50"),
+                       guide = guide_legend(order = 1,
+                                            override.aes = list(fill = NA))) +
+    scale_fill_manual( name = NULL, values = c("95% CI"         = "#3498db"),
+                       guide = guide_legend(order = 2,
+                                            override.aes = list(color = NA))) +
+    labs(x     = if (show_xlab)  var_name                  else NULL,
+         y     = if (show_ylab)  "Partial Effect (Log-Odds)" else NULL,
+         title = if (show_title) full_title                  else NULL) +
+    theme_minimal() +
+    theme(
+      axis.title            = element_text(face = "bold", size = 14),
+      axis.text             = element_text(size = 14),
+      plot.title            = element_text(size = 16),
+      panel.grid.major      = element_line(color = "gray70", linetype = "dotted", linewidth = 0.3),
+      panel.grid.minor      = element_line(color = "gray80", linetype = "dotted", linewidth = 0.2),
+      legend.box            = "vertical",
+      legend.background     = element_blank(),
+      legend.box.background = element_rect(color = "gray70", fill = "white"),
+      legend.box.margin     = margin(2, 4, 2, 4),
+      legend.key            = element_blank(),
+      legend.spacing.y      = unit(-4, "pt"),
+      legend.margin         = margin(0, 0, 0, 0)
+    )
+
+  # Place the merged legend in the requested corner
+  if (legend_pos == "none") {
+    p <- p + theme(legend.position = "none")
+  } else {
+    legend_xy   <- switch(legend_pos,
+                          "topleft"  = c(0.02, 0.98),
+                          "topright" = c(0.98, 0.98))
+    legend_just <- switch(legend_pos,
+                          "topleft"  = c("left",  "top"),
+                          "topright" = c("right", "top"))
+    p <- p + theme(legend.position      = legend_xy,
+                   legend.justification  = legend_just)
+  }
+
+  # Optional overlays — all default off
+  if (show_zero) {
+    p <- p + geom_hline(yintercept = 0, color = "red", linetype = "dashed",
+                        alpha = 0.4, linewidth = 0.6)
+  }
+
+  if (show_rug) {
+    rug_data <- data.frame(x = na.omit(original_data[[var_name]]))
+    p <- p + geom_rug(data = rug_data, aes(x = x), inherit.aes = FALSE,
+                       color = "black", alpha = 0.2, sides = "b",
+                       length = unit(0.025, "npc"), linewidth = 0.3)
+  }
+
+  if (show_knots && !is.null(knots)) {
+    p <- p + geom_vline(xintercept = knots,
+                        color = "green", linetype = "dotted",
+                        alpha = 0.7, linewidth = 0.7)
+  }
+
+  if (!is.null(filepath)) {
+    ggsave(filepath, p, width = width, height = height, dpi = dpi)
+  } else {
+    print(p)
+  }
+  invisible(p)
+}
+
+# --- Render the two spline terms in this model ------------------------------
+plot_scam_spline(
+  model         = model,
+  var_name      = "consumption_pd",
+  original_data = df_model,
+  knots         = cons_inner_knots_verified,
+  title         = "SCAM Spline Effect: consumption_pd",
+  filepath      = paste0(plot_dir, summary_file, "_spline_consumption_pylike.png")
+)
+
+plot_scam_spline(
+  model         = model,
+  var_name      = "days_over_30C_monthly",
+  original_data = df_model,
+  knots         = days_inner_knots_verified,
+  title         = "SCAM Spline Effect: days_over_30C_monthly",
+  filepath      = paste0(plot_dir, summary_file, "_spline_days_over_30C_pylike.png")
+)

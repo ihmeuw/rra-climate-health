@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import os
 from sklearn.metrics import (
     log_loss,
     precision_recall_curve,
@@ -38,13 +39,29 @@ class ValidationConfig:
 
 
 def prepare_cv_splits(
-    df: pd.DataFrame, location_col: str, year_col: str, config: ValidationConfig
+    df: pd.DataFrame,
+    location_col: str,
+    year_col: str,
+    config: ValidationConfig,
+    indv_col: Optional[str] = None,
 ):
     """
     Generates K-Fold CV splits. In each fold:
     1. A subset of locations is held out (Unseen Locations).
     2. For the training locations, the most recent years are held out (Unseen Years).
+
+    If `indv_col` is provided, all rows of an individual are guaranteed to fall
+    in the same split. An individual is assigned to the unseen-years test set if
+    ANY of their observations fall in the held-out year window.
     """
+    if indv_col is not None:
+        locs_per_indv = df.groupby(indv_col)[location_col].nunique()
+        if (locs_per_indv > 1).any():
+            raise ValueError(
+                f"{(locs_per_indv > 1).sum()} individuals span multiple locations; "
+                f"grouped splitting requires one location per {indv_col}."
+            )
+
     all_locations = df[location_col].unique()
     kf = KFold(n_splits=config.n_splits, shuffle=True, random_state=config.random_seed)
 
@@ -53,6 +70,7 @@ def prepare_cv_splits(
         unseen_locations = all_locations[test_loc_idx]
 
         # Scenario A: Entirely unseen locations
+        # (already individual-safe because each indv has a single location)
         test_unseen_loc_df = df[df[location_col].isin(unseen_locations)]
 
         # Scenario B: Unseen years for seen locations
@@ -66,17 +84,26 @@ def prepare_cv_splits(
 
             if len(years) <= 1:
                 train_indices.extend(loc_data.index.tolist())
-            else:
-                n_test_years = max(1, int(len(years) * config.test_size_recent_years))
-                train_years = years[:-n_test_years]
-                test_years = years[-n_test_years:]
+                continue
 
+            n_test_years = max(1, int(len(years) * config.test_size_recent_years))
+            train_years = years[:-n_test_years]
+            test_years = years[-n_test_years:]
+
+            if indv_col is None:
                 train_indices.extend(
                     loc_data[loc_data[year_col].isin(train_years)].index.tolist()
                 )
                 test_unseen_year_indices.extend(
                     loc_data[loc_data[year_col].isin(test_years)].index.tolist()
                 )
+            else:
+                test_indvs = loc_data.loc[
+                    loc_data[year_col].isin(test_years), indv_col
+                ].unique()
+                is_test = loc_data[indv_col].isin(test_indvs)
+                train_indices.extend(loc_data.index[~is_test].tolist())
+                test_unseen_year_indices.extend(loc_data.index[is_test].tolist())
 
         yield (
             df.loc[train_indices],
@@ -118,9 +145,13 @@ def validate_model(
     year_variable: str,
     var_info: dict,
     config: Optional[ValidationConfig] = None,
+    indv_col: Optional[str] = None,
 ):
     """
     Validated model performance using K-Fold CV with custom spatio-temporal splits.
+
+    If `indv_col` is provided, splits group whole individuals together so that
+    no individual appears in both train and test within a fold.
     """
     config = config or ValidationConfig()
     location_variable = model_spec.random_effects[0]
@@ -128,7 +159,9 @@ def validate_model(
     all_fold_results = []
 
     for fold, (train_df, test_loc, test_year) in enumerate(
-        prepare_cv_splits(df, location_variable, year_variable, config)
+        prepare_cv_splits(
+            df, location_variable, year_variable, config, indv_col=indv_col
+        )
     ):
         print(f"Processing Fold {fold+1}/{config.n_splits}...")
 
@@ -271,8 +304,12 @@ def validate_model(
 
     # Add RMSE when compared to GBD
     # Save df as tmp file:
+    os.makedirs(
+        f"/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/{target_measure}/training_data/tmp/",
+        exist_ok=True,
+    )
     df.to_parquet(
-        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/neonatal_mortality/training_data/tmp/temp_validation_df.parquet"
+        f"/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/{target_measure}/training_data/tmp/temp_validation_df.parquet"
     )
     merged_gbd_data = merge_gbd_data(target_measure, df).dropna()
     summary["gbd_rmse"] = np.sqrt(

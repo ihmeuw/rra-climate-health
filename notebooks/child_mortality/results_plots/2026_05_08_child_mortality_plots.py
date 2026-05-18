@@ -1,7 +1,7 @@
 """
 Plot code corresponding to child mortality run:
 
-date launched: 4/30/2026
+date launched: 5/8/2026
 spec:
 model <- scam(child_mortality ~
                 age_1_m+
@@ -44,7 +44,7 @@ from pathlib import Path
 
 DATA_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_04_28.01/data_cumulative_bins.parquet"
 RESULTS_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/results/2026_04_28.01/"
-PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2026_05_01.01/"
+PLOT_PATH = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/plots/2026_05_08.01/"
 
 os.makedirs(PLOT_PATH, exist_ok=True, mode=0o777)
 
@@ -76,8 +76,33 @@ df_model_me = pd.read_csv(
 
 df_model_fe = pd.read_csv(
     RESULTS_PATH
-    + "cm_splines_full_no_re_custom_knots_cum_thresholds_4_28_predictions_with_both_splines_ranged.csv"
+    + "cm_splines_full_no_re_custom_knots_cum_thresholds_4_28_predictions_with_both_splines_ranged_all_ages.csv"
 )
+
+df_model_synthetic = pd.read_parquet(
+    RESULTS_PATH
+    + "cm_splines_full_no_re_custom_knots_cum_thresholds_4_28_predictions_with_both_splines_ranged_all_ages_all_locs.parquet"
+)
+print(f"{len(df_model_synthetic):,} rows in synthetic data")
+
+df_model_fe.rename(columns={"days_over_30C_monthly": "days_over_30C"}, inplace=True)
+df_model_synthetic.rename(
+    columns={"days_over_30C_monthly": "days_over_30C"}, inplace=True
+)
+
+for v in [
+    "age_1_m",
+    "age_3_m",
+    "age_6_m",
+    "age_12_m",
+    "age_24_m",
+    "age_36_m",
+    "age_48_m",
+    "age_60_m",
+]:
+    df_model_synthetic.loc[df_model_synthetic[v] == 1, "age_group"] = v
+    df_model_fe.loc[df_model_fe[v] == 1, "age_group"] = v
+
 
 # Preliminary formatting
 df_model = df_model.rename(columns={"days_over_30C_monthly": "days_over_30C"})
@@ -101,9 +126,9 @@ for v in [
 df_model_me = df_model_me.rename(columns={"days_over_30C_monthly": "days_over_30C"})
 
 
-df_model_fe = df_model_fe.rename(columns={"days_over_30C_monthly": "days_over_30C"})
-df_model_fe["age_month"] = 60
-df_model_fe["mortality_fe"] = 1 - np.exp(-df_model_fe["cumhaz_fe"])
+# df_model_fe = df_model_fe.rename(columns={"days_over_30C_monthly": "days_over_30C"})
+# df_model_fe["age_month"] = 60
+# df_model_fe["mortality_fe"] = 1 - np.exp(-df_model_fe["cumhaz_fe"])
 
 
 # Get max age obs for me
@@ -217,8 +242,8 @@ def plot_heat_map_person_time(
         ax.set_xticklabels(x_labs, rotation=45, fontsize=10)
         # ax.set_yticks(y_ticks)
         ax.set_yticklabels(y_labs, rotation=0, fontsize=10)
-        ax.set_xlabel("", fontsize=13)  # "Days over 30°C
-        ax.set_ylabel("", fontsize=13)  # Daily consumption
+        ax.set_xlabel("Days over 30°C", fontsize=13)
+        ax.set_ylabel("Daily consumption", fontsize=13)
         ax.set_title(title, fontsize=18)
 
         plt.tight_layout()
@@ -492,30 +517,6 @@ custom_y_bins = [
 
 multiply_by_val = 1000
 
-# NEW APPROACHES
-
-df_long = pd.read_parquet(
-    RESULTS_PATH
-    + "cm_splines_full_no_re_custom_knots_cum_thresholds_4_28_input_predictions_both_re_fe.parquet"
-)
-df_long = df_long.rename(columns={"days_over_30C_monthly": "days_over_30C"})
-
-df_long["age_month_old"] = df_long["age_month"]
-df_long["indv_id"].nunique()
-len(df_long)
-
-# Add age bin
-for v in [
-    "age_1_m",
-    "age_3_m",
-    "age_6_m",
-    "age_12_m",
-    "age_24_m",
-    "age_36_m",
-    "age_48_m",
-    "age_60_m",
-]:
-    df_long.loc[df_long[v] == 1, "age_group"] = v
 age_group_durations = {
     "age_1_m": 1,
     "age_3_m": 2,
@@ -526,27 +527,19 @@ age_group_durations = {
     "age_48_m": 12,
     "age_60_m": 12,
 }
-# df_long["age_month"] = df_long["age_group"].map(age_group_durations)
-df_long_max_age = (
-    df_long.sort_values("age_month")
-    .groupby("indv_id", as_index=False)
-    .tail(1)
-    .reset_index(drop=True)
-)
-# df_long_max_age["age_month"] = df_long_max_age["age_group"].map(age_group_durations)
+
+# Synthetic data fixed effects versus mixed effects
 
 
-# CLAUDE SUGGESTIONS AND CURRENT BEST:
 vmin = 1.0
-vmax = 7.0
-df_tmp = df_long.copy()
-df_tmp.rename(columns={"child_mortality": "model_predictions"}, inplace=True)
-df_tmp.drop(columns=["age_month"], inplace=True)
+vmax = 5.0
+df_tmp = df_model_synthetic.copy()
+df_tmp.rename(columns={"pred_prob_me": "model_predictions"}, inplace=True)
 df_tmp["age_month"] = df_tmp["age_group"].map(age_group_durations)
 plot_heat_map_person_time(
     data=df_tmp,
-    outfile="child_mortality_raw_data_5_5",
-    title="",
+    outfile="child_mortality_predicted_with_re_5_5",
+    title="Predicted with RE at median data points",
     bin_cols=columns_to_bin,
     format=".2f",
     multiply_by=multiply_by_val,
@@ -557,6 +550,43 @@ plot_heat_map_person_time(
     y_bins=custom_y_bins,
 )  # 0.5 to 2.5
 
+df_tmp = df_model_synthetic.copy()
+df_tmp.rename(columns={"pred_prob_fe": "model_predictions"}, inplace=True)
+df_tmp["age_month"] = df_tmp["age_group"].map(age_group_durations)
+plot_heat_map_person_time(
+    data=df_tmp,
+    outfile="child_mortality_predicted_without_re_5_8",
+    title="Predicted without RE at median data points",
+    bin_cols=columns_to_bin,
+    format=".2f",
+    multiply_by=multiply_by_val,
+    vmin=vmin,
+    vmax=vmax,
+    show_colorbar=False,
+    x_bins=custom_x_bins,
+    y_bins=custom_y_bins,
+)  # 0.5 to 2.5
+
+# Previous version
+df_tmp = df_model_fe.copy()
+df_tmp.rename(columns={"pred_prob_fe": "model_predictions"}, inplace=True)
+df_tmp["age_month"] = df_tmp["age_group"].map(age_group_durations)
+plot_heat_map_person_time(
+    data=df_tmp,
+    outfile="child_mortality_predicted_without_re_5_8",
+    title="Predicted without RE at median data points",
+    bin_cols=columns_to_bin,
+    format=".2f",
+    multiply_by=multiply_by_val,
+    # vmin=vmin,
+    # vmax=vmax,
+    show_colorbar=False,
+    x_bins=custom_x_bins,
+    y_bins=custom_y_bins,
+)  # 0.5 to 2.5
+
+### OTHERS
+
 df_tmp = df_long.copy()
 df_tmp.rename(columns={"pred_prob_re": "model_predictions"}, inplace=True)
 df_tmp.drop(columns=["age_month"], inplace=True)
@@ -564,7 +594,7 @@ df_tmp["age_month"] = df_tmp["age_group"].map(age_group_durations)
 plot_heat_map_person_time(
     data=df_tmp,
     outfile="child_mortality_predicted_with_re_5_5",
-    title="",
+    title="Predicted with RE",
     bin_cols=columns_to_bin,
     format=".2f",
     multiply_by=multiply_by_val,
@@ -603,379 +633,15 @@ df_tmp.rename(columns={"days_over_30C_monthly": "days_over_30C"}, inplace=True)
 df_tmp["age_month"] = df_tmp["age_group"].map(age_group_durations)
 plot_heat_map_person_time(
     data=df_tmp,
-    outfile="child_mortality_predicted_without_re_5_5_colorbar",
-    title="",
+    outfile="child_mortality_predicted_without_re_5_5",
+    title="Predicted without RE",
     bin_cols=columns_to_bin,
     format=".2f",
     multiply_by=multiply_by_val,
     vmin=vmin,
     vmax=vmax,
-    show_colorbar=True,
+    show_colorbar=False,
     x_bins=custom_x_bins,
     y_bins=custom_y_bins,
 )  # 0.94 to 4.1
 df_fe["pred_prob_fe"].describe()
-
-
-# PREVIOUS KEEPERS:
-vmin = 0.5
-vmax = 2.6
-plot_heat_map_person_time(
-    data=df_long.rename(columns={"child_mortality": "model_predictions"}),
-    outfile="child_mortality_raw_mortality",
-    title="Child Mortality Data",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    vmin=vmin,
-    vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 0.5 to 2.2
-
-
-plot_heat_map_person_time(
-    data=df_long.rename(columns={"pred_prob_re": "model_predictions"}),
-    outfile="child_mortality_predicted_with_re",
-    title="Predicted with RE",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    vmin=vmin,
-    vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 0.5 to 2.5
-
-# # Fixed effects on synthetic data (with age_month==60)
-# cum_mortality_prob, cumhaz_fe
-plot_heat_map_person_time(
-    data=df_model_fe.rename(columns={"cum_mortality_prob": "model_predictions"}),
-    outfile="child_mortality_predicted_without_re",
-    title="Predicted without RE",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    vmin=vmin,
-    vmax=vmax,
-    show_colorbar=True,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 0.6-2.54
-
-
-### Current new attempts
-
-
-df_tmp = df_long.copy()
-df_tmp.rename(columns={"pred_prob_fe": "model_predictions"}, inplace=True)
-df_tmp.drop(columns=["age_month"], inplace=True)
-df_tmp["age_month"] = df_tmp["age_group"].map(age_group_durations)
-plot_heat_map_person_time(
-    data=df_tmp,
-    outfile="child_mortality_predicted_without_re",
-    title="Predicted without RE",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 0.5 to 2.5
-
-# See what mortality looks like with days_over_30C monthly instead of annual
-# in old format to use as gold standard. Use df_long_max_age
-plot_heat_map_person_time(
-    data=df_long_max_age.rename(columns={"child_mortality": "model_predictions"}),
-    outfile="child_mortality_raw_mortality_old_format_gold_standard",
-    title="Child Mortality Data",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 0.5 to 2.2
-
-
-plot_heat_map_person_time(
-    data=df_tmp,
-    outfile="child_mortality_raw_mortality",
-    title="Child Mortality Data",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 0.5 to 2.2
-
-
-df_tmp = df_long.copy()
-df_tmp.rename(columns={"child_mortality": "model_predictions"}, inplace=True)
-df_tmp.drop(columns=["age_month"], inplace=True)
-df_tmp["age_month"] = df_tmp["age_group"].map(age_group_durations)
-plot_heat_map_person_time(
-    data=df_tmp,
-    outfile="child_mortality_raw_mortality",
-    title="Child Mortality Data",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 0.5 to 2.2
-
-
-df_tmp = df_long.copy()
-df_tmp.rename(columns={"pred_prob_re": "model_predictions"}, inplace=True)
-df_tmp.drop(columns=["age_month"], inplace=True)
-df_tmp["age_month"] = df_tmp["age_group"].map(age_group_durations)
-plot_heat_map_person_time(
-    data=df_tmp,
-    outfile="child_mortality_predicted_with_re",
-    title="Predicted with RE",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 0.5 to 2.5
-
-# # Fixed effects on synthetic data (with age_month==60)
-# cum_mortality_prob, cumhaz_fe
-df_tmp = df_model_fe.copy()
-df_tmp.rename(columns={"cum_mortality_prob": "model_predictions"}, inplace=True)
-df_tmp.drop(columns=["age_month"], inplace=True)
-df_tmp["age_month"] = 60
-plot_heat_map_person_time(
-    data=df_tmp,
-    outfile="child_mortality_predicted_without_re",
-    title="Predicted without RE",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=True,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 0.6-2.54
-
-# Non-synthetic fe
-df_tmp = df_long.copy()
-df_tmp.rename(columns={"pred_prob_fe": "model_predictions"}, inplace=True)
-df_tmp.drop(columns=["age_month"], inplace=True)
-df_tmp["age_month"] = df_tmp["age_group"].map(age_group_durations)
-plot_heat_map_person_time(
-    data=df_tmp,
-    outfile="child_mortality_predicted_with_fe",
-    title="Predicted with RE",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 0.5 to 2.5
-
-
-df_fe = pd.read_csv(
-    RESULTS_PATH
-    + "cm_splines_full_no_re_custom_knots_cum_thresholds_4_28_marginal_grid.csv"
-)
-df_tmp = df_fe.copy()
-df_tmp.rename(
-    columns={
-        "cumhaz_fe_marg": "model_predictions",
-        "days_over_30C_monthly": "days_over_30C",
-    },
-    inplace=True,
-)
-# df_tmp.drop(columns=["age_month"], inplace=True)
-df_tmp["age_month"] = 12
-plot_heat_map_person_time(
-    data=df_tmp,
-    outfile="child_mortality_predicted_with_fe",
-    title="Predicted with RE",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 0.5 to 2.5
-
-
-#### PREVIOUS ATTEMPTS
-
-
-plot_heat_map_person_time(
-    data=df_long_max_age.rename(columns={"child_mortality": "model_predictions"}),
-    outfile="",
-    title="",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)
-
-
-plot_heat_map_person_time(
-    data=df_long_max_age.rename(columns={"pred_prob_re": "model_predictions"}),
-    outfile="",
-    title="",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)
-
-
-plot_heat_map_person_time(
-    data=df_long.rename(columns={"pred_prob_fe": "model_predictions"}),
-    outfile="",
-    title="",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)
-
-plot_heat_map_person_time(
-    data=df_long_max_age.rename(columns={"pred_prob_fe": "model_predictions"}),
-    outfile="",
-    title="",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)
-# Fixed effects on synthetic data (with age_month==60)
-
-
-##
-
-vmin = 0.05
-vmax = 3.3
-plot_heat_map_person_time(
-    data=df_model_me.rename(columns={"child_mortality": "model_predictions"}),
-    outfile="",
-    title="Observed Mortality (per 1000 person-months)",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    vmin=vmin,
-    vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)
-
-plot_heat_map_person_time(
-    data=df_model_me.rename(columns={"pred_prob_me": "model_predictions"}),
-    outfile="",
-    title="Predicted Mortality with RE (per 1000 person-months)",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    vmin=vmin,
-    vmax=vmax,
-    show_colorbar=False,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)
-
-## PREVIOUS APPROACH
-# Raw child mortality data
-plot_heat_map_person_time(
-    data=df_max_age.rename(columns={"child_mortality": "model_predictions"}),
-    outfile="heatmap_data_4_30_2026",
-    title="Raw Data Child Mortality",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    vmin=vmin,
-    vmax=vmax,
-    # show_colorbar=True,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 1-3.5
-
-# Mixed effects
-# plot_heat_map_person_time(
-#     data=df_max_age.rename(columns={"cumhaz_me": "model_predictions"}),
-#     outfile="predicted_heatmap_child_mortality_2026_04_30_me",
-#     title="Predicted Mortality PPT without RE",
-#     bin_cols=columns_to_bin,
-#     format=".2f",
-#     multiply_by=multiply_by_val,
-#     vmin=vmin,
-#     vmax=vmax,
-#     show_colorbar=True,
-#     x_bins=custom_x_bins,
-#     y_bins=custom_y_bins,
-# )  # 1-6.5
-plot_heat_map_person_time(
-    data=df_max_age.rename(columns={"mortality_me": "model_predictions"}),
-    outfile="heatmap_me_4_30_2026",
-    title="Predicted Mortality with RE",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    # show_colorbar=True,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 1-6.5
-
-
-# Fixed effects on averaged data
-plot_heat_map_person_time(
-    data=df_max_age.rename(columns={"mortality_fe": "model_predictions"}),
-    outfile="heatmap_fe_4_30_2026",
-    title="Predicted Mortality without RE",
-    bin_cols=columns_to_bin,
-    format=".2f",
-    multiply_by=multiply_by_val,
-    # vmin=vmin,
-    # vmax=vmax,
-    show_colorbar=True,
-    x_bins=custom_x_bins,
-    y_bins=custom_y_bins,
-)  # 1-3

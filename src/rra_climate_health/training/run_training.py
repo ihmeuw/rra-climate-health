@@ -137,6 +137,12 @@ def model_training_main(
     columns_to_keep = model_spec.raw_variables
     if year_variable not in columns_to_keep:
         columns_to_keep.append(year_variable)
+    if measure == "child_mortality":
+        columns_to_keep.append("indv_id")
+        # comparison year for child_mortality and gbd should be int_year.
+        # birth_year is just a covariate in the model.
+        columns_to_keep.append("int_year")
+        year_variable = "int_year"
 
     raw_df = full_training_data.loc[:, columns_to_keep]
     null_mask = raw_df.isna().any(axis=1)
@@ -234,7 +240,11 @@ def model_training_main(
             robjects.r(
                 f"r_df_avg$total_precipitation_prev_0_mo <- rep({mean_val}, nrow(r_df_avg))"
             )
-
+        if "total_precipitation_monthly" in df.columns:
+            mean_val = float(df["total_precipitation_monthly"].mean())
+            robjects.r(
+                f"r_df_avg$total_precipitation_monthly <- rep({mean_val}, nrow(r_df_avg))"
+            )
         if "birth_year" in df.columns:
             mean_val = float(df["birth_year"].astype(float).mean())
             robjects.r(f"r_df_avg$birth_year <- rep({mean_val}, nrow(r_df_avg))")
@@ -276,7 +286,12 @@ def model_training_main(
     if year_variable not in df.columns:
         df[year_variable] = raw_df[year_variable]
     summary = training_validation.validate_model(
-        df, model_spec, target_measure, year_variable, var_info
+        df,
+        model_spec,
+        target_measure,
+        year_variable,
+        var_info,
+        indv_col="indv_id" if measure == "child_mortality" else None,
     )
     summary.to_csv(
         cm_data.models / model_version / "validation_results.csv", index=False
@@ -295,6 +310,8 @@ def model_training_main(
             model_spec, model.coefs, model.ranef, cm_data
         )
         cm_data.save_rasterized_intercept(model_version, icept_raster, predictor=1)
+
+    os.makedirs(output_dir, exist_ok=True)
     cm_data.save_model(model, output_dir, submodel)
 
     # Create lookup tables for spline variables if applicable

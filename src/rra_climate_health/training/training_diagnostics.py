@@ -276,6 +276,12 @@ def merge_gbd_data(  # noqa: PLR0915
             .groupby(["ihme_loc_id", "year_id", "sex_id"])
             .agg({measure: "mean", "pred": "mean"})
         )
+    elif measure == "child_mortality":
+        prediction = (
+            fitted_data.rename(columns={fitted_column: "pred", "int_year": "year_id"})
+            .groupby(["ihme_loc_id", "year_id", "sex_id"])
+            .agg({measure: "mean", "pred": "mean"})
+        )
     else:
         prediction = (
             fitted_data.rename(columns={fitted_column: "pred", "year_start": "year_id"})
@@ -310,6 +316,309 @@ def plot_gbd_comparison(
         plt.savefig(filepath, dpi=300)
     else:
         plt.show()
+
+
+AGE_GROUP_DURATIONS = {
+    "age_1_m": 1,
+    "age_3_m": 2,
+    "age_6_m": 3,
+    "age_12_m": 6,
+    "age_24_m": 12,
+    "age_36_m": 12,
+    "age_48_m": 12,
+    "age_60_m": 12,
+}
+
+CHILD_MORTALITY_X_BINS = [0, 0.1, 2, 4, 9, 31]
+CHILD_MORTALITY_Y_BINS = [
+    0,
+    0.784781,
+    1.180789,
+    1.541445,
+    1.950251,
+    2.465952,
+    3.103463,
+    4.003564,
+    5.541124,
+    9.413681,
+    112.879922,
+]
+
+
+def _measure_str(measure: Any) -> str:
+    return measure.value if hasattr(measure, "value") else str(measure)
+
+
+def _age_duration_column(df: pd.DataFrame) -> pd.Series:
+    duration = pd.Series(0, index=df.index, dtype=float)
+    for col, months in AGE_GROUP_DURATIONS.items():
+        if col in df.columns:
+            duration = duration + (df[col].astype(int) == 1) * months
+    return duration
+
+
+def _person_time_rate(
+    df: pd.DataFrame,
+    value_col: str,
+    x_col: str,
+    y_col: str,
+    x_bins: list,
+    y_bins: list,
+) -> pd.DataFrame:
+    """Sum(value_col) / sum(age-interval duration) per (y_bin, x_bin)."""
+    d = df.copy()
+    d["_duration"] = _age_duration_column(d)
+    d = d[d["_duration"] > 0]
+    d["_x_bin"] = pd.cut(d[x_col], bins=x_bins, include_lowest=True, right=False)
+    d["_y_bin"] = pd.cut(d[y_col], bins=y_bins, include_lowest=True, right=False)
+    num = d.groupby(["_y_bin", "_x_bin"], observed=False)[value_col].sum().unstack()
+    denom = d.groupby(["_y_bin", "_x_bin"], observed=False)["_duration"].sum().unstack()
+    return num / denom
+
+
+def _synthetic_no_re_grid_cm(
+    model: Any,
+    df: pd.DataFrame,
+    climate_var: str,
+    consumption_var: str,
+    n_points: int = 500,
+) -> pd.DataFrame:
+    """Build a (climate x consumption x 8 age-intervals) grid and predict with
+    `exclude='s(ihme_loc_id)'`, mirroring the R workflow that produces
+    `_predictions_with_both_splines_ranged_all_ages.parquet`. `df` is the
+    processed model dataframe so categorical levels match the fitted model.
+    """
+    age_vars = list(AGE_GROUP_DURATIONS.keys())
+
+    climate_grid = np.linspace(
+        float(df[climate_var].min()), float(df[climate_var].max()), n_points
+    )
+    cons_grid = np.linspace(
+        float(df[consumption_var].min()), float(df[consumption_var].max()), n_points
+    )
+    cx, cy = np.meshgrid(climate_grid, cons_grid)
+    base = pd.DataFrame({climate_var: cx.ravel(), consumption_var: cy.ravel()})
+
+    skip_cols = {climate_var, consumption_var, *age_vars}
+    # For constant-valued categorical columns, pandas2ri can convert to an R
+    # factor that only declares the observed level. Track them so we can
+    # reconstruct the factor in R with all training-time levels.
+    constant_factor_cols: dict[str, tuple[Any, list]] = {}
+    for col in df.columns:
+        if col in skip_cols:
+            continue
+        if pd.api.types.is_categorical_dtype(df[col]):
+            mode_val = df[col].mode().iloc[0]
+            levels = list(df[col].cat.categories)
+            base[col] = pd.Categorical([mode_val] * len(base), categories=levels)
+            constant_factor_cols[col] = (mode_val, levels)
+        elif pd.api.types.is_numeric_dtype(df[col]):
+            base[col] = float(df[col].median())
+        elif pd.api.types.is_object_dtype(df[col]):
+            base[col] = df[col].mode().iloc[0]
+
+    def _dummy_level(target: int, original_col: pd.Series) -> Any:
+        """Map int 0/1 to the matching level of a (possibly categorical) column."""
+        if pd.api.types.is_categorical_dtype(original_col):
+            for lv in original_col.cat.categories:
+                try:
+                    if int(lv) == target:
+                        return lv
+                except (ValueError, TypeError):
+                    if str(lv) == str(target):
+                        return lv
+            raise ValueError(
+                f"Cannot map {target} to categories {list(original_col.cat.categories)}"
+            )
+        return target
+
+    def _assign_dummy(g: pd.DataFrame, col: str, target: int) -> None:
+        if col in df.columns and pd.api.types.is_categorical_dtype(df[col]):
+            level = _dummy_level(target, df[col])
+            g[col] = pd.Categorical(
+                [level] * len(g), categories=df[col].cat.categories
+            )
+        else:
+            g[col] = target
+
+    grids = []
+    for av in age_vars:
+        g = base.copy()
+        for other in age_vars:
+            _assign_dummy(g, other, 0)
+        _assign_dummy(g, av, 1)
+        g["_age_group"] = av
+        g["_duration"] = AGE_GROUP_DURATIONS[av]
+        grids.append(g)
+    grid = pd.concat(grids, ignore_index=True)
+    # pd.concat preserves Categorical dtype only when all chunks agree; re-cast
+    # defensively so pandas2ri receives a 2-level factor for each age dummy.
+    for av in age_vars:
+        if av in df.columns and pd.api.types.is_categorical_dtype(df[av]):
+            grid[av] = pd.Categorical(
+                grid[av], categories=df[av].cat.categories
+            )
+
+    scam_lib = importr("scam")
+    grid_for_r = grid.drop(columns=["_age_group", "_duration"])
+    with localconverter(default_converter + pandas2ri.converter):
+        r_grid = pandas2ri.py2rpy(grid_for_r)
+
+    from rpy2 import robjects
+
+    robjects.globalenv["r_grid_synth"] = r_grid
+    for col, (mode_val, levels) in constant_factor_cols.items():
+        levels_str = ", ".join(f'"{lv}"' for lv in levels)
+        robjects.r(
+            f'r_grid_synth${col} <- factor(rep("{mode_val}", nrow(r_grid_synth)), '
+            f"levels = c({levels_str}))"
+        )
+    r_grid = robjects.globalenv["r_grid_synth"]
+
+    pred = scam_lib.predict_scam(
+        model, newdata=r_grid, type="response", exclude="s(ihme_loc_id)"
+    )
+    grid["pred_prob_fe"] = np.array(pred)
+    return grid
+
+
+def plot_model_heatmaps_child_mortality(
+    raw_df: pd.DataFrame,
+    df: pd.DataFrame,
+    model: Any,
+    filepath: str | None = None,
+    vmin: float = 1.0,
+    vmax: float = 7.0,
+    multiply_by: int = 1000,
+) -> None:
+    """Three-panel heatmap (Data | With RE | Without RE) for child_mortality.
+
+    Aggregation is sum(value) / sum(age-interval duration) per cell, multiplied
+    by 1000 -> deaths per 1000 person-months. The "Without RE" panel uses a
+    500x500x8 synthetic grid (8 age intervals per cell) so the cell value is
+    implicitly an under-5 quantity, comparable to gbd_mean child_mortality.
+    """
+    import seaborn as sns
+    import matplotlib.colors as mcolors
+
+    threshold_varname = next(
+        (
+            x
+            for x in raw_df.columns
+            if x.startswith("days_over") or x.startswith("q")
+        ),
+        None,
+    )
+    if not threshold_varname:
+        raise ValueError("No threshold variable found in raw_df columns")
+    consumption_var = (
+        "consumption_pd_cumul"
+        if "consumption_pd_cumul" in raw_df.columns
+        else "consumption_pd"
+    )
+
+    x_bins = CHILD_MORTALITY_X_BINS
+    y_bins = CHILD_MORTALITY_Y_BINS
+
+    data_hm = (
+        _person_time_rate(
+            raw_df, "child_mortality", threshold_varname, consumption_var, x_bins, y_bins
+        )
+        * multiply_by
+    )
+    re_hm = (
+        _person_time_rate(
+            raw_df, "fits", threshold_varname, consumption_var, x_bins, y_bins
+        )
+        * multiply_by
+    )
+
+    grid = _synthetic_no_re_grid_cm(
+        model, df, threshold_varname, consumption_var, n_points=500
+    )
+    grid["_x_bin"] = pd.cut(
+        grid[threshold_varname], bins=x_bins, include_lowest=True, right=False
+    )
+    grid["_y_bin"] = pd.cut(
+        grid[consumption_var], bins=y_bins, include_lowest=True, right=False
+    )
+    num = (
+        grid.groupby(["_y_bin", "_x_bin"], observed=False)["pred_prob_fe"]
+        .sum()
+        .unstack()
+    )
+    denom = (
+        grid.groupby(["_y_bin", "_x_bin"], observed=False)["_duration"].sum().unstack()
+    )
+    no_re_hm = (num / denom) * multiply_by
+
+    colorbin_interval = (vmax - vmin) / 10
+    boundaries = np.arange(vmin, vmax + colorbin_interval, colorbin_interval)
+    cmap = plt.get_cmap("RdYlBu_r", len(boundaries) - 1)
+    norm = mcolors.BoundaryNorm(boundaries, cmap.N, clip=True)
+
+    x_labs = [f"{b:.1f}" for b in x_bins]
+    y_labs = [f"{b:.1f}" for b in y_bins]
+
+    fig, axes = plt.subplots(figsize=(24, 8), ncols=3)
+    panels = [
+        (data_hm, "Data"),
+        (re_hm, "With location random effects"),
+        (no_re_hm, "Without location random effects"),
+    ]
+    for ax, (hm, title) in zip(axes, panels):
+        sns.heatmap(
+            hm,
+            ax=ax,
+            annot=True,
+            fmt=".2f",
+            annot_kws={"size": 14, "weight": "regular"},
+            cmap=cmap,
+            norm=norm,
+            vmin=vmin,
+            vmax=vmax,
+            cbar=False,
+        )
+        ax.set_title(title, size=18)
+        ax.set_xticks(range(len(x_labs)))
+        ax.set_xticklabels(x_labs, rotation=45, fontsize=14)
+        ax.set_yticks(range(len(y_labs)))
+        ax.set_yticklabels(y_labs, fontsize=14)
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+
+    if threshold_varname.startswith("days_over_30C"):
+        axes[1].set_xlabel("Days over 30°C (monthly cumulative)", fontsize=18)
+    elif threshold_varname.startswith("days_over"):
+        thresh = threshold_varname.split("_")[2]
+        axes[1].set_xlabel(f"Days over {thresh} (monthly cumulative)", fontsize=18)
+    elif threshold_varname.startswith("q"):
+        axes[1].set_xlabel(
+            f"{threshold_varname.replace('_', ' ')} (cumulative days over percentile)",
+            fontsize=18,
+        )
+    else:
+        axes[1].set_xlabel(
+            threshold_varname.replace("_", " ").title(), fontsize=18
+        )
+    axes[0].set_ylabel("Daily consumption per capita (cumulative)", fontsize=18)
+
+    fig.tight_layout(rect=[0, 0, 0.9, 1])
+    last_ax_pos = axes[2].get_position()
+    cbar_ax = fig.add_axes(
+        [last_ax_pos.x1 + 0.015, last_ax_pos.y0, 0.02, last_ax_pos.height]
+    )
+    mappable = axes[0].collections[0] if axes[0].collections else axes[0].images[0]
+    cb = fig.colorbar(mappable, cax=cbar_ax, norm=norm, ticks=boundaries)
+    cb.set_label("Child mortality (per 1000 person-months)", size=18)
+    cb.ax.tick_params(labelsize=14)
+    cb.outline.set_edgecolor("none")
+
+    if filepath:
+        fig.savefig(filepath, dpi=300)
+    else:
+        fig.show()
+    plt.close(fig)
 
 
 def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figure:  # type: ignore[name-defined]
@@ -586,8 +895,16 @@ def run_training_diagnostics(
         filepath=cm_data.models / model_version / f"gbd_comparison.png",
     )
 
-    plot_model_heatmaps(
-        raw_df,
-        model_spec.measure,
-        filepath=cm_data.models / model_version / f"heatmap_comparison{submodel}.png",
-    )
+    if _measure_str(model_spec.measure) == "child_mortality":
+        plot_model_heatmaps_child_mortality(
+            raw_df=raw_df,
+            df=df,
+            model=model,
+            filepath=cm_data.models / model_version / f"heatmap_comparison{submodel}.png",
+        )
+    else:
+        plot_model_heatmaps(
+            raw_df,
+            model_spec.measure,
+            filepath=cm_data.models / model_version / f"heatmap_comparison{submodel}.png",
+        )

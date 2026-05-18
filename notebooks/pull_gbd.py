@@ -61,3 +61,26 @@ cm.rename(columns={"mean": "gbd_mean_prevalence"}, inplace=True)
 
 neo.to_parquet(os.path.join(OUTPATH, "neonatal_mortality.parquet"))
 cm.to_parquet(os.path.join(OUTPATH, "child_mortality.parquet"))
+
+# Format CM
+cm = pd.read_parquet(os.path.join(OUTPATH, "child_mortality.parquet"))
+nnm = pd.read_parquet(
+    os.path.join(OUTPATH, "gbd_mean_neonatal_mortality_prevalence.parquet")
+)
+
+# Raw data:
+cm_raw = pd.read_parquet(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_05_06.01/data.parquet"
+)
+cm_outfile = os.path.join(OUTPATH, "gbd_mean_child_mortality_prevalence.parquet")
+
+# fixes to gbd data
+cm.rename(columns={"mean": "gbd_mean_prevalence"}, inplace=True)
+cm.to_parquet(cm_outfile, index=False)
+
+# fixes to training data
+cm_raw["age_group_id"] = 1
+cm_raw.to_parquet(
+    "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/training_data/2026_05_06.01/data.parquet",
+    index=False,
+)
