@@ -113,6 +113,9 @@ class ClimateMalnutritionData:
             if model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS:
                 df[random_effect] = df[random_effect].astype("category")
 
+        if model_spec.measure.value == "child_mortality" and "indv_id" in raw_model_data.columns:
+            df["indv_id"] = raw_model_data["indv_id"].values
+
         df[model_spec.measure] = raw_model_data[model_spec.measure]
 
         return df, var_info

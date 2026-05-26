@@ -1,4 +1,4 @@
-LDI_VERSION = "v6"
+LDI_VERSION = "v7"
 import multiprocessing as mp
 from functools import partial
 from pathlib import Path
@@ -3017,12 +3017,12 @@ def run_training_data_prep_child_mortality_monthly(
     )
 
     # save temp files
-    df_exploded.to_csv(
-        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv",
+    df_exploded.to_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.parquet",
         index=False,
     )
 
-    # df_exploded = pd.read_csv("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.csv")
+    # df_exploded = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_merged_wealth.parquet")
 
     # Merge with climate data
     logging.info("Processing climate data...")
@@ -3031,8 +3031,21 @@ def run_training_data_prep_child_mortality_monthly(
         df_exploded, climate_vars, on=["int_year", "lat", "long"]
     )
 
+    # save temp files
+    df_climate.to_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_with_climate.parquet",
+        index=False,
+    )
+
     logging.info("Adding elevation data...")
     df_climate = get_elevation_for_dataframe(df_climate)
+
+    # save temp files
+    df_climate.to_parquet(
+        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_with_climate.parquet",
+        index=False,
+    )
+    
     df_climate = assign_lbd_admin2_location_id(df_climate)
 
     # save temp files
@@ -3560,6 +3573,8 @@ def run_training_data_prep_neonatal(
     # Find out percent of anemia nids and hh_ids that can be matched in wealth data
     merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
 
+    # child_mortality use for both child mortality and neonatal.
+    # variable name will be changed below
     cm_data = ClimateMalnutritionData(Path(DEFAULT_ROOT) / "child_mortality")
     # get_ldipc_from_asset_score uses year_start as year variable
     dhs_wealth_data_test = get_ldipc_from_asset_score(
@@ -3655,9 +3670,9 @@ def run_training_data_prep_neonatal(
     )
 
     # read back in if required
-    df_merged = pd.read_parquet(
-        "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/neonatal_mortality_merged_wealth.parquet"
-    )
+    # df_merged = pd.read_parquet(
+    #     "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/neonatal_mortality_merged_wealth.parquet"
+    # )
 
     ## 3. Extract and merging annual climate variables
     logging.info("Processing climate data...")
@@ -3722,12 +3737,14 @@ def run_training_data_prep_neonatal(
         .reset_index(drop=True)
     )
 
-    # for any child with age_month > 1, set their age_month to 1,
+    # for any child with age_month > 0, set their age_month to 0,
     # child_mortality to 0, and child_alive to 1. This should get true neonatal
     # mortality for all individuals.
-    df_min_age.loc[df_min_age.age_month > 1, "child_alive"] = 1
-    df_min_age.loc[df_min_age.age_month > 1, "neonatal_mortality"] = 0
+    df_min_age["neonatal_mortality"] = df_min_age["child_mortality"]
+    df_min_age.loc[df_min_age.age_month > 0, "child_alive"] = 1
+    df_min_age.loc[df_min_age.age_month > 0, "neonatal_mortality"] = 0
     df_min_age.loc[df_min_age.age_month > 0, "age_month"] = 0
+
 
     # make version of consumption that is per day
     df_min_age["consumption_pd"] = df_min_age["consumption"] / 365
@@ -4139,7 +4156,7 @@ def run_training_data_prep_main(  # noqa: PLR0915
     elif data_source_type == "anemia":
         run_training_data_prep_anemia(output_root, data_source_type)
     elif data_source_type == "child_mortality":
-        run_training_data_prep_child_mortality(
+        run_training_data_prep_child_mortality_monthly(
             output_root, data_source_type, module=module
         )
     elif data_source_type == "neonatal_mortality":
