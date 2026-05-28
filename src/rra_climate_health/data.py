@@ -547,6 +547,7 @@ class ClimateMalnutritionData:
     _RAW_DATA_ROOT = _POP_DATA_ROOT / "01-raw-data"
     _PROCESSED_DATA_ROOT = _POP_DATA_ROOT / "02-processed-data"
     _CLIMATE_DATA_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
+    _POPULATION_MODEL_OUTPUT_ROOT = Path("/mnt/team/rapidresponse/pub/population-model/results")
 
     def save_lbd_admin2_shapes(self, gdf: gpd.GeoDataFrame) -> None:
         path = self._PROCESSED_DATA_ROOT / "ihme" / "lbd_admin2.parquet"
@@ -608,10 +609,10 @@ class ClimateMalnutritionData:
 
     def load_population_raster(self) -> rt.RasterArray:
         path = (
-            self._RAW_DATA_ROOT
-            / "other-gridded-pop-projects"
-            / "global-human-settlement-layer"
-            / "1km_population.tif"
+            self._POPULATION_MODEL_OUTPUT_ROOT
+            / "2026_05_16"
+            / "wgs84_0p01"
+            / "2023q1.tif"
         )
         return rt.load_raster(path).set_no_data_value(np.nan).astype(np.float32)
 
