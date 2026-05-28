@@ -3081,12 +3081,14 @@ def run_training_data_prep_child_mortality_monthly(
 
     # Write to output
     df_climate.to_parquet(Path(output_path_version) / "data.parquet", index=False)
+    # df_climate = pd.read_parquet(Path(output_path_version) / "data.parquet")
 
-    # TODO: Add absolute monthly climate vars thresholds
+    # Add absolute monthly climate vars thresholds
     climate_vars_da = get_all_climate_vars_year_months_for_latlongs(
         df_climate, year_var="int_year", month_var="int_month"
     )
     climate_vars_da.to_netcdf(Path(output_path_version) / "abs_month_climate_vars.nc")
+    # climate_vars_da = xr.open_dataarray(Path(output_path_version) / "abs_month_climate_vars.nc")
     climate_vars_df = climate_vars_da.to_dataframe().reset_index()
 
     # set names to merge
@@ -3262,11 +3264,11 @@ def run_training_data_prep_child_mortality_monthly(
     get_avg_vars = [
         "mean_temperature",
         "days_over_30C",
-        "precipitation_days",
+        # "precipitation_days",
         "total_precipitation",
-        "mean_low_temperature",
-        "mean_high_temperature",
-        "relative_humidity",
+        # "mean_low_temperature",
+        # "mean_high_temperature",
+        # "relative_humidity",
         "elevation",
         "consumption",
         "consumption_pd",
@@ -3311,6 +3313,13 @@ def run_training_data_prep_child_mortality_monthly(
         "age_48_m",
         "age_60_m",
     ]
+
+    # assure that all columns are actually in data
+    assert set(group_by_vars_within_bin).issubset(set(df_climate.columns)), "Some columns are missing in df_climate"
+    assert set(get_max_vars).issubset(set(df_climate.columns)), "Some columns in get_max_vars are missing in df_climate"
+    assert set(get_avg_vars).issubset(set(df_climate.columns)), f"Some columns in get_avg_vars are missing in df_climate: {set(get_avg_vars) - set(df_climate.columns)}"
+    assert set(identity_vars).issubset(set(df_climate.columns)), "Some columns in identity_vars are missing in df_climate"
+
     # Use polars
     df_pl = pl.from_pandas(df_climate)
 
@@ -3427,6 +3436,11 @@ def run_training_data_prep_child_mortality_monthly(
         index=False,
     )
 
+    assert len(df_grouped_cumulative[df_grouped_cumulative["child_mortality"].isna()]) == 0, "Missing child_mortality values in final data"
+    df_grouped_cumulative.to_parquet(
+        Path(output_path_version) / "data.parquet",
+        index=False,
+    )
     # for measure in MEASURES_IN_SOURCE[data_source_type]:
     #     measure_df = df_climate[df_climate[measure].notna()].copy()
     #     measure_df["measure"] = measure
