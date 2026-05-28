@@ -16,7 +16,7 @@ from rra_climate_health.training.training_diagnostics import merge_gbd_data
 @dataclass
 class ValidationConfig:
     """Configuration for model validation splits."""
-    n_splits: int = 5
+    n_splits: int = 2
     test_size_locations: float = 0.2
     test_size_recent_years: float = 0.15
     random_seed: int = 42
@@ -89,6 +89,7 @@ def validate_model(df: pd.DataFrame,
                    model_spec, 
                    target_measure: str, 
                    year_variable: str,
+                   var_info: dict,
                    config: Optional[ValidationConfig] = None):
     """
     Validated model performance using K-Fold CV with custom spatio-temporal splits.
@@ -111,31 +112,20 @@ def validate_model(df: pd.DataFrame,
             scam_lib = packages.importr('scam')
             base = packages.importr('base')
             stats = packages.importr('stats')
-            #train_df['ihme_loc_id'] = train_df['ihme_loc_id'].cat.remove_unused_categories()
             train_levels = train_df['ihme_loc_id'].cat.categories
-            model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=train_df, 
-                                  family = stats.binomial(link = "logit"))
-        elif model_type == ModelType.SPLINE_MIXED_EFFECTS:
-            pandas2ri.activate()
-            scam_lib = packages.importr('scam')
-            base = packages.importr('base')
-            stats = packages.importr('stats')
-            
+
             knots_dict = {}
             for predictor in model_spec.predictors:
-                if predictor.spline is not None and predictor.spline.knots is not None:
-                    knots = get_knot_values(df, predictor.name, predictor.spline.k, predictor.spline.knots)
+                if predictor.spline is not None and predictor.spline.knot_strategy is not None:
+                    knots = get_knot_values(df, predictor.name, predictor.spline, var_info)
                     print(f"Knots for {predictor.name}: {knots}")
                     knots_dict[predictor.name] = FloatVector(knots)
             knots = ListVector(knots_dict) if len(knots_dict) > 0 else None
             if knots is not None:
-                model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit"), knots = knots )
+                model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, 
+                                    family = stats.binomial(link = "logit"), knots = knots )
             else:
                 model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit") )
-
-            #print(base.summary(model))
-        # model = Lmer(model_spec.lmer_formula, data=train_df, family='binomial')
-        # model.fit(summarize=False)
 
         evaluation_sets = [
             ('unseen_locations', test_loc),
@@ -269,7 +259,6 @@ def get_knot_values(df: pd.DataFrame, variable: str, spline: SplineSpecification
     data_max = df[variable].max()
     core_knots = [data_min, *knot_values, data_max]
 
-    #spacing = (data_max - data_min) / (k - 1) # Approximate width
     spacing = np.mean(np.diff(core_knots))
     
     full_knots = [

@@ -173,9 +173,9 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
     axislabel_size = 18
     paneltitle_size = 18
 
-    df["over_30"], o30_bins = pd.qcut(df.loc[df[threshold_varname] > 0, threshold_varname], 8, retbins=True)
+    df["over_30"], o30_bins = pd.qcut(df.loc[df[threshold_varname] > 0, threshold_varname], 8, retbins=True, duplicates = 'drop')
     o30_bins = [0] + o30_bins
-    df["ldi"], ldi_bins = pd.qcut(df.ldi_pc_pd, 10, retbins=True)
+    df["ldi"], ldi_bins = pd.qcut(df.ldi_pc_pd, 10, retbins=True, duplicates = 'drop')
 
     x_ticks = range(len(o30_bins))
     x_labs = [f"{x:.1f}" for x in o30_bins]
@@ -306,9 +306,9 @@ def run_training_diagnostics(model: Any,
                             title=f"Spline Effect for {var.name} submodel {submodel}",
                             filepath=cm_data.models / model_version / f"spline_effect_{var.name}{submodel}.png")
     
-    plot_gbd_comparison(merge_gbd_data(model_spec.measure, raw_df), 
-        model_spec.measure, f"Model vs GBD for {model_spec.measure} {model_version} {submodel}",
-        filepath=cm_data.models / model_version / f"gbd_comparison.png")
+    # plot_gbd_comparison(merge_gbd_data(model_spec.measure, raw_df), 
+    #     model_spec.measure, f"Model vs GBD for {model_spec.measure} {model_version} {submodel}",
+    #     filepath=cm_data.models / model_version / f"gbd_comparison.png")
 
     plot_model_heatmaps(raw_df, model_spec.measure, 
                         filepath=cm_data.models / model_version / f"heatmap_comparison{submodel}.png")
