@@ -1,3 +1,4 @@
+import itertools
 import re
 from collections.abc import Sequence
 from pathlib import Path
@@ -731,6 +732,17 @@ def model_inference(
     )
     historical_years = [yr for yr in year if int(yr) < FIRST_FORECAST_YEAR]
     forecast_years = [yr for yr in year if int(yr) >= FIRST_FORECAST_YEAR]
+
+    arg_names = (
+        "measure",
+        "cmip6-scenario",
+        "year",
+        "sex-id",
+        "age-group-id",
+        "draw",
+    )
+    task_tuples: list[tuple] = []
+
     if len(historical_years) > 0:
         if len(cmip6_scenario) == 1:
             historical_scenarios = [cmip6_scenario[0]]
@@ -738,47 +750,26 @@ def model_inference(
             historical_scenarios = [REFERENCE_SCENARIO]
         else:
             historical_scenarios = cmip6_scenario
+        task_tuples.extend(itertools.product(
+            [measure], historical_scenarios, historical_years,
+            sex_id, age_group_id, [0],
+        ))
 
-        print(f"Running historical inference for years {historical_years}")
-        jobmon.run_parallel(
-            runner="sttask",
-            task_name="inference",
-            node_args={
-                "measure": [measure],
-                "cmip6-scenario": historical_scenarios,
-                "year": historical_years,
-                "sex-id": sex_id,
-                "age-group-id" : age_group_id,
-                "draw": [0],  # only need to run one draw for historical
-            },
-            task_args={
-                "output-root": output_root,
-                "model-version": model_version,
-                "results-version": results_version,
-            },
-            task_resources={
-                "queue": queue,
-                "cores": 1,
-                "memory": "55Gb",
-                "runtime": "60m",
-                "project": "proj_rapidresponse",
-            },
-            max_attempts=2,
-            log_root=str(cm_data.results / results_version),
-        )
     if len(forecast_years) > 0:
-        print(f"Running forecast inference for years {forecast_years}")
+        task_tuples.extend(itertools.product(
+            [measure], cmip6_scenario, forecast_years,
+            sex_id, age_group_id, draw_range,
+        ))
+
+    if task_tuples:
+        print(
+            f"Submitting {len(task_tuples)} inference tasks "
+            f"(historical years: {historical_years}, forecast years: {forecast_years})"
+        )
         jobmon.run_parallel(
             runner="sttask",
             task_name="inference",
-            node_args={
-                "measure": [measure],
-                "cmip6-scenario": cmip6_scenario,
-                "year": forecast_years,
-                "sex-id": sex_id,
-                "age-group-id" : age_group_id,
-                "draw": draw_range,
-            },
+            flat_node_args=(arg_names, task_tuples),
             task_args={
                 "output-root": output_root,
                 "model-version": model_version,
