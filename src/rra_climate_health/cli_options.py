@@ -106,8 +106,42 @@ def with_sex_id(
         callback=get_choice_callback(allow_all, choices),
     )
 
-VALID_AGE_GROUP_IDS = ['34', '8', '9', '10', '11', '12', '13', '14', '238', '389', '15', ]
-#['42',]#['388', '389', '238', '34']
+AGE_GROUP_IDS_BY_MEASURE: dict[str, list[str]] = {
+    "stunting":           ["238", "388", "389", "34"],
+    "wasting":            ["238", "388", "389", "34"],
+    "underweight":        ["238", "388", "389", "34"],
+    "anemia":             ["34", "8", "9", "10", "11", "12", "13", "14", "238", "389", "15"],
+    "lbw":                ["164"],
+    "neonatal_mortality": ["42"],
+}
+
+VALID_AGE_GROUP_IDS = sorted(
+    {a for ages in AGE_GROUP_IDS_BY_MEASURE.values() for a in ages},
+    key=int,
+)
+
+def resolve_age_group_ids_for_measure(
+    measure: str,
+    age_group_ids: list[str],
+) -> list[str]:
+    """Validate explicit IDs against the measure; expand 'all' to the measure's set.
+
+    The age-group callback returns the full VALID_AGE_GROUP_IDS list when the
+    user passes `all`. That is indistinguishable from an explicit listing of
+    every union member, so we treat 'received the full union' as 'expand to
+    the measure-specific set'. A hard error is raised on any explicit ID that
+    is not valid for the chosen measure.
+    """
+    allowed = AGE_GROUP_IDS_BY_MEASURE[measure]
+    if set(age_group_ids) == set(VALID_AGE_GROUP_IDS):
+        return allowed
+    invalid = [a for a in age_group_ids if a not in allowed]
+    if invalid:
+        raise click.BadParameter(
+            f"age-group-id(s) {invalid} not valid for measure '{measure}'. "
+            f"Allowed for {measure}: {allowed}",
+        )
+    return age_group_ids
 
 def with_age_group_id(
     *,
@@ -218,6 +252,8 @@ __all__ = [
     "VALID_SEX_IDS",
     "with_sex_id",
     "VALID_AGE_GROUP_IDS",
+    "AGE_GROUP_IDS_BY_MEASURE",
+    "resolve_age_group_ids_for_measure",
     "with_age_group_id",
     "VALID_PREDICTION_YEARS",
     "with_year",

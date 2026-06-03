@@ -685,6 +685,7 @@ def model_inference_task(
     draw: str,
 ) -> None:
     """Run model inference."""
+    [resolved_age_group_id] = clio.resolve_age_group_ids_for_measure(measure, [age_group_id])
     model_inference_main(
         Path(output_root),
         measure,
@@ -693,7 +694,7 @@ def model_inference_task(
         cmip6_scenario,
         int(year),
         int(sex_id),
-        int(age_group_id),
+        int(resolved_age_group_id),
         int(draw)
     )
 
@@ -721,6 +722,7 @@ def model_inference(
     queue: str,
 ) -> None:
     """Run model inference."""
+    age_group_id = clio.resolve_age_group_ids_for_measure(measure, age_group_id)
     cm_data = ClimateMalnutritionData(Path(output_root) / measure)
     results_version = cm_data.new_results_version(model_version, age_group_id,
         sex_id, year, cmip6_scenario, draws)
@@ -812,7 +814,7 @@ def model_inference(
             "runtime": "60m",
             "project": "proj_rapidresponse",
         },
-        max_attempts=1,
+        max_attempts=2,
         log_root=str(cm_data.results / results_version),
     )
     print(
