@@ -14,8 +14,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: python -m pip install cruft poetry jello tabulate
+      - name: Install cruft + helpers
+        run: python -m pip install cruft jello tabulate
 
       - name: Update project structure
         run: |
@@ -27,13 +27,19 @@ jobs:
           git status --porcelain | wc -l
           echo "changed=$(git status --porcelain | wc -l)" >> "$GITHUB_OUTPUT"
 
+      - name: Install pixi env and run pre-commit
+        if: steps.changes.outputs.changed > 0
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          environments: dev
 
-      - name: apply additional changes and fixes
+      - name: Refresh lockfile and apply autofixes
         if: steps.changes.outputs.changed > 0
         run: |
-          poetry lock --no-update  # add new dependencies
-          poetry install
-          poetry run pre-commit run -a || true  # we have to fix other issues manually
+          # Re-solve so any new template-introduced deps are reflected.
+          # Cluster envs are skipped because CI cannot reach the IHME artifactory.
+          pixi install -e dev
+          pixi run -e dev pre-commit run -a || true  # remaining issues are fixed manually
 
       - name: Get template versions
         id: get_versions

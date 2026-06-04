@@ -8,30 +8,71 @@ socio-demographic indicators, and health outcomes.
 
 ## Setting up a development environment
 
-* Clone this repository
-* Create a conda environment with python and the R dependencies for the model.
+This project uses [pixi](https://pixi.sh) to manage both the Python and the R
+sides of the environment in a single lockfile. Pixi pulls R itself (and
+`r-scam`, `r-lme4`, `r-lmertest`, `r-emmeans`, `r-mgcv`) from conda-forge so
+that `rpy2` is ABI-compatible with the R it links against at runtime — this
+is what previously made the install brittle across machines.
+
+* Install pixi (once per machine):
 
     ```sh
-    conda create -n cgf -c conda-forge python=3.12 r r-base r-lmertest r-emmeans
+    curl -fsSL https://pixi.sh/install.sh | sh
     ```
 
-* Activate the conda environment
+* Clone this repository.
+
+* Install the runtime environment:
 
     ```sh
-    conda activate cgf
+    pixi install
     ```
 
-* Use `pip` to install `poetry` in the conda environment
+* Drop into a shell with the environment activated:
 
     ```sh
-    pip install poetry
+    pixi shell
     ```
 
-* Install the dependencies
+  Or run a single command in the env without activating:
 
     ```sh
-    poetry install
+    pixi run strun ...
     ```
+
+### Submitting jobs to the IHME cluster
+
+`jobmon` lives in the optional `cluster` feature because it comes from the
+IHME artifactory (which requires being on the IHME network — VPN or
+in-office). Add it on top of the default env:
+
+```sh
+pixi install -e cluster      # default + jobmon
+pixi shell -e cluster
+```
+
+### Development tools
+
+Linters, type checking, tests, and docs live in the optional `dev` feature.
+
+```sh
+pixi install -e dev          # default + dev tooling
+pixi shell -e dev
+pixi run -e dev pytest
+
+# Both at once (typical for hands-on work on the cluster):
+pixi install -e cluster-dev
+```
+
+### Updating the lockfile
+
+Edit `[tool.pixi.*]` in `pyproject.toml`, then:
+
+```sh
+pixi install             # re-solves and updates pixi.lock
+```
+
+Commit both `pyproject.toml` and `pixi.lock` together.
 
 ### Pre-commit
 
@@ -41,19 +82,19 @@ Pre-commit hooks run all the auto-formatting (`ruff format`), linters (e.g. `ruf
 You can install the hooks with (runs for each commit):
 
 ```sh
-pre-commit install
+pixi run -e dev pre-commit install
 ```
 
 Or if you want them to run only for each push:
 
 ```sh
-pre-commit install -t pre-push
+pixi run -e dev pre-commit install -t pre-push
 ```
 
 Or if you want e.g. want to run all checks manually for all files:
 
 ```sh
-pre-commit run --all-files
+pixi run -e dev pre-commit run --all-files
 ```
 
 ---

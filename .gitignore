@@ -62,6 +62,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# pixi-managed envs (pixi.lock is checked in, .pixi/ is not)
+.pixi/
+
 # Spyder project settings
 .spyderproject
 .spyproject
