@@ -74,6 +74,57 @@ pixi install             # re-solves and updates pixi.lock
 
 Commit both `pyproject.toml` and `pixi.lock` together.
 
+### Updating jobmon
+
+`jobmon` needs special handling because of how it is published. The
+`jobmon-installer-ihme` meta-package lives *only* on the IHME artifactory and
+pins exact versions of its siblings (`jobmon-client`, `jobmon-core`,
+`jobmon-slurm`, `slurm-rest`). Those siblings also exist on public PyPI, but
+with unrelated version lineages (e.g. public `jobmon-slurm 2.0.0` is a
+different project from the IHME `1.15.0`), so their names are effectively
+shadowed.
+
+Because of this, a bare `pixi update jobmon-installer-ihme -e cluster` will
+**not** advance an open (`"*"`) requirement — pixi reports "Lock-file was
+already up-to-date" and stays on the locked version even when a newer one is
+available on the artifactory. This is not a cache problem and not a dependency
+conflict; pixi/uv simply will not bump an unconstrained requirement for a
+package that only lives on the secondary (artifactory) index.
+
+To move jobmon to a new version:
+
+1. Set a version constraint in `pyproject.toml` under
+   `[tool.pixi.feature.cluster.pypi-dependencies]` that excludes the currently
+   locked version — either raise the floor (`jobmon-installer-ihme = ">=10.12.2"`)
+   or pin exactly (`== 10.12.2`).
+
+2. Re-solve and install (this must be run on the IHME network so the
+   artifactory is reachable):
+
+    ```sh
+    pixi update jobmon-installer-ihme -e cluster
+    ```
+
+   This rewrites `pixi.lock` for both the `cluster` and `cluster-dev`
+   environments (they share a solve group) and installs into `cluster`.
+
+3. Sync the `cluster-dev` environment too:
+
+    ```sh
+    pixi install -e cluster-dev
+    ```
+
+4. Verify the versions landed and jobmon still imports:
+
+    ```sh
+    pixi list -e cluster | grep -i jobmon
+    pixi run -e cluster-dev python -c "import jobmon.client.tool; print('ok')"
+    ```
+
+Commit both `pyproject.toml` and `pixi.lock`. Note that a plain `pixi update`
+likely will not auto-bump past the constraint next time either, so raise the
+floor (or the pin) again when you want a newer jobmon.
+
 ### Pre-commit
 
 Pre-commit hooks run all the auto-formatting (`ruff format`), linters (e.g. `ruff` and `mypy`), and other quality
