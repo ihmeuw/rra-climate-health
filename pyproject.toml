@@ -158,7 +158,7 @@ python-kacl = "*"
 # `pixi install -e cluster` or `pixi install -e cluster-dev`.
 # ---------------------------------------------------------------------------
 [tool.pixi.feature.cluster.pypi-dependencies]
-jobmon-installer-ihme = "*"
+jobmon-installer-ihme = ">=10.12.2"
 
 [tool.pixi.feature.cluster.pypi-options]
 extra-index-urls = [
