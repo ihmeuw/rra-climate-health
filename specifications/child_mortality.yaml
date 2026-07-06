@@ -33,7 +33,7 @@ predictors:
     strategy: identity
     type: scaling
   version: ''
-- name: days_over_30C_monthly
+- name: days_over_30C_monthly_cumul
   random_effect: ''
   spline:
     bs: mpi
@@ -51,7 +51,7 @@ predictors:
     strategy: identity
     type: scaling
   version: ''
-- name: total_precipitation_prev_0_mo
+- name: total_precipitation_monthly_cumul
   random_effect: ''
   spline: null
   transform:
@@ -61,7 +61,7 @@ predictors:
     strategy: identity
     type: scaling
   version: ''
-- name: consumption_pd
+- name: consumption_pd_cumul
   random_effect: ''
   spline:
     bs: mpd
@@ -131,5 +131,5 @@ predictors:
 submodel_vars: null
 version:
   description: null
-  model: '2026_05_06.01'
+  model: '2026_05_18.01'
   training_data: '2026_05_06.01'

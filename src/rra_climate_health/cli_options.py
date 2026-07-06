@@ -56,7 +56,8 @@ VALID_SOURCE_TYPES = [
     "cgf",
     "anemia",
     "child_mortality",
-    "lbw" "neonatal_mortality",
+    "lbw",
+    "neonatal_mortality",
 ]
 
 

@@ -4,7 +4,7 @@ holdout:
   proportion: 0.2
   seed: 42
   type: no_holdout
-measure: neonatal_mortality
+measure: child_mortality
 model_type: scam
 predictors:
 - name: intercept
@@ -33,13 +33,17 @@ predictors:
     strategy: identity
     type: scaling
   version: ''
-- name: days_over_30C_prev_0_mo
+- name: q85_monthly_cumul
   random_effect: ''
   spline:
     bs: mpi
-    k: 6
-    knot_strategy: quantiles
-    knots: null
+    k: 8
+    knot_strategy: custom_knots
+    knots:
+    - 1.5
+    - 5.25
+    - 9.3
+    - 15.5
   transform:
     scale_source: data
     scale_variable_name: ''
@@ -47,7 +51,7 @@ predictors:
     strategy: identity
     type: scaling
   version: ''
-- name: total_precipitation_prev_0_mo
+- name: total_precipitation_monthly_cumul
   random_effect: ''
   spline: null
   transform:
@@ -57,7 +61,7 @@ predictors:
     strategy: identity
     type: scaling
   version: ''
-- name: consumption_pd
+- name: consumption_pd_cumul
   random_effect: ''
   spline:
     bs: mpd
@@ -76,8 +80,56 @@ predictors:
     strategy: identity
     type: scaling
   version: ''
+- name: age_1_m
+  random_effect: ''
+  spline: null
+  transform:
+    type: categorical
+  version: ''
+- name: age_3_m
+  random_effect: ''
+  spline: null
+  transform:
+    type: categorical
+  version: ''
+- name: age_6_m
+  random_effect: ''
+  spline: null
+  transform:
+    type: categorical
+  version: ''
+- name: age_12_m
+  random_effect: ''
+  spline: null
+  transform:
+    type: categorical
+  version: ''
+- name: age_24_m
+  random_effect: ''
+  spline: null
+  transform:
+    type: categorical
+  version: ''
+- name: age_36_m
+  random_effect: ''
+  spline: null
+  transform:
+    type: categorical
+  version: ''
+- name: age_48_m
+  random_effect: ''
+  spline: null
+  transform:
+    type: categorical
+  version: ''
+- name: age_60_m
+  random_effect: ''
+  spline: null
+  transform:
+    type: categorical
+  version: ''
 submodel_vars: null
 version:
   description: null
-  model: '2026_03_29.04'
-  training_data: '2026_03_19.04'
+  model: '2026_05_19.01'
+  training_data: '2026_05_12.01'
