@@ -205,43 +205,43 @@ def create_inference_diagnostics_report(
     elements.append(Paragraph("Inference Diagnostics", styles["Heading1"]))
     elements.append(Spacer(1, 30))
 
-    # forecast = cm_data.load_forecast(results_version)
+    forecast = cm_data.load_forecast(results_version)
 
-    # cumulative_differences = get_cumulative_differences(forecast)
-    # elements.extend(
-    #     create_table(cumulative_differences, "Cumulative Differences", as_integers=True)
-    # )
-    # elements.append(
-    #     Image(
-    #         save_plot_to_bytes(plot_forecast_prevalence(forecast, "Prevalence")),
-    #         width=600,
-    #         height=450,
-    #     )
-    # )
-
-    elements.append(Spacer(1, 30))
-    elements.append(Paragraph("Model Diagnostics", styles["Heading2"]))
+    cumulative_differences = get_cumulative_differences(forecast)
+    elements.extend(
+        create_table(cumulative_differences, "Cumulative Differences", as_integers=True)
+    )
     elements.append(
         Image(
-            save_plot_to_bytes(plot_model_heatmaps(model_version, measure)),
+            save_plot_to_bytes(plot_forecast_prevalence(forecast, "Prevalence")),
             width=600,
-            height=200,
+            height=450,
         )
     )
-    elements.extend(
-        create_table(
-            get_coefficients_table(cm_data, model_version).reset_index(),
-            "Coefficients",
-            as_integers=False,
-        )
-    )
-    elements.extend(
-        create_table(
-            get_re_table(cm_data, model_version).reset_index(),
-            "Random Effects",
-            as_integers=False,
-        )
-    )
+
+    # elements.append(Spacer(1, 30))
+    # elements.append(Paragraph("Model Diagnostics", styles["Heading2"]))
+    # elements.append(
+    #     Image(
+    #         save_plot_to_bytes(plot_model_heatmaps(model_version, measure)),
+    #         width=600,
+    #         height=200,
+    #     )
+    # )
+    # elements.extend(
+    #     create_table(
+    #         get_coefficients_table(cm_data, model_version).reset_index(),
+    #         "Coefficients",
+    #         as_integers=False,
+    #     )
+    # )
+    # elements.extend(
+    #     create_table(
+    #         get_re_table(cm_data, model_version).reset_index(),
+    #         "Random Effects",
+    #         as_integers=False,
+    #     )
+    # )
 
     doc.build(elements)
 

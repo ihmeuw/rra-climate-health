@@ -49,6 +49,7 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+notebooks/
 
 # pyenv
 .python-version
@@ -86,3 +87,7 @@ venv.bak/
 *.parquet
 *.nc
 *.hdf
+
+# Specifications
+specifications/
+

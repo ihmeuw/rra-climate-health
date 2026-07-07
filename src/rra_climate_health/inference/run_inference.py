@@ -204,13 +204,14 @@ def get_transformed_variable_raster(predictor, cm_data, cmip6_scenario, year, ra
         )
         # TODO: temporary
         transform_monthly = False
-        if re.match(r"(days_over_[^_]+|precipitation_days|total_precipitation)_.+", variable):
+        if re.match(r"(days_over_[^_]+|precipitation_days|total_precipitation|mean_temperature)_.+", variable):
             if variable.startswith("days_over") or variable.startswith("precipitation_days") or variable.startswith("total_precipitation"):
                 transform_monthly = True
-            variable = re.sub(r"^(days_over_[^_]+|precipitation_days|total_precipitation)_.+$", r"\1", variable)
-            print(f"Applying monthly transformation for variable {variable} for predictor {predictor.name}")
+            variable = re.sub(r"^(days_over_[^_]+|precipitation_days|total_precipitation|mean_temperature)_.+$", r"\1", variable)
+            print(f"Using variable {variable} for predictor {predictor.name}")
         ds = cm_data.load_climate_raster(variable, cmip6_scenario, year, draw).astype(np.float32)
         if transform_monthly:
+            print(f"Transforming {variable} to monthly units (x/12)")
             ds = ds / 12
     rasterize = lambda x: utils.xarray_to_raster(x, nodata=np.nan).resample_to(raster_template).astype(np.float32)
 
