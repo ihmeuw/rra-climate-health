@@ -219,8 +219,8 @@ def model_training(
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "150Gb",
-            "runtime": "4h",
+            "memory": "250Gb",
+            "runtime": "6h",
             "project": "proj_rapidresponse",
         },
         max_attempts=1,
