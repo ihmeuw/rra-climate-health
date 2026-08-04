@@ -3082,15 +3082,17 @@ def run_training_data_prep_child_mortality_monthly(
 
     # Write to output
     df_climate.to_parquet(Path(output_path_version) / "data.parquet", index=False)
-    # df_climate = pd.read_parquet(Path(output_path_version) / "data.parquet")
+    del df_climate; gc.collect()
 
     # Add absolute monthly climate vars thresholds
     climate_vars_da = get_all_climate_vars_year_months_for_latlongs(
-        df_climate, year_var="int_year", month_var="int_month"
+        pd.read_parquet(Path(output_path_version) / "data.parquet", columns=["lat", "long", "int_year", "int_month"]),
+        year_var="int_year", month_var="int_month"
     )
     climate_vars_da.to_netcdf(Path(output_path_version) / "abs_month_climate_vars.nc")
     # climate_vars_da = xr.open_dataarray(Path(output_path_version) / "abs_month_climate_vars.nc")
     climate_vars_df = climate_vars_da.to_dataframe().reset_index()
+    del climate_vars_da; gc.collect()
 
     # set names to merge
     climate_vars_df.drop(columns=["point", "longitude", "latitude"], inplace=True)
@@ -3109,6 +3111,7 @@ def run_training_data_prep_child_mortality_monthly(
         columns="climate_var",
         values="value",
     ).reset_index()
+    del climate_vars_df; gc.collect()
 
     climate_vars_wide_df.rename(
         columns={
@@ -3127,24 +3130,28 @@ def run_training_data_prep_child_mortality_monthly(
         inplace=True,
     )
 
-    # merge onto df_climate
-    df_climate = merge_left_without_inflating(
-        df_climate,
-        climate_vars_wide_df,
-        on=["int_year", "int_month", "lat", "long"],
+    # Streaming merge abs thresholds using Polars (avoids doubling 400M-row DF in memory)
+    abs_lookup_pl = pl.from_pandas(climate_vars_wide_df)
+    del climate_vars_wide_df; gc.collect()
+    abs_out = Path(output_path_version) / "data_monthly_expanded_abs_thresholds.parquet"
+    (
+        pl.scan_parquet(Path(output_path_version) / "data.parquet")
+        .join(abs_lookup_pl.lazy(), on=["int_year", "int_month", "lat", "long"], how="left")
+        .sink_parquet(abs_out)
     )
-
-    df_climate.to_parquet(
-        Path(output_path_version) / "data_monthly_expanded_abs_thresholds.parquet",
-        index=False,
-    )
+    del abs_lookup_pl; gc.collect()
 
     # TODO: Add relative monthly climate vars thresholds
+    coords_df = pl.scan_parquet(abs_out).select(["lat", "long", "int_year", "int_month"]).collect()
+    coords_pd = coords_df.to_pandas()
+    del coords_df; gc.collect()
     thresholds_da = get_all_climate_thresholds_year_months_for_latlongs(
-        df_climate, year_var="int_year", month_var="int_month"
+        coords_pd, year_var="int_year", month_var="int_month"
     )
+    del coords_pd; gc.collect()
     thresholds_da.to_netcdf(Path(output_path_version) / "rel_month_climate_vars.nc")
     thresholds_df = thresholds_da.to_dataframe().reset_index()
+    del thresholds_da; gc.collect()
 
     # set names to merge
     thresholds_df.drop(columns=["point", "longitude", "latitude"], inplace=True)
@@ -3170,6 +3177,7 @@ def run_training_data_prep_child_mortality_monthly(
         columns="quantile_str",
         values="value",
     ).reset_index()
+    del thresholds_df; gc.collect()
 
     # CHANGEME
     thresholds_wide_df.rename(
@@ -3183,31 +3191,26 @@ def run_training_data_prep_child_mortality_monthly(
         inplace=True,
     )
 
-    # merge onto df_climate
-    df_climate = merge_left_without_inflating(
-        df_climate,
-        thresholds_wide_df,
-        on=["int_year", "int_month", "lat", "long"],
+    # Streaming merge relative thresholds using Polars
+    rel_lookup_pl = pl.from_pandas(thresholds_wide_df)
+    del thresholds_wide_df; gc.collect()
+    rel_out = Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet"
+    (
+        pl.scan_parquet(abs_out)
+        .join(rel_lookup_pl.lazy(), on=["int_year", "int_month", "lat", "long"], how="left")
+        .filter(
+            pl.col("consumption_pd").is_not_null()
+            & pl.col("days_over_30C_monthly").is_not_null()
+            & pl.col("total_precipitation_monthly").is_not_null()
+        )
+        .sink_parquet(rel_out)
     )
+    del rel_lookup_pl; gc.collect()
 
-    # remove nulls from key variables that have been merged on
-    before_rows = len(df_climate)
-    df_climate.dropna(
-        subset=[
-            "consumption_pd",
-            "days_over_30C_monthly",
-            "total_precipitation_monthly",
-        ],
-        inplace=True,
-    )
-    after_rows = len(df_climate)
+    before_rows = pl.scan_parquet(abs_out).select(pl.len()).collect().item()
+    after_rows = pl.scan_parquet(rel_out).select(pl.len()).collect().item()
     logging.info(
         f"Dropped {before_rows - after_rows:,} rows with missing values in key merged variables (consumption_pd, days_over_30C_monthly) after merging monthly climate variables"
-    )
-
-    df_climate.to_parquet(
-        Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet",
-        index=False,
     )
 
     # df_climate = pd.read_parquet(
@@ -3216,7 +3219,7 @@ def run_training_data_prep_child_mortality_monthly(
 
     # TODO: Create binned version of data
     # check:
-    print(f"max age_month: {df_climate['age_month'].max()}")
+    print(f"max age_month: {pl.scan_parquet(rel_out).select(pl.col('age_month').max()).collect().item()}")
 
     time_bin_dict = {
         "age_1_m": (0, 1),
@@ -3228,13 +3231,6 @@ def run_training_data_prep_child_mortality_monthly(
         "age_48_m": (36, 48),
         "age_60_m": (48, 60),
     }
-
-    # bin_name will define what range of time the month falls into
-    for bin_name, bin_month in time_bin_dict.items():
-        df_climate[bin_name] = (
-            (df_climate["age_month"] >= bin_month[0])
-            & (df_climate["age_month"] < bin_month[1])
-        ).astype(int)
 
     ## Get weighted averages (by number of months in bin) of explanatory variables, grouping by binned age_month and child_alive status
     get_max_vars = [
@@ -3315,21 +3311,21 @@ def run_training_data_prep_child_mortality_monthly(
         "age_60_m",
     ]
 
-    # assure that all columns are actually in data
-    assert set(group_by_vars_within_bin).issubset(set(df_climate.columns)), "Some columns are missing in df_climate"
-    assert set(get_max_vars).issubset(set(df_climate.columns)), "Some columns in get_max_vars are missing in df_climate"
-    assert set(get_avg_vars).issubset(set(df_climate.columns)), f"Some columns in get_avg_vars are missing in df_climate: {set(get_avg_vars) - set(df_climate.columns)}"
-    assert set(identity_vars).issubset(set(df_climate.columns)), "Some columns in identity_vars are missing in df_climate"
-
-    # Use polars; only keep columns needed downstream in this block to reduce peak memory
+    # Load only needed columns from rel_out into Polars (avoids full pandas load)
     needed_cols = list(
         dict.fromkeys(
-            group_by_vars_within_bin + ["age_month"] + get_max_vars + get_avg_vars
+            identity_vars + ["age_month"] + get_max_vars + get_avg_vars
         )
     )
-    df_pl = pl.from_pandas(df_climate[needed_cols])
-    del df_climate
-    gc.collect()
+    df_pl = pl.scan_parquet(rel_out).select(needed_cols).collect()
+
+    # Add bin columns
+    for bin_name, bin_month in time_bin_dict.items():
+        df_pl = df_pl.with_columns(
+            ((pl.col("age_month") >= bin_month[0]) & (pl.col("age_month") < bin_month[1]))
+            .cast(pl.Int32)
+            .alias(bin_name)
+        )
 
     # within bin
     df_grouped_within_bin = (
