@@ -1,4 +1,5 @@
 LDI_VERSION = "v8"
+import gc
 import multiprocessing as mp
 from functools import partial
 from pathlib import Path
@@ -3320,8 +3321,15 @@ def run_training_data_prep_child_mortality_monthly(
     assert set(get_avg_vars).issubset(set(df_climate.columns)), f"Some columns in get_avg_vars are missing in df_climate: {set(get_avg_vars) - set(df_climate.columns)}"
     assert set(identity_vars).issubset(set(df_climate.columns)), "Some columns in identity_vars are missing in df_climate"
 
-    # Use polars
-    df_pl = pl.from_pandas(df_climate)
+    # Use polars; only keep columns needed downstream in this block to reduce peak memory
+    needed_cols = list(
+        dict.fromkeys(
+            group_by_vars_within_bin + ["age_month"] + get_max_vars + get_avg_vars
+        )
+    )
+    df_pl = pl.from_pandas(df_climate[needed_cols])
+    del df_climate
+    gc.collect()
 
     # within bin
     df_grouped_within_bin = (
@@ -3363,12 +3371,19 @@ def run_training_data_prep_child_mortality_monthly(
             )
             .with_columns(pl.lit(bin_name).alias("bin_name"))
         )
-    # Add the within-bin dummy columns so the output mirrors df_grouped_within_bin
-    for other_bin in time_bin_dict:
-        bin_frame = bin_frame.with_columns(
-            pl.lit(1 if other_bin == bin_name else 0).alias(other_bin)
+        logging.info(
+            f"Built cumulative frame for {bin_name}: {bin_frame.height:,} rows"
         )
-    cumulative_frames.append(bin_frame)
+        del individuals_in_bin
+        gc.collect()
+        # Add the within-bin dummy columns so the output mirrors df_grouped_within_bin
+        for other_bin in time_bin_dict:
+            bin_frame = bin_frame.with_columns(
+                pl.lit(1 if other_bin == bin_name else 0).alias(other_bin)
+            )
+        cumulative_frames.append(bin_frame)
+        del bin_frame
+        gc.collect()
 
     df_grouped_cumulative = pl.concat(cumulative_frames).to_pandas()
 
