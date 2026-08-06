@@ -3142,62 +3142,93 @@ def run_training_data_prep_child_mortality_monthly(
     del abs_lookup_pl; gc.collect()
 
     # TODO: Add relative monthly climate vars thresholds
-    coords_df = pl.scan_parquet(abs_out).select(["lat", "long", "int_year", "int_month"]).collect()
+    rel_lookup_parts_dir = Path(output_path_version) / "rel_lookup_parts"
+    rel_lookup_parts_dir.mkdir(parents=True, exist_ok=True)
+    for part_path in rel_lookup_parts_dir.glob("*.parquet"):
+        part_path.unlink()
+
+    coords_df = (
+        pl.scan_parquet(abs_out)
+        .select(["lat", "long", "int_year", "int_month"])
+        .unique()
+        .collect()
+    )
     coords_pd = coords_df.to_pandas()
     del coords_df; gc.collect()
-    thresholds_da = get_all_climate_thresholds_year_months_for_latlongs(
-        coords_pd, year_var="int_year", month_var="int_month"
-    )
+
+    years = sorted(coords_pd["int_year"].dropna().unique().tolist())
+    for year in years:
+        year_coords = coords_pd.loc[
+            coords_pd["int_year"] == year, ["lat", "long"]
+        ].drop_duplicates().copy()
+        year_coords["lookup_year"] = year
+
+        thresholds_da = get_climate_thresholds_all_locs(
+            year_coords,
+            year_col="lookup_year",
+            lat_col="lat",
+            long_col="long",
+        )
+        if thresholds_da is None:
+            del year_coords; gc.collect()
+            continue
+
+        thresholds_df = thresholds_da.to_dataframe().reset_index()
+        del thresholds_da; gc.collect()
+
+        thresholds_df.drop(columns=["point", "longitude", "latitude"], inplace=True)
+        thresholds_df.rename(
+            columns={
+                "year": "int_year",
+                "month": "int_month",
+                "lat_orig": "lat",
+                "long_orig": "long",
+            },
+            inplace=True,
+        )
+
+        thresholds_df["quantile_str"] = (
+            thresholds_df["quantile"].astype(str).str.replace("0.", "q")
+        )
+        thresholds_df.drop(columns="quantile", inplace=True)
+
+        thresholds_wide_df = thresholds_df.pivot_table(
+            index=["int_year", "int_month", "lat", "long"],
+            columns="quantile_str",
+            values="value",
+        ).reset_index()
+        del thresholds_df; gc.collect()
+
+        thresholds_wide_df.rename(
+            columns={
+                "q75": "q75_monthly",
+                "q8": "q80_monthly",
+                "q85": "q85_monthly",
+                "q9": "q90_monthly",
+                "q95": "q95_monthly",
+            },
+            inplace=True,
+        )
+
+        part_path = rel_lookup_parts_dir / f"rel_lookup_{year}.parquet"
+        pl.from_pandas(thresholds_wide_df).write_parquet(part_path)
+        del thresholds_wide_df; gc.collect()
+
     del coords_pd; gc.collect()
-    thresholds_da.to_netcdf(Path(output_path_version) / "rel_month_climate_vars.nc")
-    thresholds_df = thresholds_da.to_dataframe().reset_index()
-    del thresholds_da; gc.collect()
 
-    # set names to merge
-    thresholds_df.drop(columns=["point", "longitude", "latitude"], inplace=True)
-    thresholds_df.rename(
-        columns={
-            "year": "int_year",
-            "month": "int_month",
-            "lat_orig": "lat",
-            "long_orig": "long",
-        },
-        inplace=True,
-    )
-
-    thresholds_df["quantile_str"] = (
-        thresholds_df["quantile"].astype(str).str.replace("0.", "q")
-    )
-
-    thresholds_df.drop(columns="quantile", inplace=True)
-
-    # pivot wide
-    thresholds_wide_df = thresholds_df.pivot_table(
-        index=["int_year", "int_month", "lat", "long"],
-        columns="quantile_str",
-        values="value",
-    ).reset_index()
-    del thresholds_df; gc.collect()
-
-    # CHANGEME
-    thresholds_wide_df.rename(
-        columns={
-            "q75": "q75_monthly",
-            "q8": "q80_monthly",
-            "q85": "q85_monthly",
-            "q9": "q90_monthly",
-            "q95": "q95_monthly",
-        },
-        inplace=True,
+    rel_lookup_lf = pl.concat(
+        [
+            pl.scan_parquet(part_path)
+            for part_path in sorted(rel_lookup_parts_dir.glob("*.parquet"))
+        ],
+        how="diagonal_relaxed",
     )
 
     # Streaming merge relative thresholds using Polars
-    rel_lookup_pl = pl.from_pandas(thresholds_wide_df)
-    del thresholds_wide_df; gc.collect()
     rel_out = Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet"
     (
         pl.scan_parquet(abs_out)
-        .join(rel_lookup_pl.lazy(), on=["int_year", "int_month", "lat", "long"], how="left")
+        .join(rel_lookup_lf, on=["int_year", "int_month", "lat", "long"], how="left")
         .filter(
             pl.col("consumption_pd").is_not_null()
             & pl.col("days_over_30C_monthly").is_not_null()
@@ -3205,7 +3236,7 @@ def run_training_data_prep_child_mortality_monthly(
         )
         .sink_parquet(rel_out)
     )
-    del rel_lookup_pl; gc.collect()
+    del rel_lookup_lf; gc.collect()
 
     before_rows = pl.scan_parquet(abs_out).select(pl.len()).collect().item()
     after_rows = pl.scan_parquet(rel_out).select(pl.len()).collect().item()

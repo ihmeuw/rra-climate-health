@@ -69,8 +69,8 @@ def get_all_climate_thresholds_year_months_for_latlongs(
 ) -> pd.DataFrame:
     unique_coords = df[[lat_col, long_col]].drop_duplicates()
 
-    min_year = df[year_var].min() - 1
-    max_year = df[year_var].max()
+    min_year = int(df[year_var].min()) - 1
+    max_year = int(df[year_var].max())
 
     df_splits = []
     for year in range(min_year, max_year + 1):
@@ -78,7 +78,7 @@ def get_all_climate_thresholds_year_months_for_latlongs(
         df_split["lookup_year"] = year
         df_splits.append(df_split)
 
-    p = mp.Pool(processes=8)
+    p = mp.Pool(processes=4)
     results_xarrays = list(
         tqdm(
             p.imap(
@@ -95,6 +95,8 @@ def get_all_climate_thresholds_year_months_for_latlongs(
     p.join()
 
     results_xarrays = [da for da in results_xarrays if da is not None]
+    if len(results_xarrays) == 0:
+        return None
     results_da = xr.concat(results_xarrays, dim="year")
     return results_da
 
@@ -167,92 +169,142 @@ del climate_vars_wide_df
 gc.collect()
 
 # Step 2: Streaming merge abs thresholds onto data.parquet using Polars
-print("Merging abs thresholds via Polars streaming...")
 abs_out = Path(output_path_version) / "data_monthly_expanded_abs_thresholds.parquet"
-(
-    pl.scan_parquet(output_path_version / "data.parquet")
-    .join(abs_lookup_pl.lazy(), on=["int_year", "int_month", "lat", "long"], how="left")
-    .sink_parquet(abs_out)
-)
-del abs_lookup_pl
-gc.collect()
-print(f"Saved abs thresholds to {abs_out}")
+if not abs_out.exists():
+    print("Merging abs thresholds via Polars streaming...")
+    (
+        pl.scan_parquet(output_path_version / "data.parquet")
+        .join(
+            abs_lookup_pl.lazy(),
+            on=["int_year", "int_month", "lat", "long"],
+            how="left",
+        )
+        .sink_parquet(abs_out)
+    )
+    del abs_lookup_pl
+    gc.collect()
+    print(f"Saved abs thresholds to {abs_out}")
+else:
+    print(f"Reusing existing abs thresholds parquet at {abs_out}")
 
-# Step 3: Build relative threshold lookup (need to load abs parquet briefly for unique coords/years)
+# Step 3: Build relative threshold lookup in year-sized chunks to keep memory low.
 print("Building relative threshold lookup...")
-# Only load the columns we need to determine unique coords and year range
+rel_lookup_parts_dir = output_path_version / "rel_lookup_parts"
+rel_lookup_parts_dir.mkdir(parents=True, exist_ok=True)
+
 coords_df = (
-    pl.scan_parquet(abs_out).select(["lat", "long", "int_year", "int_month"]).collect()
+    pl.scan_parquet(abs_out)
+    .select(["lat", "long", "int_year", "int_month"])
+    .unique()
+    .collect()
 )
 coords_pd = coords_df.to_pandas()
 del coords_df
 gc.collect()
 
-thresholds_da = get_all_climate_thresholds_year_months_for_latlongs(
-    coords_pd, year_var="int_year", month_var="int_month"
-)
+years = sorted(coords_pd["int_year"].dropna().unique().tolist())
+for year in years:
+    year_part_path = rel_lookup_parts_dir / f"rel_lookup_{year}.parquet"
+    if year_part_path.exists():
+        continue
+
+    year_coords = (
+        coords_pd.loc[coords_pd["int_year"] == year, ["lat", "long"]]
+        .drop_duplicates()
+        .copy()
+    )
+    year_coords["lookup_year"] = year
+
+    year_da = get_climate_thresholds_all_locs(
+        year_coords,
+        year_col="lookup_year",
+        lat_col="lat",
+        long_col="long",
+    )
+    if year_da is None:
+        del year_coords
+        gc.collect()
+        continue
+
+    year_df = year_da.to_dataframe().reset_index()
+    del year_da
+    gc.collect()
+
+    year_df.drop(columns=["point", "longitude", "latitude"], inplace=True)
+    year_df.rename(
+        columns={
+            "year": "int_year",
+            "month": "int_month",
+            "lat_orig": "lat",
+            "long_orig": "long",
+        },
+        inplace=True,
+    )
+    year_df["quantile_str"] = year_df["quantile"].astype(str).str.replace("0.", "q")
+    year_df.drop(columns="quantile", inplace=True)
+
+    year_wide_df = year_df.pivot_table(
+        index=["int_year", "int_month", "lat", "long"],
+        columns="quantile_str",
+        values="value",
+    ).reset_index()
+    del year_df
+    gc.collect()
+
+    year_wide_df.rename(
+        columns={
+            "q75": "q75_monthly",
+            "q8": "q80_monthly",
+            "q85": "q85_monthly",
+            "q9": "q90_monthly",
+            "q95": "q95_monthly",
+        },
+        inplace=True,
+    )
+
+    pl.from_pandas(year_wide_df).write_parquet(year_part_path)
+    del year_wide_df
+    gc.collect()
+
 del coords_pd
 gc.collect()
 
-thresholds_da.to_netcdf(Path(output_path_version) / "rel_month_climate_vars.nc")
-thresholds_df = thresholds_da.to_dataframe().reset_index()
-del thresholds_da
-gc.collect()
-
-thresholds_df.drop(columns=["point", "longitude", "latitude"], inplace=True)
-thresholds_df.rename(
-    columns={
-        "year": "int_year",
-        "month": "int_month",
-        "lat_orig": "lat",
-        "long_orig": "long",
-    },
-    inplace=True,
-)
-
-thresholds_df["quantile_str"] = (
-    thresholds_df["quantile"].astype(str).str.replace("0.", "q")
-)
-thresholds_df.drop(columns="quantile", inplace=True)
-
-thresholds_wide_df = thresholds_df.pivot_table(
-    index=["int_year", "int_month", "lat", "long"],
-    columns="quantile_str",
-    values="value",
-).reset_index()
-del thresholds_df
-gc.collect()
-
-thresholds_wide_df.rename(
-    columns={
-        "q75": "q75_monthly",
-        "q8": "q80_monthly",
-        "q85": "q85_monthly",
-        "q9": "q90_monthly",
-        "q95": "q95_monthly",
-    },
-    inplace=True,
-)
-
-rel_lookup_pl = pl.from_pandas(thresholds_wide_df)
-del thresholds_wide_df
-gc.collect()
-
-# Step 4: Streaming merge relative thresholds
-print("Merging rel thresholds via Polars streaming...")
+# Step 4: Streaming merge relative thresholds, year by year to avoid one giant relational join.
 rel_out = Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet"
-(
-    pl.scan_parquet(abs_out)
-    .join(rel_lookup_pl.lazy(), on=["int_year", "int_month", "lat", "long"], how="left")
-    .filter(
-        pl.col("consumption_pd").is_not_null()
-        & pl.col("days_over_30C_monthly").is_not_null()
-        & pl.col("total_precipitation_monthly").is_not_null()
-    )
-    .sink_parquet(rel_out)
-)
-del rel_lookup_pl
-gc.collect()
+if rel_out.exists():
+    print(f"Reusing existing relative-threshold parquet at {rel_out}")
+else:
+    print("Merging rel thresholds via Polars streaming...")
+    rel_year_outs = []
+    for part_path in sorted(rel_lookup_parts_dir.glob("*.parquet")):
+        year = part_path.stem.split("_")[-1]
+        rel_year_out = (
+            Path(output_path_version)
+            / f"data_monthly_expanded_rel_thresholds_{year}.parquet"
+        )
+        (
+            pl.scan_parquet(abs_out)
+            .filter(pl.col("int_year") == int(year))
+            .join(
+                pl.scan_parquet(part_path).lazy(),
+                on=["int_year", "int_month", "lat", "long"],
+                how="left",
+            )
+            .filter(
+                pl.col("consumption_pd").is_not_null()
+                & pl.col("days_over_30C_monthly").is_not_null()
+                & pl.col("total_precipitation_monthly").is_not_null()
+            )
+            .sink_parquet(rel_year_out)
+        )
+        rel_year_outs.append(rel_year_out)
+
+    if rel_year_outs:
+        pl.concat(
+            [pl.scan_parquet(path) for path in rel_year_outs], how="diagonal_relaxed"
+        ).sink_parquet(rel_out)
+        for path in rel_year_outs:
+            path.unlink(missing_ok=True)
 
 before_rows = pl.scan_parquet(abs_out).select(pl.len()).collect().item()
 after_rows = pl.scan_parquet(rel_out).select(pl.len()).collect().item()
