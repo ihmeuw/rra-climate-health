@@ -17,6 +17,13 @@ from rra_tools import jobmon
 from copy import deepcopy
 from rra_climate_health import cli_options as clio
 from rra_climate_health import utils
+# Re-exported at module level for backwards compatibility with scripts that
+# import these from here; the values live in rra_climate_health.constants.
+from rra_climate_health.constants import (
+    AGE_GROUP_AGGREGATES,
+    FIRST_FORECAST_YEAR,
+    REFERENCE_SCENARIO,
+)
 from rra_climate_health.data import DEFAULT_ROOT, ClimateMalnutritionData
 from rra_climate_health.inference.inference_diagnostics import (
     create_inference_diagnostics_report,
@@ -34,13 +41,6 @@ import gc
 
 FORECASTED_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/32/future/population/future_population_s130v41/population.nc'
 HISTORICAL_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/16/past/population/20250603_etl_run_id_417/population.nc'
-
-AGE_GROUP_AGGREGATES: dict[int, list[int]] = {
-    4: [388, 389],
-    5: [238, 34],
-    42: [2, 3],
-    1: [2, 3, 388, 389, 238, 34]
-}
 
 CMIP_LDI_SCENARIO_MAP = {
     #"ssp119": "1",
@@ -508,10 +508,17 @@ def model_inference_main(
 
 
 def load_population_timeseries(
-    locs_of_interest: Sequence[int],
+    locs_of_interest: Sequence[int] | None,
     age_group_ids: Sequence[int],
 ) -> pd.DataFrame:
-    locs_of_interest = list(locs_of_interest)
+    """Load past and future population draws.
+
+    Pass ``locs_of_interest=None`` to load every location in the population
+    files, which is what the residual step's hierarchy aggregation wants.
+    """
+    loc_selector = (
+        {} if locs_of_interest is None else {"location_id": list(locs_of_interest)}
+    )
     age_group_ids = list(age_group_ids)
 
     requested_aggregates = [a for a in age_group_ids if a in AGE_GROUP_AGGREGATES]
@@ -538,9 +545,9 @@ def load_population_timeseries(
         xr.open_dataset(FORECASTED_POPULATIONS_FILEPATH)
         .sel(
             age_group_id=detailed_to_load,
-            location_id=locs_of_interest,
             year_id=range(FIRST_FORECAST_YEAR, 2101),
             scenario=130,
+            **loc_selector,
         )
         .to_dataframe().drop(columns = ["scenario"])
         .pivot_table(
@@ -561,7 +568,7 @@ def load_population_timeseries(
         .sel(
             age_group_id=detailed_to_load,
             sex_id=forecast_sex_ids,
-            location_id=locs_of_interest,
+            **loc_selector,
         )
         .to_dataframe()
         .reorder_levels(forecast_pop.index.names)
@@ -575,8 +582,6 @@ def load_population_timeseries(
     historical_pop.columns = forecast_pop.columns
     pop = pd.concat([historical_pop, forecast_pop], axis=0).sort_index()
     return pop
-
-REFERENCE_SCENARIO = "ssp245"
 
 def aggregate_mortality_over_ages(df, resulting_age_group_id = 1, age_column = 'age_group_id'):
     original_idx = list(df.index.names)
@@ -734,8 +739,6 @@ def model_inference_task(
         resolved_age_group_id,
         int(draw)
     )
-
-FIRST_FORECAST_YEAR = 2024
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)

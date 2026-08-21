@@ -1,0 +1,199 @@
+# Duplication introduced / found by the residual port
+
+Bringing `malnutrition_fhs` in surfaced a handful of things that now exist in
+more than one place, plus a few that were already duplicated inside this repo.
+Nothing here is a bug today -- this is a list of decisions to make.
+
+Legend: **[resolved]** = deduplicated as part of the port,
+**[open]** = still duplicated, needs a call.
+
+---
+
+## 1. `load_population_timeseries` — **[resolved]**
+
+* `malnutrition_fhs/src/data_utils.py::load_population_timeseries`
+* `rra_climate_health/inference/run_inference.py::load_population_timeseries`
+
+These were the same function; the only difference was that the inference copy
+subset locations (`locs_of_interest`) and the `malnutrition_fhs` copy loaded all
+of them.
+
+**Done:** the residual step reuses the inference one, and its
+`locs_of_interest` parameter now accepts `None` to mean "all locations".  The
+two existing callers (`inference/admin2forecasting.py`,
+`inference/admin2inference.py`) pass a location list and are unaffected.
+
+**Still worth deciding:** it lives in `inference/run_inference.py`, which is a
+slightly odd place for a shared helper.  Moving it to `utils.py` or a
+`population.py` would be cleaner, but those two admin2 scripts import it as
+`oldinf.load_population_timeseries`, so a move needs them updated too.
+
+## 2. Population file paths — **[open]**
+
+* `paths.py::FORECASTED_POPULATIONS_FILEPATH` → forecasting data `7`
+* `inference/run_inference.py::FORECASTED_POPULATIONS_FILEPATH` → data `32`
+  (plus `HISTORICAL_POPULATIONS_FILEPATH` → data `16`)
+* `malnutrition_fhs/src/data_utils.py` → the same data `32` / `16` pair
+
+The module-level constants in `run_inference.py` shadow the `paths.py` one and
+are the versions actually in use.  The residual step inherits them by reusing
+`load_population_timeseries`, so it is consistent with inference — but
+`paths.py` is now stale and misleading.
+
+**Suggested:** delete or update `paths.py::FORECASTED_POPULATIONS_FILEPATH` and
+move the two live paths there.  Not done here because I did not want to change
+what inference reads as a side effect of this port.
+
+## 3. Constants — **[partly resolved]**
+
+New `rra_climate_health/constants.py` holds what was in
+`malnutrition_fhs/src/constants.py`.  As part of that,
+`inference/run_inference.py` now imports `AGE_GROUP_AGGREGATES`,
+`FIRST_FORECAST_YEAR` and `REFERENCE_SCENARIO` from it instead of defining its
+own identical copies (the names are still bound at module level there, so
+anything importing them from `run_inference` keeps working).
+
+**[open]** Age groups by measure exist twice, with genuinely different values:
+
+* `cli_options.py::AGE_GROUP_IDS_BY_MEASURE` — strings, the age groups models
+  are *fit* on; `anemia` is `8..14`, `child_mortality` is `age_1_m ... age_60_m`.
+* `constants.py::VALID_AGE_GROUPS_FOR_MEASURE` — ints, the age groups results
+  are *reported* for; `anemia` includes `34, 238, 389, 15`,
+  `child_mortality` is `[1]`, and there is no `lbw` entry.
+
+The residual diagnostics use the second one to decide which population to pull.
+These are two different concepts sharing a shape, so my read is that they should
+stay separate but be renamed to say which is which (e.g.
+`MODELED_AGE_GROUPS_BY_MEASURE` vs `REPORTED_AGE_GROUPS_BY_MEASURE`) and live in
+the same file.  Worth confirming that `VALID_AGE_GROUPS_FOR_MEASURE` is complete
+— `lbw` is missing, so the superregion plot and the counts table would
+`KeyError` on that measure.
+
+## 4. Location hierarchy loaders — **[resolved]**
+
+* `malnutrition_fhs`'s `get_fhs_location_metadata()` reads
+  `input/fhs_location_metadata.parquet`
+* `ClimateMalnutritionData.load_fhs_hierarchy()` reads
+  `input/fhs_hierarchy.parquet`
+* `data_prep/location_mapping.py::FHS_HIERARCHY_PATH` and
+  `paths.py::FHS_LOCATION_METADATA_FILEPATH` point at the two files separately
+
+The two parquets are byte-for-byte identical today (verified: same 513 rows, same
+31 columns, `DataFrame.equals` is `True`).  The port uses
+`load_fhs_hierarchy()`.
+
+**Still worth deciding:** two identical files in `input/` is a trap — they will
+drift.  Recommend keeping one and making the other a symlink, or deleting
+`fhs_location_metadata.parquet` and repointing `paths.py`.
+
+## 5. Age metadata — **[open]**
+
+Two different files, both in use:
+
+* `input/gbd_prevalence/age_group_metadata.parquet` (152 rows) — used by
+  `malnutrition_fhs`'s plots, so now by `residual_diagnostics.py` via the new
+  `ClimateMalnutritionData.load_age_group_metadata()`
+* `input/gbd_prevalence/age_metadata.parquet` — read directly by
+  `inference/inference_diagnostics.py::plot_gbd_comparison`
+
+Not the same file, so not strictly duplication, but two age-metadata sources in
+one pipeline is worth a look.
+
+## 6. Cumulative-difference tables — **[open]**
+
+* `inference/inference_diagnostics.py::get_cumulative_differences` — works off
+  the means in `forecast.parquet`, reports `delta` vs the reference scenario,
+  renders into the `forecast_diag.pdf` reportlab doc.
+* `residual/residual_diagnostics.py::get_cumulative_count_scenario_differences_table`
+  — works off the post-residual draws, reports differences between *pairs* of
+  scenarios with 95% UIs, renders to CSV.
+
+Same idea, different inputs and different outputs, so I kept both.  If the
+post-residual numbers are the ones people actually quote, the inference-side
+table is arguably now redundant.
+
+## 7. `save_gbd_inputs.py` is deliberately standalone — **[open by design]**
+
+`data_prep/save_gbd_inputs.py` re-declares `ME_ID_DICT`, `REI_ID_DICT` and
+`resample_like_fhs`, which also exist in `residual/residual_data.py`.
+
+This one is intentional and should stay.  The script runs under an IHME
+environment to reach `get_draws`/`db_queries`, and it cannot import from
+`rra_climate_health` at all because the package `__init__` imports `rpy2`.
+Sharing code would mean either pulling the IHME dependency tree into
+`pixi.lock` or making the package `__init__` importable without `rpy2` --
+neither is worth it for two ID dicts and one resampling helper.
+
+The GBD ID dicts now live *only* in the script (they were briefly in
+`constants.py`, but nothing in the package used them).  `resample_like_fhs` is
+genuinely in two places; the copies carry comments pointing at each other.
+
+## 8. Hierarchy aggregation — **[open, low priority]**
+
+`residual_data.py::aggregate_forecast_hierarchy` /
+`aggregate_age_and_sex` do population-weighted aggregation by exploding
+`path_to_top_parent`.  `inference/run_inference.py::forecast_scenarios` does a
+lighter-weight version of the same thing inline (merge population, multiply,
+sum).  Not worth unifying unless the aggregation logic starts to diverge.
+
+---
+
+## Deviations from the `malnutrition_fhs` source
+
+Deliberate, so worth listing:
+
+* **Paths.**  Every hardcoded
+  `/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/...`
+  f-string is now a `ClimateMalnutritionData` method, so the step honours
+  `--output-root`.  New methods: `load_scenario_draws`,
+  `save/load_shifted_scenario_draws`, `save/load_shifted_prevalence`,
+  `save/load_adjusted_sev_draws`, `save/load_sev_means`,
+  `load_age_group_metadata`, and the `gbd_inputs` property.
+* **`assert` → `raise`.**  The asserts in `convert_prev_to_sev`,
+  `aggregate_forecast_hierarchy`, `aggregate_age_and_sex` and
+  `resample_like_fhs` now raise `ValueError` with a message naming the offending
+  locations/age groups.  Same conditions, different exception type.
+* **The database fallbacks are gone.**  `data_utils.py` had `get_gbd_data_db`
+  and `get_prev_to_sev_table_db`, which hit `get_draws`/`db_queries` whenever a
+  cached parquet was missing.  Those are not ported: the package must not
+  depend on the IHME-internal stack.  Creating those inputs is now the explicit
+  job of `data_prep/save_gbd_inputs.py` (ported from
+  `malnutrition_fhs/src/2025_05_01_SaveGBD.ipynb`, which is what actually
+  produced them), and the loaders raise a `FileNotFoundError` naming the file
+  and the command to create it.
+
+  Worth knowing: the two disagreed about what they produced.  The old
+  `get_prev_to_sev_table_db` fallback used `release_id=9` and applied no year
+  filter, while the notebook -- the version actually used -- uses
+  `release_id=16` and filters to 1990-2022 because `get_model_results` ignores
+  its `year_id` argument.  The script follows the notebook.
+* **`plot_multiple_superregion_prevalence_rate` population leak.**  In the
+  original, the GBD loop reused the `population` variable left over from the
+  last iteration of the forecast loop.  For a single measure — which is all the
+  pipeline ever calls it with — that is the same object, so behaviour is
+  unchanged; the port caches population per measure so the multi-measure case is
+  also right.  It still passes the full population to the GBD aggregation and
+  the draw-column subset to the forecast aggregation, as the original did.
+* **Query-string hoisting.**  `"location_id in @all_prev.index.get_level_values(...)"`
+  inside a `DataFrame.query` string is now hoisted to a local (`modeled_locs`).
+* **`prepare_submission.py` drops a redundant `reset_index()`.**  The notebook
+  called `reset_index()` twice in a row; the second one ran on an already-reset
+  RangeIndex, so it added a spurious `index` column to the uploaded frame.  The
+  data is otherwise identical.  It also re-declares `REI_ID_DICT`, for the same
+  reason as the GBD input script, and it validates rather than eyeballs the two
+  checks the notebook did by hand (unmapped scenarios and leftover NaNs now
+  raise).
+* **Dropped `make_paper_prevalence_plot`.**  It called `get_population()`, which
+  was commented out in `data_utils.py`, so it could not run.  Say the word and I
+  will bring it back on top of `load_population_timeseries`.
+* **Dropped a no-op.**  `table_df['formatted'].str.replace('–', '–')` in the
+  Lancet formatting replaced a character with itself.
+* **`resample_like_FHS` → `resample_like_fhs`** to match the repo's naming.
+* **Plot styles and label maps** are module-level constants rather than dicts
+  rebuilt on every call.  Same content.
+* **Dependencies.**  `statsmodels` and `patsy` are now declared in
+  `[tool.pixi.dependencies]`.  Both were already in `pixi.lock`, but only
+  transitively -- `statsmodels` via the `seaborn` meta-package and `patsy` via
+  `statsmodels` -- and the residual step imports them directly.  `tqdm` is left
+  undeclared because `rra-tools` requires it, so it is already a first-class
+  entry in the lock.  No IHME-internal package is added.
