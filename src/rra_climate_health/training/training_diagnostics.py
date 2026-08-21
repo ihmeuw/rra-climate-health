@@ -7,7 +7,9 @@ from rpy2.robjects import pandas2ri, r
 from rpy2.robjects.packages import importr
 from rpy2.robjects import conversion, default_converter
 from typing import Any
+from decimal import Decimal, ROUND_UP
 import matplotlib.pyplot as plt
+
 
 from rra_climate_health.model_specification import ModelSpecification
 from rra_climate_health.data import DEFAULT_ROOT, ClimateMalnutritionData
@@ -157,6 +159,11 @@ def plot_gbd_comparison(plot_data: pd.DataFrame, measure: str, title: str, filep
     else:
         plt.show()
 
+def ceil_1sig(x):
+    d = Decimal(str(x))
+    if d == 0:
+        return d
+    return d.quantize(Decimal(1).scaleb(d.adjusted()), rounding=ROUND_UP)
 
 def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figure:  # type: ignore[name-defined]
     import seaborn as sns
@@ -173,9 +180,11 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
     axislabel_size = 18
     paneltitle_size = 18
 
+    ldi_colname = "ldi_pc_pd" if "ldi_pc_pd" in df.columns else "consumption_pd"
+
     df["over_30"], o30_bins = pd.qcut(df.loc[df[threshold_varname] > 0, threshold_varname], 8, retbins=True, duplicates = 'drop')
     o30_bins = [0] + o30_bins
-    df["ldi"], ldi_bins = pd.qcut(df.ldi_pc_pd, 10, retbins=True, duplicates = 'drop')
+    df["ldi"], ldi_bins = pd.qcut(df[ldi_colname], 10, retbins=True, duplicates = 'drop')
 
     x_ticks = range(len(o30_bins))
     x_labs = [f"{x:.1f}" for x in o30_bins]
@@ -183,9 +192,11 @@ def plot_model_heatmaps(df: str, measure: str, filepath: str = None) -> plt.Figu
     y_ticks = range(len(ldi_bins))
     y_labs = [f"{x:.1f}" for x in ldi_bins]
 
-    vmin = 0
+    vmin_dict = {'stunting': 0, 'wasting': 0, 'underweight': 0, 'anemia': 0.4, 'lbw':0}
     vmax_dict = {'stunting': 0.5, 'wasting': 0.25, 'underweight': 0.40, 'anemia': 0.7, 'lbw':0.25}
-    vmax = vmax_dict[measure]
+    vmax = vmax_dict[measure] if measure in vmax_dict else ceil_1sig(df.groupby(['ihme_loc_id'])[measure].mean().max())
+    vmin = vmin_dict[measure] if measure in vmax_dict else 0
+
     colorbin_interval = (vmax - vmin) / 10
     boundaries = np.arange(vmin, vmax + colorbin_interval, colorbin_interval)
     cmap = plt.get_cmap("RdYlBu_r", len(boundaries) - 1)
