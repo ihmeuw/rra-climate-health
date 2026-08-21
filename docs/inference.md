@@ -81,8 +81,7 @@ income coefficient is:
 | Income as a spline, interacted with a threshold flag | Both of the above |
 
 Only a threshold-flag × income interaction is supported. Any other
-`extra_terms` interaction raises `NotImplementedError` at inference time, even
-though it trains without complaint.
+`extra_terms` interaction raises `NotImplementedError`.
 
 ## Aggregating to locations
 

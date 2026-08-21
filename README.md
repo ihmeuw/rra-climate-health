@@ -45,6 +45,8 @@ strun inference -m stunting -t <model-version> \
 strun residual -m stunting -r <results-version>             # -> final draws, SEVs, plots
 ```
 
+You can also run `strun training --help` to understand the command options.
+
 See [Running the pipeline](https://ihmeuw.github.io/rra-climate-health/running/)
 for what each step consumes and produces, how versions chain together, and how
 to pick a run back up after a failure, and
@@ -81,12 +83,6 @@ pixi run -e cluster-dev pytest         # run the tests
 pixi list -e cluster-dev               # what actually got installed
 ```
 
-## Why pixi (and why R is in the lockfile)
-
-Pixi pulls R itself (and `r-scam`, `r-lme4`, `r-lmertest`, `r-emmeans`,
-`r-mgcv`) from conda-forge so that `rpy2` is ABI-compatible with the R it links
-against at runtime — this is what previously made the install brittle across
-machines.
 
 `jobmon` is kept out of the `default` environment on purpose: it comes from the
 IHME artifactory, so bundling it into `default` would make a plain
