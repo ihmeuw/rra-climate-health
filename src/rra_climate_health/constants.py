@@ -36,6 +36,7 @@ VALID_AGE_GROUPS_FOR_MEASURE = {
     "stunting": [238, 388, 389, 34],
     "wasting": [238, 388, 389, 34],
     "underweight": [238, 388, 389, 34],
+    "lbw": [2],
 }
 
 # Aggregate age groups and the detailed age groups they are made of.  Used when

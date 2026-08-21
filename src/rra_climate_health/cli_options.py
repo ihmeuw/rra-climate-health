@@ -112,7 +112,7 @@ AGE_GROUP_IDS_BY_MEASURE: dict[str, list[str]] = {
     "underweight":        ["238", "388", "389", "34"],
     #"anemia":             ["34", "8", "9", "10", "11", "12", "13", "14", "238", "389", "15"],
     "anemia":             ["8", "9", "10", "11", "12", "13", "14"],
-    "lbw":                ["164"],
+    "lbw":                ["2"],
     "neonatal_mortality": ["42"],
     #"child_mortality":    ["42", "388", "888", "389", "238", "50", "51", "52"],
     "child_mortality": ['age_1_m', 'age_3_m', 'age_6_m', 'age_12_m', 'age_24_m', 'age_36_m', 'age_48_m', 'age_60_m',]
