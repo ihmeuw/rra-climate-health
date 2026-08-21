@@ -1,86 +1,198 @@
-[tool.poetry]
-name = "rra-climate-health"
+[project]
+name = "rra_climate_health"
 version = "0.0.1"
 description = "A collection of geospatial models examining the relationship between climate variables, socio-demographic indicators, and health outcomes."
 authors = [
-    "Victor Vilchis Tella <victorvt@uw.edu>",
+    {name = "Victor Vilchis Tella", email = "victorvt@uw.edu"},
 ]
-license = "BSD-3-Clause"
+license = {text = "BSD-3-Clause"}
 readme = "README.md"
+requires-python = ">=3.12,<3.13"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+# Runtime dependencies are managed by pixi (see [tool.pixi.*] below).
+# This list is intentionally empty so that `pip install .` outside a pixi env
+# does not pull mismatched versions of the R-binding stack (rpy2/pymer4) from
+# PyPI, which is the root cause of the install fragility we are solving here.
+dependencies = []
 
+[project.urls]
 documentation = "https://ihmeuw.github.io/rra-climate-health"
 homepage = "https://ihmeuw.github.io/rra-climate-health"
 repository = "https://github.com/ihmeuw/rra-climate-health"
 
-classifiers = [
-  "Development Status :: 4 - Beta",
-  "Intended Audience :: Developers",
-  "Operating System :: OS Independent",
-  "Programming Language :: Python",
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Topic :: Software Development :: Libraries :: Python Modules",
-  "Typing :: Typed",
-]
-
-packages = [
-    { include = "rra_climate_health", from = "src" }
-]
-
-[tool.poetry.dependencies]
-python = ">=3.10, <3.13"
-click = "*"
-numpy = "^2.1.2"
-pandas = "^2.2.3"
-pymer4 = "^0.8.2"
-scikit-learn = "^1.5.0"
-matplotlib = "^3.9.0"
-seaborn = "^0.13.2"
-xarray = "^2024.1.0"
-rasterra = "^0.5.12"
-geopandas = "^1.0.0"
-rra-tools = "^1.0.11"
-rasterio = "^1.3.10"
-pyarrow = "^16.1.0"
-netcdf4 = "^1.7.1"
-pydantic = "^2.7.4"
-pyyaml = "^6.0.1"
-reportlab = "^4.2.2"
-rioxarray = "^0.17.0"
-
-[tool.poetry.group.dev.dependencies]
-mkdocstrings = {version = ">=0.23", extras = ["python"]}
-mkdocs-material = "*"
-mkdocs-table-reader-plugin = "*"
-mypy = "*"
-pre-commit = "*"
-pymdown-extensions = "*"
-pytest = "*"
-pytest-github-actions-annotate-failures = "*"
-pytest-cov = "*"
-python-kacl = "*"
-ruff = ">=0.2.0"
-pandas-stubs = "^2.2.2.240909"
-types-pyyaml = "^6.0.12.20240917"
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.poetry.scripts]
+[project.scripts]
 strun = "rra_climate_health.cli:strun"
 sttask = "rra_climate_health.cli:sttask"
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rra_climate_health"]
+
+# ---------------------------------------------------------------------------
+# pixi configuration
+# ---------------------------------------------------------------------------
+# All runtime + dev dependencies live here. `pixi install` builds an env that
+# matches `pixi.lock` exactly; `pixi.lock` is checked into the repo. R and the
+# R packages (scam, lme4, lmerTest, emmeans, mgcv) come from conda-forge so
+# that rpy2 is binary-compatible with the R it links against at runtime.
+#
+# jobmon (the IHME SLURM workflow tool) lives in the optional `cluster`
+# feature so a default `pixi install` does not require IHME network access.
+# Local devs and CI on public GitHub runners can install the default env
+# anywhere; cluster users add `-e cluster` to pull jobmon from the IHME
+# artifactory.
+#
+# Quick start (note: `pixi install` builds ONE env -- `default` -- unless you
+# pass -e/--all; most people working on this repo want `cluster-dev`):
+#   pixi install -e cluster-dev           # dev tooling + jobmon (IHME network)
+#   pixi shell -e cluster-dev             # activate it
+#   pixi install                          # default runtime env only (anywhere)
+#   pixi install -e dev                   # adds linters, mypy, mkdocs, tests
+#   pixi install -e cluster               # adds jobmon (IHME network only)
+#   pixi install --all                    # all four envs (IHME network only)
+# ---------------------------------------------------------------------------
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.pypi-dependencies]
+# The project itself, installed editable so local edits take effect.
+rra_climate_health = { path = ".", editable = true }
+# IHME packages not on conda-forge.
+rra-tools = "==1.0.11"
+rasterra = "==0.5.14"
+# rpy2 3.5.x with python 3.12 + R 4.3 is not packaged on conda-forge (only
+# rpy2 3.6+ is, which would force an R 4.4 upgrade and a pymer4 0.9 migration).
+# The PyPI wheel links libR.so dynamically at runtime, so it will pick up the
+# conda-forge R that pixi installs into the env's PATH.
+rpy2 = "==3.5.16"
+# pymer4 0.9+ ships a rewritten Lmer API that breaks training/run_training.py
+# and training/training_validation.py. Stay on 0.8 until we choose to migrate.
+pymer4 = "==0.8.2"
+# Not on conda-forge.
+reportlab = "==4.2.2"
+
+[tool.pixi.dependencies]
+# --- Python interpreter ----------------------------------------------------
+python = "3.12.*"
+
+# --- R stack ---------------------------------------------------------------
+# Pinned to the versions that compose cleanly with rpy2 3.5.16 / pymer4 0.8.2.
+r-base = "4.3.*"
+r-scam = "1.2.*"
+r-lme4 = "1.1.*"
+r-lmertest = "3.1.*"
+r-emmeans = "1.10.*"
+r-mgcv = "1.9.*"
+
+# --- Scientific Python stack ----------------------------------------------
+numpy = ">=2.0,<3.0"
+pandas = "2.2.*"
+scipy = ">=1.14,<2.0"
+scikit-learn = ">=1.5,<2.0"
+matplotlib = ">=3.9,<4.0"
+seaborn = ">=0.13,<0.14"
+xarray = ">=2024.3"
+# The residual step fits its SDI model with statsmodels and builds design
+# matrices for the coefficient-clamped prediction with patsy directly. Both
+# already arrived transitively (statsmodels via the seaborn meta-package,
+# patsy via statsmodels), but they are direct imports so they are declared.
+statsmodels = ">=0.14,<1.0"
+patsy = ">=0.5"
+
+# --- Geospatial -----------------------------------------------------------
+geopandas = ">=1.0,<2.0"
+rasterio = ">=1.3,<2.0"
+rioxarray = ">=0.17,<1.0"
+
+# --- I/O ------------------------------------------------------------------
+pyarrow = ">=16.0"
+netcdf4 = ">=1.7"
+# pandas.to_hdf backend, used by residual/prepare_submission.py to write the
+# FHS save_results upload files.
+pytables = ">=3.9"
+pydantic = ">=2.7,<3.0"
+pyyaml = ">=6.0"
+
+# --- CLI ------------------------------------------------------------------
+click = ">=8.0"
+
+# --- Build-time libs for the rpy2 source build ----------------------------
+# rpy2 3.5.16 has no Linux wheels on PyPI, so it is built locally during
+# `pixi install`. Its setup.py runs a link probe against libR.so and pulls in
+# liblzma, libbz2, libpcre2, libiconv, and libicu. conda-forge ships the
+# unversioned `.so` symlinks for these in the corresponding `*-devel`
+# packages, which the meta-packages below bring along.
+xz = "*"            # provides liblzma + liblzma-devel (link symlink)
+bzip2 = "*"
+libiconv = "*"
+icu = "*"
+pcre2 = "*"
+
+# ---------------------------------------------------------------------------
+# Dev feature: linters, type checking, tests, docs.
+# Enable with `pixi install -e dev` or `pixi shell -e dev`.
+# ---------------------------------------------------------------------------
+[tool.pixi.feature.dev.dependencies]
+mypy = "*"
+pre-commit = "*"
+pytest = "*"
+pytest-cov = "*"
+ruff = ">=0.2"
+pandas-stubs = "*"
+types-pyyaml = "*"
+
+[tool.pixi.feature.dev.pypi-dependencies]
+mkdocstrings = { version = "*", extras = ["python"] }
+mkdocs-material = "*"
+mkdocs-table-reader-plugin = "*"
+pymdown-extensions = "*"
+pytest-github-actions-annotate-failures = "*"
+python-kacl = "*"
+
+# ---------------------------------------------------------------------------
+# Cluster feature: IHME-internal jobmon for SLURM workflow submission.
+# Requires IHME network access to reach the artifactory. Enable with
+# `pixi install -e cluster` or `pixi install -e cluster-dev`.
+# ---------------------------------------------------------------------------
+[tool.pixi.feature.cluster.pypi-dependencies]
+jobmon-installer-ihme = ">=10.12.2"
+
+[tool.pixi.feature.cluster.pypi-options]
+extra-index-urls = [
+    "https://artifactory.ihme.washington.edu/artifactory/api/pypi/pypi-shared/simple",
+]
+
+[tool.pixi.environments]
+# `default` and `dev` solve together so they pin matching versions and work on
+# any machine (including public CI runners). The cluster envs are in their
+# own solve group because the IHME artifactory is only reachable from inside
+# the network, and we don't want the default solve to fail off-network.
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+cluster = { features = ["cluster"], solve-group = "cluster" }
+cluster-dev = { features = ["dev", "cluster"], solve-group = "cluster" }
+
+# ---------------------------------------------------------------------------
+# Lint / type-check / test configuration (unchanged from poetry layout).
+# ---------------------------------------------------------------------------
 [tool.ruff]
-target-version = "py310" # The lowest supported version
+target-version = "py312"
 
 [tool.ruff.lint]
-# By default, enable all the lint rules.
-# Add to the ignore list below if you don't want some rules.
-# If you need some ignores for certain modules, see tool.ruff.lint.per-file-ignores below.
-# For individual ignore cases, prefer inline `# noqa`s within the code.
 select = ["ALL"]
 ignore = [
     "COM812",   # flake8 missing trailing comma, fomatter handles
@@ -140,14 +252,9 @@ addopts = """\
 """
 
 [tool.mypy]
-# This is the global mypy configuration.
-# Avoid changing this!
-strict = true  # See all the enabled flags `mypy --help | grep -A 10 'Strict mode'`
+strict = true
 disallow_any_unimported = false
-# You can use this list to exclude directories, files or modules from type checking.
-# exclude = []
 
-# handle mypy errors when 3rd party packages are not typed.
 [[tool.mypy.overrides]]
 module = [
     "affine.*",
@@ -160,5 +267,8 @@ module = [
     "rpy2.*",
     "pymer4.*",
     "reportlab.*",
+    "statsmodels.*",
+    "patsy.*",
+    "tqdm.*",
 ]
 ignore_missing_imports = true

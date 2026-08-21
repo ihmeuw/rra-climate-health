@@ -11,7 +11,7 @@ class ResultsVersionSpecification(BaseModel):
 class ResultsSpecification(BaseModel):
     version: ResultsVersionSpecification
     draws: int = 1
-    age_groups: list[int] = []
+    age_groups: list[int | str] = []
     sex_ids: list[int] = []
     scenarios: list[str] = []
     years: list[int] = []

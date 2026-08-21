@@ -1,5 +1,7 @@
-LDI_VERSION = 'v5'
+LDI_VERSION = 'v6'
 import multiprocessing as mp
+import multiprocessing
+import tqdm
 from functools import partial
 from pathlib import Path
 
@@ -143,8 +145,8 @@ def get_climate_vars_for_dataframe(
     var_names = [
         'mean_temperature', 'days_over_30C', 'precipitation_days', 
         'total_precipitation', 'mean_low_temperature', 'mean_high_temperature',
-        'relative_humidity', 'days_over_26C', 'days_over_27C', 'days_over_28C',
-        'days_over_29C', 'days_over_31C', 'days_over_32C', 'days_over_33C',
+        'relative_humidity', #'days_over_26C', 'days_over_27C', 'days_over_28C',
+        #'days_over_29C', 'days_over_31C', 'days_over_32C', 'days_over_33C',
     ]
 
     unique_coords = df[[lat_col, long_col, year_col]].drop_duplicates()
@@ -159,6 +161,50 @@ def get_climate_vars_for_dataframe(
     p.close()
     p.join()
     return results_df
+
+CLIMATE_VAR_NAMES = [
+        'mean_temperature', 'days_over_30C', 'precipitation_days', 
+        'total_precipitation', 'mean_low_temperature', 'mean_high_temperature',
+        'relative_humidity']# 'days_over_26C', 'days_over_27C', 'days_over_28C',
+        #'days_over_29C', 'days_over_31C', 'days_over_32C', 'days_over_33C',
+    #]
+
+def get_lifetime_climate_vars(
+        df: pd.DataFrame,
+        lat_col: str = "lat",
+        long_col: str = "long",
+        year_col: str = "int_year",
+        month_col: str = "int_month",
+        age_year_col: str = "age_year",
+        age_month_col: str = "age_month",
+        include_gestation: bool = False,
+) -> pd.DataFrame:
+    df['row_id'] = df.index
+    # Calculate birth year
+    df['birth_year'] = df[year_col] + (df[month_col]/12) - df[age_year_col] - (0.75 if include_gestation else 0)
+    lifetime_climate_dfs = []
+    # get all years of life to explode later
+    df['years_of_life'] = df.apply(lambda row: list(range(int(np.floor(row['birth_year'])), int(row[year_col] + 1))), axis=1)
+    df_exploded = df[[lat_col, long_col, 'years_of_life', 'row_id']].explode('years_of_life').rename(columns={'years_of_life': 'life_year'})
+
+    unique_coords = df_exploded[[lat_col, long_col, 'life_year']].drop_duplicates()
+    df_splits = [year_df for _, year_df in unique_coords.groupby('life_year')]
+    p = mp.Pool(processes=25)
+    results_df = pd.concat(
+        p.map(
+            partial(get_climate_vars_for_year, climate_variables=CLIMATE_VAR_NAMES, year_col='life_year'), df_splits
+        )
+    )
+    p.close()
+    p.join()
+    # merge back to exploded df
+    df_merged = df_exploded.merge(results_df, how='left', validate="many_to_one")#merge_left_without_inflating(df_exploded, results_df, on=[lat_col, long_col, 'life_year'])
+    # average over lifetime
+    lifetime_climate_df = df_merged.groupby('row_id', as_index=False)[CLIMATE_VAR_NAMES].mean()
+    df_final = df.merge(lifetime_climate_df, how='left', on='row_id', validate="one_to_one")
+    #df_final = df_final.drop(columns=['row_id', 'birth_year', 'years_of_life'])
+    return df_final
+
 
 ELEVATION_FILEPATH = '/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/input/elevation/GLOBE_DEM_MOSAIC_Y2016M02D09.TIF'
 def get_elevation_for_dataframe(
@@ -232,6 +278,8 @@ def get_ldipc_from_asset_score(
             ldi = ldi.loc[ldi["scenario"] == 0].drop("scenario", axis=1)
         elif 4.5 in ldi.scenario.unique():
             ldi = ldi.loc[ldi["scenario"] == 4.5].drop("scenario", axis=1)
+        elif 'reference' in ldi.scenario.unique():
+            ldi = ldi.loc[ldi["scenario"] == 'reference'].drop("scenario", axis=1)
         else:
             raise ValueError("No valid scenario in LDI data.")
     print("Calculating four versions of LDI-PC (weighted/unweighted, match/no-match).")
@@ -636,6 +684,45 @@ def assign_sdi(df: pd.DataFrame, year_col: str = "year_start") -> pd.DataFrame:
         how="left",
     )
 
+def get_climate_vars_for_year_month(
+    year_df: pd.DataFrame,
+    climate_variables: list[str],
+    lat_col: str = "lat",
+    long_col: str = "long",
+    year_col: str = "climate_year",
+    month_col: str = "climate_month",
+) -> pd.DataFrame:
+    if year_df[year_col].nunique() != 1:
+        msg = "Multiple years in climate data."
+        raise ValueError(msg)
+
+    yr = year_df[year_col].iloc[0]
+
+    temp_df = year_df.copy()
+    lats = xr.DataArray(temp_df[lat_col], dims="point")
+    lons = xr.DataArray(temp_df[long_col], dims="point")
+    months = xr.DataArray(temp_df[month_col], dims="point")
+    for climate_variable in climate_variables:
+        # climate_ds = ClimateMalnutritionData(Path(DEFAULT_ROOT)/'stunting').load_climate_raster(climate_variable, 'ssp245', yr, 0)
+        # Temporary workaround for climate data loading
+        climate_ds = xr.open_dataset(
+            f"/mnt/share/erf/climate_downscale/results/monthly/raw/historical/{climate_variable}/{yr}_era5.nc"
+        )["value"].load()
+        if 'quantile' in climate_ds.coords:
+            thresholds = climate_ds['quantile'].values
+            for threshold in thresholds:
+                temp_df[f"days_over_{threshold}_quant"] = (
+                    climate_ds.sel(latitude=lats, longitude=lons, month=months, quantile=threshold, method="nearest")
+                    .to_numpy()
+                    .flatten()  
+                )
+        else:
+            temp_df[climate_variable] = (
+                climate_ds.sel(latitude=lats, longitude=lons, month=months, method="nearest")
+                .to_numpy()
+                .flatten()  # the flatten also wasn't there before
+            )
+    return temp_df
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
@@ -657,24 +744,14 @@ def clean_hh_id(row):
     cleaned = cleaned.lstrip('0') or '0'
     return cleaned
 
-
-output_root = DEFAULT_ROOT
-data_source_type = "cgf"
 def run_training_data_prep_main(  # noqa: PLR0915
     output_root: str | Path,
     data_source_type: str,
 ) -> None:
-    if data_source_type == 'cgf':
-        run_training_data_prep_cgf(output_root, data_source_type)
-    elif data_source_type != "cgf":
+    if data_source_type != "cgf":
         msg = f"Data source {data_source_type} not implemented yet."
         raise NotImplementedError(msg)
 
-
-def run_training_data_prep_cgf(  # noqa: PLR0915
-    output_root: str | Path,
-    data_source_type: str,
-) -> None:
     survey_data_path = SURVEY_DATA_PATHS[data_source_type]
     print(f"Running training data prep for {data_source_type}...")
 
@@ -736,7 +813,6 @@ def run_training_data_prep_cgf(  # noqa: PLR0915
     lsms_wealth_data = lsms_wealth_data.query('nid in @common_nids')
     dhs_wealth_data = dhs_wealth_data.query('nid in @common_nids')
     mics_wealth_data = mics_wealth_data.query('nid in @common_nids')
-
 
     # All of GBD's come from DHS. For GBD, we prefer the wealth data from the wealth team,
     # so subset to the nids in the DHS wealth data
@@ -896,9 +972,6 @@ def run_training_data_prep_cgf(  # noqa: PLR0915
     lsae_merged.loc[lsae_merged.sex_id == 0, "sex_id"] = 2
     print(len(lsae_merged))
 
-    # Drop rows from GBD dataset with missing location information
-    #gbd_cgf_data = gbd_cgf_data.dropna(subset=["lat", "long"], how="any")
-
 
     extra_nids = gbd_cgf_data_to_match.copy().drop(columns=['lat', 'long'])
 
@@ -911,7 +984,6 @@ def run_training_data_prep_cgf(  # noqa: PLR0915
     extra_nids_wealth["hh_id"] = extra_nids_wealth.apply(clean_hh_id, axis=1)
     extra_nids = merge_left_without_inflating(extra_nids, extra_nids_wealth, on=["nid", "ihme_loc_id", "hh_id", "psu", "year_start"])
     print(len(extra_nids))
-    #extra_nids = extra_nids.dropna(subset=["ldipc"])
 
     # Take out NIDs with more than 5% of missing wealth data
     allowed_wealth_nan_proportion = 0.05
@@ -933,14 +1005,12 @@ def run_training_data_prep_cgf(  # noqa: PLR0915
     ])
 
 
-
+    # Merge the two datasets and the NIDs that needed wealth information
     cgf_consolidated = pd.concat(
         [lsae_merged, gbd_only], ignore_index=True
     ).reset_index(drop=True)
 
     cgf_consolidated = cgf_consolidated.drop(columns=["strata", "geospatial_id"])
-    # selected_wealth_column = "ldi_pc_weighted_no_match"
-    # cgf_consolidated["ldi_pc_pd"] = cgf_consolidated["ldipc"] / 365
 
     # Assign age group
     cgf_consolidated = assign_age_group(cgf_consolidated, )
@@ -958,23 +1028,88 @@ def run_training_data_prep_cgf(  # noqa: PLR0915
     # after removing data with invalid age columns, remove it
     cgf_consolidated = cgf_consolidated.query("nid != 411301")
 
+    # Get the month of the interview, and then calculate the month of pregnancy for each row, to merge with monthly climate data
+    cgf_consolidated['computed_age_month'] = (cgf_consolidated.age_year * 12).round().astype(int)
+    cgf_consolidated.loc[cgf_consolidated.computed_age_month == 0, 'computed_age_month'] = cgf_consolidated.loc[cgf_consolidated.computed_age_month == 0, 'age_month'].round().astype(int)
+    cgf_consolidated['computed_age_month_preg'] = cgf_consolidated['computed_age_month'] + 9
 
-    # Merge with climate data
-    print("Processing climate data...")
-    climate_df = get_climate_vars_for_dataframe(cgf_consolidated)
-    cgf_consolidated = merge_left_without_inflating(cgf_consolidated, climate_df, on=["int_year", "lat", "long"])
+    # cases:
+    # age_year and age_month are concordant, age year includes fraction, age month is the total number of months
+    # age_year has years, age_month has 0
+    # age_year has 0, age_month has months
+    cgf_consolidated.loc[(cgf_consolidated.nid == 425283) & (cgf_consolidated.int_month.isna()), 'int_month'] = 1
+    cgf_consolidated = cgf_consolidated.reset_index(drop=True)
+    cgf_consolidated['row_id'] = cgf_consolidated.index
 
+    nids_with_missing_int_month = cgf_consolidated[cgf_consolidated['int_month'].isna()].nid.unique()
+    for nid in nids_with_missing_int_month:
+        print(cgf_consolidated.query("nid == @nid and int_month.notnull()").int_month.mode())
+        mode_month = cgf_consolidated.query("nid == @nid and int_month.notnull()").int_month.mode()[0]
+        cgf_consolidated.loc[(cgf_consolidated['nid'] == nid) & (cgf_consolidated['int_month'].isna()), 'int_month'] = mode_month
+
+    for col in ['int_year', 'year_start', 'year_end', 'int_month']:
+        cgf_consolidated[col] = cgf_consolidated[col].astype(int)
+
+    # Calculate the month and year of the interview for each row, 
+    # and then explode the dataframe so that there's one row per month of pregnancy for each child, 
+    # to merge with monthly climate data
+    df = cgf_consolidated[['row_id', 'int_year', 'int_month', 'computed_age_month_preg', 'lat', 'long']].drop_duplicates().reset_index(drop=True)
+
+    df_exploded = df.loc[df.index.repeat(df['computed_age_month_preg'])]
+
+    # Helper column to calculate the month of the interview for each row after exploding
+    df_exploded['i'] = df_exploded.groupby(df_exploded.index).cumcount()
+
+    total_months_calc = (
+        df_exploded['int_year'] * 12 + 
+        df_exploded['int_month'] - 
+        df_exploded['i'] - 1
+    )
+
+    df_exploded['climate_year'] = total_months_calc // 12
+    df_exploded['climate_month'] = 1 + (total_months_calc % 12)
+    df_exploded = df_exploded.drop(columns=['i'])
+
+    unique_year_month_loc = df_exploded[['climate_year', 'climate_month', 'lat', 'long']].drop_duplicates().reset_index(drop=True)
+    year_col = 'climate_year'
+
+    climate_variables =['days_over_24C', 'days_over_25C', 'days_over_26C', 'days_over_27C', 'days_over_28C', 
+        'days_over_29C', 'days_over_30C', 'days_over_31C', 'days_over_32C', 'mean_temperature', 
+        'total_precipitation', 'days_over_relative_threshold']
+    n_threads = 25
+    df_splits =  [year_df for _, year_df in unique_year_month_loc.groupby(year_col)]
+
+    with mp.Pool(n_threads) as pool:
+        climate_month_df = pd.concat(list(tqdm.tqdm(pool.imap_unordered(partial(get_climate_vars_for_year_month, climate_variables=climate_variables), df_splits), total=len(df_splits))))
+
+    results_df = df_exploded.merge(
+        climate_month_df,
+        on=['climate_year', 'climate_month', 'lat', 'long'],
+        how='left',
+        validate='many_to_one'
+    )
 
     print("Adding elevation data...")
     cgf_consolidated = get_elevation_for_dataframe(cgf_consolidated)
 
     cgf_consolidated = assign_lbd_admin2_location_id(cgf_consolidated)
-    #cgf_consolidated = assign_sdi(cgf_consolidated)
+
+    relative_thresh_vars = [x for x in results_df.columns if x.startswith('days_over_') and x.endswith('quant')]
+    vars_to_agg = [x for x in climate_variables if x != 'days_over_relative_threshold'] + relative_thresh_vars
+    climate_month_df_agg = results_df.groupby('row_id')[vars_to_agg].mean().reset_index()
+    climate_month_df_agg = climate_month_df_agg.rename(columns={col: f"{col}_month" for col in vars_to_agg})
+    merged_df = cgf_consolidated.merge(
+        climate_month_df_agg,
+        on='row_id',
+        how='left',
+        validate='one_to_one'
+    )
+    cgf_consolidated = merged_df
 
 
     #Write to output
     for measure in MEASURES_IN_SOURCE[data_source_type]:
-        measure_df = cgf_consolidated[cgf_consolidated[measure].notna()].copy().drop(columns=[x for x in cgf_consolidated.columns if '_x' in x or '_y' in x])
+        measure_df = cgf_consolidated[cgf_consolidated[measure].notna()].copy().drop(columns=[x for x in cgf_consolidated.columns if x.endswith('_x') or x.endswith('_y')])
         measure_df["cgf_measure"] = measure
         measure_df["cgf_value"] = measure_df[measure]
         measure_root = Path(output_root) / measure

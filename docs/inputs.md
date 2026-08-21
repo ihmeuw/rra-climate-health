@@ -23,3 +23,20 @@ However, the income distributions and asset distributions often don't have the s
 We use the reported geographical coordinates in the DHS survey –even though they refer to the location of the PSU– to map the correct climate conditions for the household for all the available climate variables such as mean temperature, days above 30C, and precipitation.
 
 We also use those coordinates to triangulate the altitude / elevation of the household.
+
+## GBD comparison inputs
+
+The residual step compares the forecast against GBD, so it needs cached GBD
+prevalence, SEVs and prevalence/SEV pairs in
+`{output_root}/input/gbd_prevalence/`. Those files are created by
+`src/rra_climate_health/data_prep/save_gbd_inputs.py`, which must be run **with
+an IHME environment rather than the project's pixi environment** because it is
+the only thing here that uses `get_draws` and `db_queries`:
+
+```bash
+/path/to/ihme/python src/rra_climate_health/data_prep/save_gbd_inputs.py \
+    --output-root /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition
+```
+
+See [Residual Modeling](residual.md) for the full list of files and how the step
+uses them.

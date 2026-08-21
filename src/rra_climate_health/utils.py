@@ -2,9 +2,12 @@ import rasterra as rt
 import xarray as xr
 import pandas as pd
 import numpy as np
+from rpy2 import robjects as ro
+from rpy2.robjects import pandas2ri, packages
+from rpy2.robjects.packages import importr
 
 from rasterio.features import rasterize
-from rra_climate_health.model_specification import ModelSpecification
+from rra_climate_health.model_specification import ModelSpecification, ModelType
 from rra_climate_health.data import ClimateMalnutritionData
 
 def xarray_to_raster(ds: xr.DataArray, nodata: float | int) -> rt.RasterArray:
@@ -47,49 +50,95 @@ def get_intercept_raster(
         raise ValueError(error_message)
     raster_template = cm_data.load_raster_template()
     icept = coefs.loc["(Intercept)"]["Estimate"]
-    if pred_spec.random_effect == "ihme_loc_id":
-        fhs_shapes = cm_data.load_fhs_shapes(most_detailed_only=False)
-        shapes = list(
-            ranefs["X.Intercept."]
-            .reset_index()
-            .merge(fhs_shapes, left_on="index", right_on="ihme_lc_id", how="left")
-            .loc[:, ["geometry", "X.Intercept."]]
-            .itertuples(index=False, name=None)
-        )
-        icept_arr = rasterize(
-            shapes,
-            out=np.zeros_like(raster_template),
-            transform=raster_template.transform,
-        )
-        icept_raster = rt.RasterArray(
-            icept + icept_arr,
-            transform=raster_template.transform,
-            crs=raster_template.crs,
-            no_data_value=np.nan,
-        )
-    elif pred_spec.random_effect == "lbd_admin2_id":
-        fhs_shapes = cm_data.load_lbd_admin2_shapes()
-        shapes = list(
-            ranefs["X.Intercept."]
-            .reset_index()
-            .merge(fhs_shapes, left_on="index", right_on="loc_id", how="left")
-            .loc[:, ["geometry", "X.Intercept."]]
-            .itertuples(index=False, name=None)
-        )
-        icept_arr = rasterize(
-            shapes,
-            out=np.zeros_like(raster_template),
-            transform=raster_template.transform,
-        )
-        icept_raster = rt.RasterArray(
-            icept + icept_arr,
-            transform=raster_template.transform,
-            crs=raster_template.crs,
-            no_data_value=np.nan,
-        )
-    elif not pred_spec.random_effect:
+
+    if model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS:
+        ranef_loc_var = 'ihme_loc_id' if 'ihme_loc_id' in ranefs.index.names else 'lbd_admin2_id'
+        ranef_var = 'offset'
+    elif model_spec.model_type == ModelType.LINEAR_MIXED_EFFECTS:
+        ranef_loc_var = 'index'
+        ranef_var = 'X.Intercept.'
+
+    if not pred_spec.random_effect:
         icept_raster = raster_template + icept
-    else:
-        msg = "Only location random intercepts are supported"
-        raise NotImplementedError(msg)
+        return icept_raster
+    
+    if pred_spec.random_effect == 'ihme_loc_id':
+        fhs_shapes = cm_data.load_fhs_shapes(most_detailed_only=False)
+        loc_var = 'ihme_lc_id'
+    elif pred_spec.random_effect == 'lbd_admin2_id':
+        fhs_shapes = cm_data.load_lbd_admin2_shapes()
+        loc_var = 'lbd_admin2_id'
+
+    shapes = list(
+        ranefs[ranef_var].reset_index()
+        .merge(fhs_shapes, left_on=ranef_loc_var, right_on=loc_var, how="left")
+        .loc[:, ["geometry", ranef_var]]
+        .itertuples(index=False, name=None)
+    )
+    icept_arr = rasterize(
+        shapes,
+        out=np.zeros_like(raster_template),
+        transform=raster_template.transform,
+    )
+    icept_raster = rt.RasterArray(
+        icept + icept_arr,
+        transform=raster_template.transform,
+        crs=raster_template.crs,
+        no_data_value=np.nan,
+    )
     return icept_raster
+
+    # if pred_spec.random_effect == "ihme_loc_id":
+    #     fhs_shapes = cm_data.load_fhs_shapes(most_detailed_only=False)
+    #     shapes = list(
+    #         ranefs["X.Intercept."]
+    #         .reset_index()
+    #         .merge(fhs_shapes, left_on="index", right_on="ihme_lc_id", how="left")
+    #         .loc[:, ["geometry", "X.Intercept."]]
+    #         .itertuples(index=False, name=None)
+    #     )
+    #     icept_arr = rasterize(
+    #         shapes,
+    #         out=np.zeros_like(raster_template),
+    #         transform=raster_template.transform,
+    #     )
+    #     icept_raster = rt.RasterArray(
+    #         icept + icept_arr,
+    #         transform=raster_template.transform,
+    #         crs=raster_template.crs,
+    #         no_data_value=np.nan,
+    #     )
+    # elif pred_spec.random_effect == "lbd_admin2_id":
+    #     fhs_shapes = cm_data.load_lbd_admin2_shapes()
+    #     shapes = list(
+    #         ranefs["X.Intercept."]
+    #         .reset_index()
+    #         .merge(fhs_shapes, left_on="index", right_on="loc_id", how="left")
+    #         .loc[:, ["geometry", "X.Intercept."]]
+    #         .itertuples(index=False, name=None)
+    #     )
+    #     icept_arr = rasterize(
+    #         shapes,
+    #         out=np.zeros_like(raster_template),
+    #         transform=raster_template.transform,
+    #     )
+    #     icept_raster = rt.RasterArray(
+    #         icept + icept_arr,
+    #         transform=raster_template.transform,
+    #         crs=raster_template.crs,
+    #         no_data_value=np.nan,
+    #     )
+    # elif not pred_spec.random_effect:
+    #     icept_raster = raster_template + icept
+    # else:
+    #     msg = "Only location random intercepts are supported"
+    #     raise NotImplementedError(msg)
+    # return icept_raster
+
+def get_year_variable(df: pd.DataFrame) -> str:
+    prioritized_year_vars = ['year_start', 'int_year', 'year']
+    for var in prioritized_year_vars:
+        if var in df.columns:
+            return var
+    msg = f"None of the prioritized year variables found in dataframe columns: {prioritized_year_vars}"
+    raise ValueError(msg)

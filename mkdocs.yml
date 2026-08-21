@@ -15,9 +15,13 @@ theme:
 
 nav:
   - Introduction: 'index.md'
+  - Running the pipeline: 'running.md'
+  - Current Versions: 'versions.md'
   - Input Data: 'inputs.md'
   - Training Methodology: 'model.md'
   - Inference and Forecasting: 'inference.md'
+  - Residual Modeling: 'residual.md'
+  - Residual Port Duplication Notes: 'residual_duplication_notes.md'
   - api_docs.md
   - changelog.md
 

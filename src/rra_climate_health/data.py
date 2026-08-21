@@ -11,9 +11,11 @@ import pandas as pd
 import rasterra as rt
 import xarray as xr
 from rra_tools.shell_tools import mkdir, touch
+from rpy2.robjects import pandas2ri, packages, r
+import rpy2.robjects as ro
 
 from rra_climate_health.transforms import transform_column
-from rra_climate_health.model_specification import ModelSpecification
+from rra_climate_health.model_specification import ModelSpecification, ModelType
 from rra_climate_health.results_specification import (
     ResultsSpecification,
     ResultsVersionSpecification,
@@ -73,7 +75,16 @@ class ClimateMalnutritionData:
             var_info[var] = {
                 "transformer": transformer,
                 "transform_spec": transform_spec,
+                "max": transformed.max(),
+                "min": transformed.min(),
             }
+            # If it's spline mixed effects and the variabel is categorical, convert to category dtype for modeling
+            if model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS and transform_spec.type == "categorical":
+                # If it's a numerical, convert to integer first
+                if pd.api.types.is_numeric_dtype(transformed_data[var]):
+                    transformed_data[var] = transformed_data[var].astype(int).astype(str).astype("category")
+                else:
+                    transformed_data[var] = transformed_data[var].astype(str).astype("category")
 
         df = pd.DataFrame(transformed_data)
 
@@ -93,8 +104,11 @@ class ClimateMalnutritionData:
         for random_effect in model_spec.random_effects:
             if random_effect not in df:
                 df[random_effect] = raw_model_data[random_effect]
+            if model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS:
+                df[random_effect] = df[random_effect].astype('category')
 
         df[model_spec.measure] = raw_model_data[model_spec.measure]
+            
 
         return df, var_info
 
@@ -136,6 +150,8 @@ class ClimateMalnutritionData:
         self,
         model: "Lmer",
         version: str,
+        model_spec: ModelSpecification,
+        df: pd.DataFrame,
         submodel: list[tuple[str, str]] | None = None,
     ) -> None:
         model_root = self.models / version
@@ -157,12 +173,98 @@ class ClimateMalnutritionData:
         
         coefs_filepath = model_root / (model_filename_base + "_coefs.parquet")
         touch(coefs_filepath, exist_ok=True)
-        model.coefs.to_parquet(coefs_filepath)
-
         random_effects_filepath = model_root / (model_filename_base + "_ranef.parquet")
         touch(random_effects_filepath, exist_ok=True)
-        model.ranef.to_parquet(random_effects_filepath)
 
+        if model_spec.model_type == ModelType.LINEAR_MIXED_EFFECTS:
+            model.coefs.to_parquet(coefs_filepath)
+            model.ranef.to_parquet(random_effects_filepath)
+        elif model_spec.model_type == ModelType.SPLINE_MIXED_EFFECTS:
+            extract_fixed_effects_from_scam(model).to_parquet(coefs_filepath)
+            extract_random_effects_from_scam(model, 'ihme_loc_id').to_parquet(random_effects_filepath)
+            for predictor in model_spec.predictors:
+                if predictor.spline is not None:
+                    print(f"Saving spline effects for predictor {predictor.name}, spline {predictor.spline}")
+                    self.save_spline_effects(model, model_spec, predictor, df, model_root, model_filename_base)
+
+    def save_spline_effects(self, model, model_spec, predictor, df, model_root, model_filename_base):
+        # Extract the spline effects for this predictor and save to a file
+        spline_effects = self.extract_spline_effects_from_scam(model, predictor, df)
+        spline_effects_filepath = model_root / f"{model_filename_base}_{predictor.name}_spline_effects.parquet"
+        touch(spline_effects_filepath, exist_ok=True)
+        spline_effects.to_parquet(spline_effects_filepath)
+    
+    def load_spline_effects(self, version: str, predictor_name: str, submodel: list[tuple[str, str]] | None = None, **kwargs) -> pd.DataFrame:
+        model_root = self.models / version
+        if submodel:
+            submodel_str = self.SUBMODEL_VARIABLE_SEPARATOR.join(
+                [
+                    f"{name}{self.SUBMODEL_VALUE_SEPARATOR}{value}"
+                    for name, value in submodel
+                ]
+            )
+            model_filename_base = f"{submodel_str}"
+        else:
+            model_filename_base = "base_model"
+        spline_effects_filepath = model_root / f"{model_filename_base}_{predictor_name}_spline_effects.parquet"
+        return pd.read_parquet(spline_effects_filepath, **kwargs)
+        
+    def extract_spline_effects_from_scam(self, model, predictor, data_source):
+        scam_lib = packages.importr('scam')
+        pandas2ri.activate()
+        var_name = predictor.name
+        points_df = self.get_points_for_spline_effect(predictor, model)
+        n_points = len(points_df)
+        grid_df = data_source.iloc[[0]*n_points].reset_index(drop=True).copy()
+        grid_df[var_name] = points_df['transformed_value'].values
+        pred = scam_lib.predict_scam(model, newdata=grid_df, type='terms', se_fit=True)
+        pandas2ri.deactivate()
+
+        fit_matrix = np.array(pred.rx2('fit'))
+        #se_matrix = np.array(pred.rx2('se.fit'))
+        col_names = list(r.colnames(pred.rx2('fit')))
+        
+        target_col = [i for i, name in enumerate(col_names) if f"s({var_name})" in name][0]
+        points_df['effect'] = fit_matrix[:, target_col]
+        # points_df['se'] = se_matrix[:, target_col]
+        return points_df
+    
+    def get_points_for_spline_effect(self, predictor, model):
+        var_info = model.var_info[predictor.name]
+
+        # if predictor.name == 'days_over_30C':
+        #     initial_points = list(range(0, 366))
+        # elif predictor.name.startswith('days_over') and '9m' in predictor.name:
+        #     initial_points = [x/9 for x in list(range(0, 279))]
+        # elif predictor.name.startswith('days_over') and '6m' in predictor.name:
+        #     initial_points = [x/6 for x in list(range(0, 183))]
+        # elif predictor.name.startswith('days_over') and '3m' in predictor.name:
+        #     initial_points = [x/3 for x in list(range(0, 92))]
+        # elif predictor.name.startswith('days_over') and '1m' in predictor.name:
+        #     initial_points = [x for x in list(range(0, 31))]
+        # elif predictor.name.startswith('days_over') and 'month' in predictor.name:
+        #     initial_points = np.linspace(0, 31, num=1000).tolist()
+        if predictor.name.startswith('days_over'):
+            # Cover all possible values for yearly and monthly
+            initial_points = list(range(0, 366)) + [x/12 for x in list(range(0, 366))] + np.linspace(0, 31, num=1000).tolist()
+            # Remove duplicates and sort
+            initial_points = sorted(list(set(initial_points)))
+
+        if predictor.name.startswith('ldi_pc_pd') or predictor.name.startswith('consumption_pd'):
+            points_df = self.load_ldi_distributions('admin2', predictor.version)
+            points_df['value'] = points_df['ldipc'] / 365.25
+        else:
+            points_df = pd.DataFrame({
+                'value': initial_points,
+            })
+
+        converted_points = var_info['transformer'](np.array(points_df['value']).reshape(-1, 1)).flatten()
+        points_df['transformed_value'] = converted_points
+        return points_df
+    
+    def load_admin2_raster(self):
+        path = self.shared_inputs / "admin2_1285_raster.tif"
+        return rt.load_raster(path)
     
     def load_model_family(
         self,
@@ -183,7 +285,6 @@ class ClimateMalnutritionData:
                     tuple(var_str.split(self.SUBMODEL_VALUE_SEPARATOR))
                     for var_str in filepath.stem.split(self.SUBMODEL_VARIABLE_SEPARATOR)
                 ]
-            print(submodel_def)
             for var_name, var_value in submodel_def:
                 model_dict[var_name] = var_value
 
@@ -294,11 +395,12 @@ class ClimateMalnutritionData:
         year: str | int,
         age_group_id: str | int,
         sex_id: str | int,
+        draw: int,
     ) -> Path:
         return (
             self.results
             / results_version
-            / f"{year}_{scenario}_{age_group_id}_{sex_id}.tif"
+            / f"{year}_{scenario}_{age_group_id}_{sex_id}_{draw}.tif"
         )
 
     def save_raster_results(
@@ -309,9 +411,10 @@ class ClimateMalnutritionData:
         year: str | int,
         age_group_id: str | int,
         sex_id: str | int,
+        draw: int,
     ) -> None:
         path = self.raster_results_path(
-            results_version, scenario, year, age_group_id, sex_id
+            results_version, scenario, year, age_group_id, sex_id, draw
         )
         mkdir(path.parent, parents=True, exist_ok=True)
         save_raster(results, path)
@@ -366,9 +469,85 @@ class ClimateMalnutritionData:
         path = self.results / results_version / "forecast.parquet"
         return pd.read_parquet(path)
 
+    #############################
+    # Residual step artifacts   #
+    #############################
+
+    def scenario_draws_path(self, results_version: str, scenario: str) -> Path:
+        return self.results / results_version / f"{scenario}.parquet"
+
+    def load_scenario_draws(self, results_version: str, scenario: str) -> pd.DataFrame:
+        """Load the per-scenario draws written by the forecasting step."""
+        path = self.scenario_draws_path(results_version, scenario)
+        if not path.exists():
+            message = f"File {path} does not exist."
+            raise FileNotFoundError(message)
+        return pd.read_parquet(path)
+
+    def shifted_scenario_draws_path(self, results_version: str, scenario: str) -> Path:
+        return self.results / results_version / f"{scenario}_shifted.parquet"
+
+    def save_shifted_scenario_draws(
+        self, draws: pd.DataFrame, results_version: str, scenario: str
+    ) -> None:
+        path = self.shifted_scenario_draws_path(results_version, scenario)
+        touch(path, exist_ok=True)
+        draws.to_parquet(path)
+
+    def load_shifted_scenario_draws(
+        self, results_version: str, scenario: str
+    ) -> pd.DataFrame:
+        return pd.read_parquet(
+            self.shifted_scenario_draws_path(results_version, scenario)
+        )
+
+    def shifted_prevalence_path(self, results_version: str) -> Path:
+        return self.results / results_version / "shifted_prevalence.parquet"
+
+    def save_shifted_prevalence(
+        self, draws: pd.DataFrame, results_version: str
+    ) -> None:
+        path = self.shifted_prevalence_path(results_version)
+        touch(path, exist_ok=True)
+        draws.to_parquet(path)
+
+    def load_shifted_prevalence(self, results_version: str) -> pd.DataFrame:
+        return pd.read_parquet(self.shifted_prevalence_path(results_version))
+
+    def adjusted_sev_draws_path(self, results_version: str) -> Path:
+        return self.results / results_version / "adjusted_sev_draws.parquet"
+
+    def save_adjusted_sev_draws(
+        self, draws: pd.DataFrame, results_version: str
+    ) -> None:
+        path = self.adjusted_sev_draws_path(results_version)
+        touch(path, exist_ok=True)
+        draws.to_parquet(path)
+
+    def load_adjusted_sev_draws(self, results_version: str) -> pd.DataFrame:
+        return pd.read_parquet(self.adjusted_sev_draws_path(results_version))
+
+    def sev_means_path(self, results_version: str) -> Path:
+        return self.results / results_version / "sev_means.parquet"
+
+    def save_sev_means(self, means: pd.DataFrame, results_version: str) -> None:
+        path = self.sev_means_path(results_version)
+        touch(path, exist_ok=True)
+        means.to_parquet(path)
+
+    def load_sev_means(self, results_version: str) -> pd.DataFrame:
+        return pd.read_parquet(self.sev_means_path(results_version))
+
     @property
     def shared_inputs(self) -> Path:
         return self.root.parent / "input"
+
+    @property
+    def gbd_inputs(self) -> Path:
+        return self.shared_inputs / "gbd_prevalence"
+
+    def load_age_group_metadata(self) -> pd.DataFrame:
+        return pd.read_parquet(self.gbd_inputs / "age_group_metadata.parquet")
 
     def load_ldi_distributions(self, geospecificity: str, version: str) -> pd.DataFrame:
         if geospecificity != "national" and geospecificity != "admin2":
@@ -382,8 +561,8 @@ class ClimateMalnutritionData:
         return self.shared_inputs / "ldi_raster" / version / str(scenario) / f"{year}_{percentile}.tif"
 
     def load_ldi_raster(self, scenario: int | str, year: int | str, percentile: float | str, version: str) -> rt.RasterArray:
-        # Temporary: we don't actually use the scenarios for income/consumption so just use reference/4.5
-        return rt.load_raster(self.ldi_raster_path(0, year, percentile, version)).astype(np.float32)
+        return rt.load_raster(self.ldi_raster_path(scenario, year, percentile, version)).astype(np.float32)
+
 
     def save_ldi_raster(
         self,
@@ -434,7 +613,7 @@ class ClimateMalnutritionData:
         save_raster(variable_raster, path, **kwargs)
 
     def load_elevation(self) -> rt.RasterArray:
-        return rt.load_raster(self.shared_inputs / "GLOBE_DEM_MOSAIC_Y2016M02D09.TIF").set_no_data_value(-32768).astype(np.float32)
+        return rt.load_raster(self.shared_inputs / 'elevation' / "GLOBE_DEM_MOSAIC_Y2016M02D09.TIF").set_no_data_value(-32768).astype(np.float32)
 
     #########################
     # Upstream paths we own #
@@ -444,6 +623,7 @@ class ClimateMalnutritionData:
     _RAW_DATA_ROOT = _POP_DATA_ROOT / "01-raw-data"
     _PROCESSED_DATA_ROOT = _POP_DATA_ROOT / "02-processed-data"
     _CLIMATE_DATA_ROOT = Path("/mnt/share/erf/climate_downscale/results/annual")
+    _POPULATION_MODEL_OUTPUT_ROOT = Path("/mnt/team/rapidresponse/pub/population-model/results")
 
     def save_lbd_admin2_shapes(self, gdf: gpd.GeoDataFrame) -> None:
         path = self._PROCESSED_DATA_ROOT / "ihme" / "lbd_admin2.parquet"
@@ -451,19 +631,24 @@ class ClimateMalnutritionData:
         gdf.to_parquet(path)
 
     def load_lbd_admin2_shapes(self) -> gpd.GeoDataFrame:
-        path = self._PROCESSED_DATA_ROOT / "ihme" / "lbd_admin2.parquet"
+        # path = self._PROCESSED_DATA_ROOT / "ihme" / "lbd_admin2.parquet"
+        path = self.shared_inputs / "shapefiles" / "admin2_1285.parquet"
         return gpd.read_parquet(path)
 
+    def load_lbd_admin2_location_id_rasater(self) -> rt.RasterArray:
+        path = self.shared_inputs / "input" / "admin2_1285_raster.tif"
+        return rt.load_raster(path).set_no_data_value(np.nan).astype(np.float32)
+
     def save_fhs_shapes(self, gdf: gpd.GeoDataFrame) -> None:
-        path = self._PROCESSED_DATA_ROOT / "ihme" / "fhs_most_detailed.parquet"
+        path = self.shared_inputs / "shapefiles" / "fhs_most_detailed_shapefile.parquet"
         touch(path, exist_ok=True)
         gdf.to_parquet(path)
 
     def load_fhs_shapes(self, *, most_detailed_only: bool = True) -> gpd.GeoDataFrame:
-        path = self._PROCESSED_DATA_ROOT / "ihme" / "fhs_most_detailed.parquet"
+        path = self.shared_inputs / "shapefiles" / "fhs_23.parquet"
         fhs_shapes = gpd.read_parquet(path)
 
-        hierarchy_path = self._PROCESSED_DATA_ROOT / "ihme" / "fhs_hierarchy.parquet"
+        hierarchy_path = self.shared_inputs / "fhs_location_metadata.parquet"
         hierarchy = pd.read_parquet(hierarchy_path)
         most_detailed_locs = hierarchy.loc[
             hierarchy.most_detailed == 1, "location_id"
@@ -477,7 +662,7 @@ class ClimateMalnutritionData:
         return fhs_shapes
 
     def load_fhs_hierarchy(self) -> pd.DataFrame:
-        path = self._PROCESSED_DATA_ROOT / "ihme" / "fhs_hierarchy.parquet"
+        path = self.shared_inputs / "fhs_hierarchy.parquet"
         hierarchy = pd.read_parquet(path)
         return hierarchy
 
@@ -500,10 +685,10 @@ class ClimateMalnutritionData:
 
     def load_population_raster(self) -> rt.RasterArray:
         path = (
-            self._RAW_DATA_ROOT
-            / "other-gridded-pop-projects"
-            / "global-human-settlement-layer"
-            / "1km_population.tif"
+            self._POPULATION_MODEL_OUTPUT_ROOT
+            / "2026_05_16"
+            / "wgs84_0p01"
+            / "2023q1.tif"
         )
         return rt.load_raster(path).set_no_data_value(np.nan).astype(np.float32)
 
@@ -516,6 +701,7 @@ class ClimateMalnutritionData:
             self._CLIMATE_DATA_ROOT / scenario / variable / f"{draw:03}.nc"
         )
         return xr.open_dataset(path).sel(year=year)["value"]
+
 
 
 def get_run_directory(output_root: str | Path) -> Path:
@@ -558,3 +744,103 @@ def save_raster(
     }
     touch(output_path, exist_ok=True)
     raster.to_file(output_path, **save_params)
+
+
+def get_scam_spline_effect(model, var_name, data_source, n_points=100, value_source=None):
+    scam_lib = packages.importr('scam')
+    pandas2ri.activate()
+    grid_df = data_source.iloc[[0]*n_points].reset_index(drop=True).copy()
+    vmin, vmax = data_source[var_name].min(), data_source[var_name].max()
+    grid_np = np.linspace(vmin, vmax, n_points)
+    grid_df[var_name] = grid_np
+    pred = scam_lib.predict_scam(model, newdata=grid_df, type='terms', se_fit=True)
+    pandas2ri.deactivate()
+
+    fit_matrix = np.array(pred.rx2('fit'))
+    se_matrix = np.array(pred.rx2('se.fit'))
+    col_names = list(r.colnames(pred.rx2('fit')))
+    
+    target_col = [i for i, name in enumerate(col_names) if f"s({var_name})" in name][0]
+
+    if value_source is not None:
+        real_min, real_max = value_source[var_name].min(), value_source[var_name].max()
+        real_value_grid_np = np.linspace(real_min, real_max, n_points)
+
+    return pd.DataFrame({
+        'value': real_value_grid_np if value_source is not None else grid_np,
+        'effect': fit_matrix[:, target_col],
+        'se': se_matrix[:, target_col]
+    })
+
+
+def extract_fixed_effects_from_scam(model):
+    pandas2ri.deactivate()
+    
+    # 1. Get the model summary
+    base = ro.baseenv['summary']
+    model_summary = base(model)
+    
+    # 2. Extract the parametric table (p.table)
+    p_table = model_summary.rx2('p.table')
+    
+    # 3. Safely extract the row names directly from the p.table
+    # This avoids slicing the full coefficients list and sidesteps NULLType vector names
+    rownames_func = ro.baseenv['rownames']
+    p_table_names = list(rownames_func(p_table))
+    
+    # 4. Convert the matrix to a numpy array for pandas
+    p_table_values = np.array(p_table)
+    
+    # 5. Build the DataFrame
+    fixed_effects_df = pd.DataFrame(
+        p_table_values,
+        columns=['Estimate', 'std_error', 'statistic', 'p_value']
+    )
+    
+    # 6. Insert the perfectly matched terms
+    fixed_effects_df.insert(0, 'term', p_table_names)
+
+    fixed_effects_df = fixed_effects_df.set_index('term')
+    
+    return fixed_effects_df
+
+def extract_random_effects_from_scam(model, random_effect_name='ihme_loc_id'):
+    # Deactivate pandas2ri to work with raw R objects without conversion issues
+    base = packages.importr('base')
+    stats = packages.importr('stats')
+    pandas2ri.deactivate()
+    # We need to get the categorical levels to build the random effects table
+    m_frame = model.rx2('model')
+    loc_column = m_frame.rx2(random_effect_name)
+    re_levels = list(base.levels(loc_column))
+
+    # Extract the coefficient values
+    all_coefs = np.array(stats.coef(model))
+    smooth_info = model.rx2('smooth')
+
+    # Find the specific smooth object to get the coefficient pointers
+    re_smooth = None
+    for s in smooth_info:
+        if random_effect_name in str(s.rx2('label')[0]):
+            re_smooth = s
+            break
+
+    if re_smooth and re_levels:
+        first = int(re_smooth.rx2('first.para')[0]) - 1
+        last = int(re_smooth.rx2('last.para')[0])
+        re_values = all_coefs[first:last].flatten()
+        
+        # Check lengths match before building
+        if len(re_levels) == len(re_values):
+            random_effects_df = pd.DataFrame({
+                random_effect_name: re_levels,
+                'offset': re_values
+            })
+            random_effects_df.set_index(random_effect_name, inplace=True)
+            return random_effects_df
+        else:
+            raise ValueError(
+                 f"Length mismatch: {len(re_levels)} levels vs {len(re_values)} coefficients."
+            )
+    raise ValueError("Could not find the random effect smooth or levels in the model.")
+

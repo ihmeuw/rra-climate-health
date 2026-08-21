@@ -9,61 +9,56 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/python-poetry-env
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          # The cluster envs need the IHME artifactory, which CI cannot reach.
+          # Only the default + dev solve group is updated here.
+          environments: dev
 
-      - name: Install tabulate
-        run: python -m pip install tabulate
-
-      - name: Gather outdated dependencies
-        id: check_for_outdated_dependencies
+      - name: Update lockfile (default + dev envs only)
+        id: update
         run: |
-          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
-          body=$(poetry show -o -n)
+          pixi update --no-install -e default -e dev | tee /tmp/update.log
+          if git diff --quiet pixi.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
+      - name: Format PR body
+        if: steps.update.outputs.changed == 'true'
+        id: body
+        run: |
           EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
           {
             echo "body<<$EOF"
-            echo "$body"
+            echo "Auto-update of \`pixi.lock\` for the default + dev environments."
+            echo ""
+            echo "Cluster envs (with the IHME-internal \`jobmon\`) are not updated"
+            echo "from CI because the runner cannot reach the IHME artifactory."
+            echo "Refresh them locally with \`pixi update -e cluster -e cluster-dev\`."
+            echo ""
+            echo "<details><summary>pixi update output</summary>"
+            echo ""
+            echo '```'
+            cat /tmp/update.log
+            echo '```'
+            echo ""
+            echo "</details>"
             echo "$EOF"
           } >> "$GITHUB_OUTPUT"
-          echo "$body"
-
-      - name: Format PR message
-        if: ${{ steps.check_for_outdated_dependencies.outputs.body != 0 }}
-        id: get_outdated_dependencies
-        shell: bash
-        run: |
-          body=$(poetry show -o -n | sed 's/(!)//' | awk 'BEGIN {print "Package","Used","Update"}; {print $1,$2,$3}' | tabulate --header --format github -)
-          body=$(cat <<EOF
-          The following packages are outdated
-
-          $body
-          EOF
-          )
-
-          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
-          {
-            echo "body<<$EOF"
-            echo "$body"
-            echo "$EOF"
-          } >> "$GITHUB_OUTPUT"
-          echo "$body"
-
-      - name: Update outdated packages
-        if: ${{ steps.check_for_outdated_dependencies.outputs.body != 0 }}
-        run: poetry lock
 
       # behaviour if PR already exists: https://github.com/marketplace/actions/create-pull-request#action-behaviour
       - name: Create Pull Request
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        if: ${{ steps.check_for_outdated_dependencies.outputs.body != 0 && env.GITHUB_TOKEN != 0 }}
+        if: ${{ steps.update.outputs.changed == 'true' && env.GITHUB_TOKEN != 0 }}
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ env.GITHUB_TOKEN }}
           commit-message: >-
             chore: update dependencies
           title: "[Actions] Auto-Update dependencies"
-          body: ${{ steps.get_outdated_dependencies.outputs.body }}
+          body: ${{ steps.body.outputs.body }}
           branch: chore/update-dependencies
           delete-branch: true

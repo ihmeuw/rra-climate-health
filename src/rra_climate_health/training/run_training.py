@@ -6,17 +6,21 @@ import click
 import pandas as pd
 import rasterra as rt
 from pymer4.models.Lmer import Lmer
+from rpy2.robjects import pandas2ri, packages,  ListVector, FloatVector
+
 from rra_tools import jobmon
 
 from rra_climate_health import cli_options as clio
-from rra_climate_health.data import DEFAULT_ROOT, ClimateMalnutritionData
+from rra_climate_health.data import DEFAULT_ROOT, ClimateMalnutritionData, extract_fixed_effects_from_scam, extract_random_effects_from_scam
+
 from rra_climate_health.model_specification import (
     ModelSpecification,
 )
 from rra_climate_health.transforms import transform_column
 from rra_climate_health import utils
-
-
+from rra_climate_health.training import training_validation, training_diagnostics
+from rra_climate_health.training.training_validation import get_knot_values
+from rra_climate_health.model_specification import ModelType
 
 def model_training_main(
     output_root: Path,
@@ -40,7 +44,12 @@ def model_training_main(
             retyped_value = full_training_data[var].dtype.type(value)
             subset_mask = (full_training_data[var] == retyped_value) & subset_mask
 
-    raw_df = full_training_data.loc[:, model_spec.raw_variables]
+    year_variable = utils.get_year_variable(full_training_data)
+    columns_to_keep = model_spec.raw_variables
+    if year_variable not in columns_to_keep:
+        columns_to_keep.append(year_variable)
+    
+    raw_df = full_training_data.loc[:, columns_to_keep]
     null_mask = raw_df.isna().any(axis=1)
     if null_mask.sum() > 0:
         msg = f"Null values found in raw data for {null_mask.sum()} rows"
@@ -50,28 +59,90 @@ def model_training_main(
 
     raw_df = raw_df.loc[subset_mask].reset_index(drop=True)
     df = df.loc[subset_mask].reset_index(drop=True)
-
+    # # Print descriptions of both raw and processed data to illustrate transformations
+    # for col in df.columns:
+    #     print(f"Column: {col}")
+    #     print("  Raw data:")
+    #     print(raw_df[col].describe())
+    #     print("  Processed data:")
+    #     print(df[col].describe())
     # TODO: Test/train split
     print(
         f"Training {model_spec.lmer_formula} for {measure} {model_version} "
         f"submodel {submodel} cols {df.columns}"
         f" with {len(df)} rows"
     )
-    model = Lmer(model_spec.lmer_formula, data=df, family="binomial")
-    model.fit()
-    if len(model.warnings) > 0:
+
+    model_type = model_spec.model_type
+    if model_type == ModelType.LINEAR_MIXED_EFFECTS:
+        model = Lmer(model_spec.lmer_formula, data=df, family="binomial")
+        model.fit()
+        if len(model.warnings) > 0:
         # TODO: save these to a file
-        print(model.warnings)
-        msg = f"Model {model_spec} did not fit."
-        raise ValueError(msg)
+            print(model.warnings)
+            msg = f"Model {model_spec} did not fit."
+            raise ValueError(msg)
+        raw_df['fits'] = model.fits
+        df['fits'] = model.fits
+        no_re_pred = model.predict(model.design_matrix, use_rfx=False, verify_predictions=False)
+        raw_df['no_re_fits'] = no_re_pred
+        df['no_re_fits'] = no_re_pred
+        coefs = model.coefs
+        ranefs = model.ranef
+    elif model_type == ModelType.SPLINE_MIXED_EFFECTS:
+        pandas2ri.activate()
+        scam_lib = packages.importr('scam')
+        base = packages.importr('base')
+        stats = packages.importr('stats')
+        
+        knots_dict = {}
+        for predictor in model_spec.predictors:
+            if predictor.spline is not None and predictor.spline.knot_strategy is not None:
+                knots = get_knot_values(df, predictor.name, predictor.spline, var_info)
+                print(f"Knots for {predictor.name}: {knots}")
+                knots_dict[predictor.name] = FloatVector(knots)
+        knots = ListVector(knots_dict) if len(knots_dict) > 0 else None
+        if knots is not None:
+            model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, 
+                                  family = stats.binomial(link = "logit"), knots = knots )
+        else:
+            model = scam_lib.scam(stats.as_formula(model_spec.lmer_formula), data=df, family = stats.binomial(link = "logit") )
+        print(base.summary(model))
+        raw_df['fits'] = model.rx2('fitted.values')
+        df['fits'] = model.rx2('fitted.values')
+        no_re_pred = scam_lib.predict_scam(model, newdata=df, type="response", exclude="s(ihme_loc_id)")
+        raw_df['no_re_fits'] = no_re_pred
+        df['no_re_fits'] = no_re_pred
+        raw_df.to_parquet(cm_data.models / model_version / "raw_with_predictions.parquet")
+        coefs = extract_fixed_effects_from_scam(model)
+        ranefs = extract_random_effects_from_scam(model, 'ihme_loc_id')
+
     model.var_info = var_info
     model.raw_data = raw_df
     model.submodel = submodel
 
-    cm_data.save_model(model, model_version, submodel)
-    icept_raster = utils.get_intercept_raster(model_spec, model.coefs, model.ranef, cm_data)
-    cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
+    cm_data.save_model(model, model_version, model_spec, df, submodel)
+
+    # Validation
+    target_measure = model_spec.measure.value
+    # Preserving id columns to merge with GBD data for validation
+    columns_to_keep = [year_variable, "ihme_loc_id", "age_group_id", "sex_id", "age_sex"]
+    for col in columns_to_keep:
+        if col in raw_df and col not in df.columns:
+            df[col] = raw_df[col]
+
+    # summary = training_validation.validate_model(df, model_spec, target_measure, year_variable, var_info)
+    # summary.to_csv(cm_data.models / model_version / "validation_results.csv", index=False)
+    # training_validation.update_results_file(summary, cm_data.models / "validation_results.csv", 
+    #                                         model_version, submodel)
     
+    if not submodel:
+        # Only save intercept raster for full model
+        icept_raster = utils.get_intercept_raster(model_spec, coefs, ranefs, cm_data)
+        cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
+    
+    training_diagnostics.run_training_diagnostics(model, df, model_spec, cm_data, model_version, submodel, raw_df, var_info)
+
 
 
 @click.command()  # type: ignore[arg-type]
@@ -152,8 +223,8 @@ def model_training(
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "60Gb",
-            "runtime": "4h",
+            "memory": "500Gb",
+            "runtime": "150h",
             "project": "proj_rapidresponse",
         },
         max_attempts=1,
@@ -161,4 +232,3 @@ def model_training(
     )
 
     print("Model training complete. Results can be found at", version_root)
-

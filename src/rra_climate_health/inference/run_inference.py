@@ -1,7 +1,9 @@
+import itertools
 import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+from functools import partial
 
 import click
 import geopandas as gpd
@@ -15,6 +17,13 @@ from rra_tools import jobmon
 from copy import deepcopy
 from rra_climate_health import cli_options as clio
 from rra_climate_health import utils
+# Re-exported at module level for backwards compatibility with scripts that
+# import these from here; the values live in rra_climate_health.constants.
+from rra_climate_health.constants import (
+    AGE_GROUP_AGGREGATES,
+    FIRST_FORECAST_YEAR,
+    REFERENCE_SCENARIO,
+)
 from rra_climate_health.data import DEFAULT_ROOT, ClimateMalnutritionData
 from rra_climate_health.inference.inference_diagnostics import (
     create_inference_diagnostics_report,
@@ -27,14 +36,19 @@ from rra_climate_health.model_specification import (
 #from memory_profiler import profile
 import gc
 
-FORECASTED_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/9/future/population/20250219_draining_fix_old_pop_v5/population.nc'
+#FORECASTED_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/9/future/population/20250219_draining_fix_old_pop_v5/population.nc'
+#HISTORICAL_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/9/past/population/20231002_etl_run_id_359/population.nc'
+
+FORECASTED_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/32/future/population/future_population_s130v41/population.nc'
+HISTORICAL_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/16/past/population/20250603_etl_run_id_417/population.nc'
+
 CMIP_LDI_SCENARIO_MAP = {
     #"ssp119": "1",
-    "ssp126": "1",
-    "ssp245": "0",
+    "ssp126": "better",
+    "ssp245": "reference",
     # "ssp370",
-    "ssp585": "-1",
-    "constant_climate": "1",
+    "ssp585": "worse",
+    "constant_climate": "better",
 }
 
 
@@ -169,14 +183,14 @@ def get_nonspatial_predictor_raster(
     return var_raster * pred_value  # type: ignore[no-any-return]
 
 #@profile
-def get_transformed_variable_raster(predictor, cm_data, cmip6_scenario, year, raster_template, coefficients, var_info, draw, apply_coefficient=True):
+def get_transformed_variable_raster(predictor, cm_data, cmip6_scenario, year, raster_template, coefficients, var_info, draw, spline_effect_loaders, apply_coefficient=True):
     print(f"Getting raster for {predictor.name} {year} {cmip6_scenario} {draw} {apply_coefficient}")
     if predictor.random_effect:
         msg = "Random slopes not implemented"
         raise NotImplementedError(msg)
     
     transform_func = var_info[predictor.name]["transformer"]
-    beta = coefficients.loc[predictor.name].astype(np.float32) if apply_coefficient else 1.0
+    beta = coefficients.loc[predictor.name].astype(np.float32) if apply_coefficient and predictor.spline is None else 1.0
     transform_meta = predictor.transform
 
     if predictor.name == "elevation":
@@ -193,23 +207,58 @@ def get_transformed_variable_raster(predictor, cm_data, cmip6_scenario, year, ra
             if hasattr(transform_meta, "from_column")
             else predictor.name
         )
+        # TODO: temporary
+        transform_monthly = False
+        if re.match(r"(days_over_[^_]+|precipitation_days|total_precipitation|mean_temperature)_.+", variable):
+            if variable.startswith("days_over") or variable.startswith("precipitation_days") or variable.startswith("total_precipitation"):
+                transform_monthly = True
+            variable = re.sub(r"^(days_over_[^_]+|precipitation_days|total_precipitation|mean_temperature)_.+$", r"\1", variable)
+            print(f"Using variable {variable} for predictor {predictor.name}")
         ds = cm_data.load_climate_raster(variable, cmip6_scenario, year, draw).astype(np.float32)
-
+        if transform_monthly:
+            print(f"Transforming {variable} to monthly units (x/12)")
+            ds = ds / 12
     rasterize = lambda x: utils.xarray_to_raster(x, nodata=np.nan).resample_to(raster_template).astype(np.float32)
+
+    if predictor.spline is not None:
+        # Apply spline transformation to the variable raster
+        spline_effects = spline_effect_loaders[predictor.name]()
+        spline_effects_ds = xr.DataArray(spline_effects.set_index("value").sort_index().effect.values, coords=[spline_effects.value.sort_values()], dims=["value"])
+        ds = spline_effects_ds.sel(value=ds, method='nearest').drop_vars('value')
+        return rt.RasterArray(
+            np.array(rasterize(ds).astype(np.float32)),
+            transform=raster_template.transform,
+            crs=raster_template.crs,
+            no_data_value=np.nan,
+            ).astype(np.float32)
 
     return rt.RasterArray(
         beta * np.array(transform_func(rasterize(ds).astype(np.float32))),
         transform=raster_template.transform,
         crs=raster_template.crs,
         no_data_value=np.nan,
-).astype(np.float32)
+        ).astype(np.float32)
+
+
+def get_spline_effect_loaders(spec: ModelSpecification, cm_data: ClimateMalnutritionData):
+    spline_effects = {}
+    for predictor in spec.predictors:
+        if predictor.spline is not None:
+            # partial(function, arg1, arg2) creates a callable with those args pre-filled
+            spline_effects[predictor.name] = partial(
+                cm_data.load_spline_effects, 
+                spec.version.model, 
+                predictor.name
+            )
+            print(f"Loaded spline effects for predictor {predictor.name}")
+    return spline_effects
 
 #@profile
 def get_model_prevalence(  # noqa: C901 PLR0912
     spec: ModelSpecification,
     cmip6_scenario: str,
     year: int,
-    age_group_id: int,
+    age_group_id: int | str,
     sex_id: int,
     cm_data: ClimateMalnutritionData,
     raster_template: rt.RasterArray,
@@ -219,19 +268,20 @@ def get_model_prevalence(  # noqa: C901 PLR0912
     coefs, ranefs = cm_data.load_submodel_coefficients(spec.version.model, [("age_group_id", age_group_id), ("sex_id", sex_id)])
     var_info = cm_data.load_model_variable_info(spec.version.model)
     training_data_types = cm_data.load_training_data_types(training_data_version)
+    spline_effect_loaders = get_spline_effect_loaders(spec, cm_data)
 
     # partial_estimates = {}
     z_accum = np.zeros_like(raster_template) #raster_template.copy()
     for predictor in spec.predictors:
         print(predictor.name)
-        if predictor.name == "ldi_pc_pd":
+        if predictor.name == "ldi_pc_pd" or predictor.name.startswith('consumption'):
             continue  # deal with after
 
         if predictor.name == "intercept":
             z_accum = z_accum + cm_data.load_rasterized_intercept(spec.version.model)
 
-        elif predictor.name == "year_start":
-            raise NotImplementedError("Year start not implemented")
+        elif predictor.name in ["year_start", "year", "year_id", "birth_year"]:
+            z_accum = z_accum + coefs.loc[predictor.name].astype(np.float32) * var_info[predictor.name]["transformer"](np.array([[var_info[predictor.name]['max']]])).astype(np.float32)[0][0]
 
         elif predictor.name == "sdi":
             sdi = cm_data.load_rasterized_variable(predictor.name, year)
@@ -241,7 +291,7 @@ def get_model_prevalence(  # noqa: C901 PLR0912
                 crs=sdi.crs,
                 no_data_value=np.nan,
             )
-        elif predictor.name in {"sex_id", "age_group_id"}:
+        elif predictor.name in {"sex_id", "age_group_id", "age_sex"}:
             if predictor.transform.type != "categorical":
                 error_message = (
                     f"Only categorical predictors are allowed for {predictor.name}"
@@ -250,13 +300,13 @@ def get_model_prevalence(  # noqa: C901 PLR0912
             category_coef = get_categorical_coefficient(
                 coefs,
                 predictor.name,
-                age_group_id if predictor.name == "age_group_id" else sex_id,
+                age_group_id if predictor.name == "age_group_id" else sex_id if predictor.name == "sex_id" else f"{age_group_id}_{sex_id}",
                 training_data_types, 
             )
             # Not a raster, but the coefficient applies to the whole raster and can be added to the sum
             z_accum = z_accum + category_coef # type: ignore[assignment]
         else:
-            z_accum = z_accum + get_transformed_variable_raster(predictor, cm_data, cmip6_scenario, year, raster_template, coefs, var_info, draw)
+            z_accum = z_accum + get_transformed_variable_raster(predictor, cm_data, cmip6_scenario, year, raster_template, coefs, var_info, draw, spline_effect_loaders)
 
     threshold_flag_varname = next(
         (x.name for x in spec.predictors if x.name.startswith("any")), None
@@ -264,76 +314,104 @@ def get_model_prevalence(  # noqa: C901 PLR0912
     threshold_predictor = next(
         (x for x in spec.predictors if x.name == threshold_flag_varname), None
     )
-    if not threshold_flag_varname:
-        beta_ldi = coefs.loc["ldi_pc_pd"].astype(np.float32)
-    else:
-        if spec.extra_terms != [f"{threshold_flag_varname} * ldi_pc_pd"]:
+    income_predictor = next((x for x in spec.predictors if x.name == "ldi_pc_pd" or x.name.startswith('consumption_pd')), None)
+    ldi_scenario = CMIP_LDI_SCENARIO_MAP[cmip6_scenario]
+    ldi_version = income_predictor.version
+    prevalence = 0
+    
+    if not threshold_flag_varname and income_predictor.spline is None:
+        beta_ldi = coefs.loc[income_predictor.name].astype(np.float32)
+        for i in range(1, 11):
+            gc.collect()
+            print(i)
+            prevalence += 0.1 * 1 / (1 + np.exp(-(z_accum + 
+                get_ldi_z_component(ldi_scenario, year, ldi_version, beta_ldi, 1, var_info, i / 10., cm_data, raster_template))) +
+                0)
+    elif threshold_flag_varname and income_predictor.spline is None:
+        if spec.extra_terms != [f"{threshold_flag_varname} * {income_predictor.name}"] and spec.extra_terms != [f"{threshold_flag_varname} : {income_predictor.name}"]:
             msg = "Only threshold variable binary flag and LDI interaction is supported"
             raise NotImplementedError(msg)
 
         beta_interaction = (
-            coefs.loc[f"ldi_pc_pd:{threshold_flag_varname}"]
+            coefs.loc[f"{income_predictor.name}:{threshold_flag_varname}"]
             / coefs.loc[threshold_flag_varname]
         )
         beta_ldi = (
-            beta_interaction * get_transformed_variable_raster(threshold_predictor, cm_data, cmip6_scenario, year, raster_template, coefs, var_info, draw)#partial_estimates[threshold_flag_varname]
-            + coefs.loc["ldi_pc_pd"]
+            beta_interaction * get_transformed_variable_raster(threshold_predictor, cm_data, cmip6_scenario, year, raster_template, coefs, var_info, draw, spline_effect_loaders)#partial_estimates[threshold_flag_varname]
+            + coefs.loc[income_predictor.name]
         ).to_numpy().astype(np.float32)
+        for i in range(1, 11):
+            gc.collect()
+            print(i)
+            prevalence += 0.1 * 1 / (1 + np.exp(-(z_accum + 
+                get_ldi_z_component(ldi_scenario, year, ldi_version, beta_ldi, 1, var_info, i / 10., cm_data, raster_template))) +
+                0)
+    elif income_predictor.spline is not None and threshold_flag_varname is None:
+        loc_raster_flat = cm_data.load_admin2_raster().to_numpy().ravel()
+        for i in range(1, 11):
+            gc.collect()
+            income_decile = i / 10.
+            income_effect_mapping = spline_effect_loaders[income_predictor.name](filters=[("year_id", "==", year), 
+                ("scenario", "==", ldi_scenario), ("population_percentile", "==", income_decile)]).set_index('location_id')['effect']
 
-    ldi_scenario = CMIP_LDI_SCENARIO_MAP[cmip6_scenario]
-    ldi_version = next((x for x in spec.predictors if x.name == "ldi_pc_pd"), None).version
-    prevalence = 0
-    for i in range(1, 11):
-        gc.collect()
-        print(i)
-        prevalence += 0.1 * 1 / (1 + np.exp(-(z_accum + 
-            get_ldi_z_component(ldi_scenario, year, ldi_version, beta_ldi, 1, var_info, i / 10., cm_data, raster_template))))
+            prevalence += 0.1 * 1 / (1 + np.exp(-(z_accum + 
+                pd.Series(loc_raster_flat).map(income_effect_mapping).to_numpy().reshape(raster_template.shape)
+                )))
+            
+    elif income_predictor.spline is not None and threshold_flag_varname is not None:
+        print("Threshold binary {threshold_flag_varname} and income splines")
+        loc_raster_flat = cm_data.load_admin2_raster().to_numpy().ravel()
+        if spec.extra_terms != [f"{threshold_flag_varname} * {income_predictor.name}"] and spec.extra_terms != [f"{threshold_flag_varname} : {income_predictor.name}"]:
+            msg = "Only threshold variable binary flag and LDI interaction is supported"
+            raise NotImplementedError(msg)
+
+        beta_ldi = (
+            coefs.loc[f"{threshold_flag_varname}:{income_predictor.name}"] * get_transformed_variable_raster(threshold_predictor, cm_data, cmip6_scenario, year, raster_template, coefs, var_info, draw, spline_effect_loaders)
+        ).to_numpy().astype(np.float32)
+        for i in range(1, 11):
+            gc.collect()
+            income_decile = i / 10.
+            income_effect_mapping = spline_effect_loaders[income_predictor.name](filters=[("year_id", "==", year), 
+                ("scenario", "==", ldi_scenario), ("population_percentile", "==", income_decile)]).set_index('location_id')['effect']
+
+            prevalence += 0.1 * 1 / (1 + np.exp(-(z_accum + 
+                pd.Series(loc_raster_flat).map(income_effect_mapping).to_numpy().reshape(raster_template.shape) +
+                get_ldi_z_component(ldi_scenario, year, ldi_version, beta_ldi, 1, var_info, i / 10., cm_data, raster_template)
+                )))
 
     return prevalence.astype(np.float32)  # type: ignore[attr-defined,no-any-return]
-    
-    # support for quadratic wealth prototype 
-    # ldi_betas = get_ldi_betas(spec.predictors, spec.extra_terms, coefs, cm_data, cmip6_scenario, year, raster_template, var_info, draw)
-    # print(ldi_betas.keys())
-    # ldi_scenario = CMIP_LDI_SCENARIO_MAP[cmip6_scenario]
-    # ldi_version = next((x for x in spec.predictors if x.name == "ldi_pc_pd"), None).version
-    # prevalence = 0
-    # if ldi_betas:
-    #     for i in range(1, 11):
-    #         z_accum_i = z_accum.to_numpy().copy()
-    #         gc.collect()
-    #         print(i)
-    #         for degree, beta_ldi in ldi_betas.items():
-    #             print(degree)
-    #             z_accum_i = z_accum_i + get_ldi_z_component(ldi_scenario, year, ldi_version, beta_ldi, degree, var_info, i / 10., cm_data, raster_template)
-    #         prevalence += 0.1 * 1 / (1 + np.exp(-(z_accum_i)))
-    # else:
-    #     prevalence = 1/(1 + np.exp(-z_accum))
 
-    # return prevalence.astype(np.float32)  # type: ignore[attr-defined,no-any-return]
-
-def get_ldi_betas(predictors, extra_terms, coefs, cm_data, cmip6_scenario, year, raster_template, var_info, draw):
-    ldi_present = any(x.name == "ldi_pc_pd" for x in predictors)
-    if not ldi_present:
-        return None
+# def get_ldi_betas(predictors, extra_terms, coefs, cm_data, cmip6_scenario, year, raster_template, var_info, draw):
+#     ldi_present = any(x.name == "ldi_pc_pd" for x in predictors)
+#     if not ldi_present:
+#         return None
     
-    beta_dict = {}
-    current_degree = 1
-    while(True):
-        ldi_pred_name = "ldi_pc_pd" if current_degree == 1 else f"I(ldi_pc_pd^{current_degree})"
-        if ldi_pred_name in coefs.index:
-            beta_dict[current_degree] = coefs.loc[ldi_pred_name].astype(np.float32)
-            interacting_terms = [x for x in coefs.index if ldi_pred_name in x and x != ldi_pred_name]
-            for interacting_term in interacting_terms:
-                interacting_predictor = [x for x in predictors if x.name == interacting_term.replace(f"{ldi_pred_name}:", "")][0]
-                beta_dict[current_degree] += coefs.loc[interacting_term] * get_transformed_variable_raster(interacting_predictor, cm_data, cmip6_scenario, year, raster_template, coefs, var_info, draw, apply_coefficient=False).astype(np.float32)
-            current_degree += 1
-        else:
-            break
-    return beta_dict
+#     beta_dict = {}
+#     current_degree = 1
+#     while(True):
+#         ldi_pred_name = "ldi_pc_pd" if current_degree == 1 else f"I(ldi_pc_pd^{current_degree})"
+#         if ldi_pred_name in coefs.index:
+#             beta_dict[current_degree] = coefs.loc[ldi_pred_name].astype(np.float32)
+#             interacting_terms = [x for x in coefs.index if ldi_pred_name in x and x != ldi_pred_name]
+#             for interacting_term in interacting_terms:
+#                 interacting_predictor = [x for x in predictors if x.name == interacting_term.replace(f"{ldi_pred_name}:", "")][0]
+#                 beta_dict[current_degree] += coefs.loc[interacting_term] * get_transformed_variable_raster(interacting_predictor, cm_data, cmip6_scenario, year, raster_template, coefs, var_info, draw, apply_coefficient=False).astype(np.float32)
+#             current_degree += 1
+#         else:
+#             break
+#     return beta_dict
 
 #@profile
 def get_ldi_z_component(ldi_scenario:str, year:int, ldi_version:str, beta_ldi, degree, var_info, decile, cm_data: ClimateMalnutritionData, raster_template):
-    transform_func = var_info["ldi_pc_pd"]["transformer"]
+    # Get consumption/income variable name
+    for var in var_info.keys():
+        if var.startswith("ldi") or var.startswith("consumption"):
+            ldi_varname = var
+            break
+    else:
+        raise ValueError("No LDI or consumption variable found in variable info object.")
+    
+    transform_func = var_info[ldi_varname]["transformer"]
     dec_str = f"{decile:.1f}"
 
     z_ldi = rt.RasterArray(
@@ -353,7 +431,7 @@ def model_inference_main(
     cmip6_scenario: str,
     year: int,
     sex_id: int,
-    age_group_id: int,
+    age_group_id: int | str,
     draw: int,
 ) -> None:
     cm_data = ClimateMalnutritionData(output_dir / measure)
@@ -382,22 +460,23 @@ def model_inference_main(
         training_data_version,
         draw,
     )
-    # if cmip6_scenario == 'ssp245' and year == 2022 and age_group_id == 4 and sex_id == 1 and draw==0:    
-    #     cm_data.save_raster_results(
-    #         model_prevalence,
-    #         results_version,
-    #         cmip6_scenario,
-    #         year,
-    #         age_group_id,
-    #         sex_id,
-    #     )
+    if year == 2023 or year == 2100:    
+        cm_data.save_raster_results(
+            model_prevalence,
+            results_version,
+            cmip6_scenario,
+            year,
+            age_group_id,
+            sex_id,
+            draw,
+        )
 
     print("Computing zonal statistics")
     result_shapes = cm_data.load_fhs_shapes(most_detailed_only=False)
     if "lbd_admin2_id" in spec.random_effects:
         model_location_effect_shapes = cm_data.load_lbd_admin2_shapes()
     else:
-        model_location_effect_shapes = result_shapes
+        r = result_shapes
     print("loading population")
     pop_raster = cm_data.load_population_raster().set_no_data_value(np.nan)
 
@@ -429,46 +508,93 @@ def model_inference_main(
 
 
 def load_population_timeseries(
-    cm_data: ClimateMalnutritionData,
-    locs_of_interest: Sequence[int],
-    age_group_ids: Sequence[int] = (4, 5),
+    locs_of_interest: Sequence[int] | None,
+    age_group_ids: Sequence[int],
 ) -> pd.DataFrame:
-    locs_of_interest = list(locs_of_interest)
+    """Load past and future population draws.
+
+    Pass ``locs_of_interest=None`` to load every location in the population
+    files, which is what the residual step's hierarchy aggregation wants.
+    """
+    loc_selector = (
+        {} if locs_of_interest is None else {"location_id": list(locs_of_interest)}
+    )
     age_group_ids = list(age_group_ids)
 
-    age_group_aggregates = {4, 5}
-    age_group_detailed = {388, 389, 238, 34}
+    requested_aggregates = [a for a in age_group_ids if a in AGE_GROUP_AGGREGATES]
+    requested_detailed = [a for a in age_group_ids if a not in AGE_GROUP_AGGREGATES]
+    detailed_to_load = sorted(
+        set(requested_detailed).union(
+            *(AGE_GROUP_AGGREGATES[a] for a in requested_aggregates)
+        )
+    )
+
+    def _aggregate(pop_df: pd.DataFrame) -> pd.DataFrame:
+        idx_names = list(pop_df.index.names)
+        age_level = pop_df.index.get_level_values("age_group_id")
+        parts: list[pd.DataFrame] = []
+        if requested_detailed:
+            parts.append(pop_df.loc[age_level.isin(requested_detailed)])
+        for agg in requested_aggregates:
+            sub = pop_df.loc[age_level.isin(AGE_GROUP_AGGREGATES[agg])].reset_index()
+            sub["age_group_id"] = agg
+            parts.append(sub.groupby(idx_names).sum())
+        return pd.concat(parts).sort_index()
+
     forecast_pop = (
         xr.open_dataset(FORECASTED_POPULATIONS_FILEPATH)
-        .mean(dim="draw")
         .sel(
-            age_group_id=list(age_group_detailed),
-            year_id=range(2022, 2101),
-            location_id=locs_of_interest,
-            scenario=0,
+            age_group_id=detailed_to_load,
+            year_id=range(FIRST_FORECAST_YEAR, 2101),
+            scenario=130,
+            **loc_selector,
         )
         .to_dataframe().drop(columns = ["scenario"])
+        .pivot_table(
+            index=["location_id", "year_id", "age_group_id", "sex_id"],
+            columns="draw",
+            values="draws",
+        )
     )
-    if set(age_group_ids) == age_group_aggregates:
-        age_group_match = {388:4, 389:4, 238:5, 34:5}
-        forecast_pop = forecast_pop.reset_index()
-        forecast_pop["age_group_id"] = forecast_pop["age_group_id"].map(age_group_match)
-        forecast_pop = forecast_pop.groupby(
-            ["location_id", "year_id", "sex_id", "age_group_id"]
-        ).sum()
+    forecast_pop.columns = [f"draw_{i}" for i in forecast_pop.columns]
+    idx_cols = ['location_id', 'year_id', 'age_group_id', 'sex_id']
+    forecast_pop = forecast_pop.reset_index().set_index(idx_cols)
 
-    historical_pop = pd.read_parquet(
-        cm_data._PROCESSED_DATA_ROOT  # noqa: SLF001
-        / "ihme"
-        / "global_population_by_age_group_and_sex.parquet"
-    ).query("location_id in @locs_of_interest and age_group_id in @age_group_ids")
+    forecast_pop = _aggregate(forecast_pop)
+
+    forecast_sex_ids = forecast_pop.index.get_level_values("sex_id").unique().tolist()
+    historical_pop = (
+        xr.open_dataset(HISTORICAL_POPULATIONS_FILEPATH)
+        .sel(
+            age_group_id=detailed_to_load,
+            sex_id=forecast_sex_ids,
+            **loc_selector,
+        )
+        .to_dataframe()
+        .reorder_levels(forecast_pop.index.names)
+    )
+    historical_pop = _aggregate(historical_pop)
     historical_pop = historical_pop.loc[
-        historical_pop.year_id < forecast_pop.index.get_level_values("year_id").min()
-    ].set_index(forecast_pop.index.names)
-    pop = pd.concat([historical_pop, forecast_pop]).sort_index()
+        historical_pop.index.get_level_values("year_id")
+        < forecast_pop.index.get_level_values("year_id").min()
+    ]
+    historical_pop = historical_pop[['population']*250]
+    historical_pop.columns = forecast_pop.columns
+    pop = pd.concat([historical_pop, forecast_pop], axis=0).sort_index()
     return pop
 
-REFERENCE_SCENARIO = "ssp245"
+def aggregate_mortality_over_ages(df, resulting_age_group_id = 1, age_column = 'age_group_id'):
+    original_idx = list(df.index.names)
+    
+    # Convert to probability of surviving the age, getting the product, 
+    # then re-transforming to the aggregate mortality rate
+    temp_df = 1.0 - df
+    temp_df = temp_df.reset_index().drop(columns = [age_column])
+    temp_df = 1.0 - (temp_df.groupby([x for x in original_idx if x != age_column]).prod())
+    temp_df = temp_df.reset_index()
+    temp_df[age_column] = resulting_age_group_id
+    temp_df = temp_df.set_index(original_idx)
+    return temp_df
 
 def forecast_scenarios(
     output_dir: Path,
@@ -477,11 +603,11 @@ def forecast_scenarios(
 ) -> None:
     cm_data = ClimateMalnutritionData(output_dir / measure)
     results_spec = cm_data.load_results_specification(results_version)
-    years = results_spec["years"]
-    scenarios = results_spec["scenarios"]
-    age_group_ids = results_spec["age_group_ids"]
-    draws = results_spec["draws"]
-    sex_ids = results_spec["sex_ids"]
+    years = results_spec.years
+    scenarios = results_spec.scenarios
+    age_group_ids = results_spec.age_groups
+    draws = results_spec.draws
+    sex_ids = results_spec.sex_ids
 
     locs_of_interest = (
         cm_data.load_fhs_hierarchy()
@@ -505,25 +631,32 @@ def forecast_scenarios(
             for age_group_id in age_group_ids:
                 for sex_id in sex_ids:
                     for draw in range(0,draws):
-                        fp = results_path / f"{year}_{scenario}_{age_group_id}_{sex_id}_{draw}.parquet"
+                        sc = scenario if year >= FIRST_FORECAST_YEAR else REFERENCE_SCENARIO
+                        d = draw if year >= FIRST_FORECAST_YEAR else 0
+                        fp = results_path / f"{year}_{sc}_{age_group_id}_{sex_id}_{d}.parquet"
                         df = pd.read_parquet(fp)
+                        df.loc[:, "scenario"] = scenario
+                        df.loc[:, "draw"] = draw
                         scenario_dfs.append(df)
                         ingested_files.append(fp)
         scenario_df = pd.concat(scenario_dfs)
         scenario_df = scenario_df.pivot(index=idx_cols, columns='draw', values='value')
         scenario_df.columns = [f'draw_{col}' for col in scenario_df.columns]
         scenario_df = scenario_df.reset_index().set_index(idx_cols).sort_index()
+        if measure == 'child_mortality':
+            scenario_df = aggregate_mortality_over_ages(scenario_df, resulting_age_group_id = 1)
         scenario_df.to_parquet(
             results_path / f"{scenario}.parquet", index=True)
         dfs.append(scenario_df)
+
 
     combined = pd.concat(dfs)
     draw_cols = combined.columns
     combined['prevalence'] = combined.mean(axis=1)
     combined = combined.drop(columns=draw_cols)
     pop = load_population_timeseries(
-        cm_data, locs_of_interest, age_group_ids=age_group_ids
-    )
+        locs_of_interest, age_group_ids=combined.index.get_level_values('age_group_id').unique()
+    ).mean(axis=1).rename("population").to_frame()
 
     merged = combined.merge(pop, left_index=True, right_index=True, how="left")
     merged["affected"] = merged["prevalence"] * merged["population"]
@@ -559,7 +692,6 @@ def forecast_scenarios_task(
     output_root: str,
     measure: str,
     results_version: str,
-    model_version: str,
 ) -> None:
     """Run forecasting applying the inference results, and output diagnostics."""
     forecast_scenarios(
@@ -567,9 +699,10 @@ def forecast_scenarios_task(
         measure,
         results_version,
     )
-    # create_inference_diagnostics_report(
-    #     Path(output_root), measure, results_version, model_version
-    # )
+    model_version = ClimateMalnutritionData(Path(output_root) / measure).load_results_specification(results_version).version.model
+    create_inference_diagnostics_report(
+        Path(output_root), measure, results_version, model_version
+    )
 
 
 @click.command()  # type: ignore[arg-type]
@@ -594,6 +727,7 @@ def model_inference_task(
     draw: str,
 ) -> None:
     """Run model inference."""
+    [resolved_age_group_id] = clio.resolve_age_group_ids_for_measure(measure, [age_group_id])
     model_inference_main(
         Path(output_root),
         measure,
@@ -602,11 +736,9 @@ def model_inference_task(
         cmip6_scenario,
         int(year),
         int(sex_id),
-        int(age_group_id),
+        resolved_age_group_id,
         int(draw)
     )
-
-FIRST_FORECAST_YEAR = 2022
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
@@ -625,11 +757,12 @@ def model_inference(
     cmip6_scenario: list[str],
     year: list[str],
     sex_id: list[int],
-    age_group_id: list[int],
+    age_group_id: list[int | str],
     draws: int,
     queue: str,
 ) -> None:
     """Run model inference."""
+    age_group_id = clio.resolve_age_group_ids_for_measure(measure, age_group_id)
     cm_data = ClimateMalnutritionData(Path(output_root) / measure)
     results_version = cm_data.new_results_version(model_version, age_group_id,
         sex_id, year, cmip6_scenario, draws)
@@ -640,6 +773,17 @@ def model_inference(
     )
     historical_years = [yr for yr in year if int(yr) < FIRST_FORECAST_YEAR]
     forecast_years = [yr for yr in year if int(yr) >= FIRST_FORECAST_YEAR]
+
+    arg_names = (
+        "measure",
+        "cmip6-scenario",
+        "year",
+        "sex-id",
+        "age-group-id",
+        "draw",
+    )
+    task_tuples: list[tuple] = []
+
     if len(historical_years) > 0:
         if len(cmip6_scenario) == 1:
             historical_scenarios = [cmip6_scenario[0]]
@@ -647,47 +791,26 @@ def model_inference(
             historical_scenarios = [REFERENCE_SCENARIO]
         else:
             historical_scenarios = cmip6_scenario
+        task_tuples.extend(itertools.product(
+            [measure], historical_scenarios, historical_years,
+            sex_id, age_group_id, [0],
+        ))
 
-        print(f"Running historical inference for years {historical_years}")
-        jobmon.run_parallel(
-            runner="sttask",
-            task_name="inference",
-            node_args={
-                "measure": [measure],
-                "cmip6-scenario": historical_scenarios,
-                "year": historical_years,
-                "sex-id": sex_id,
-                "age-group-id" : age_group_id,
-                "draw": draw_range,
-            },
-            task_args={
-                "output-root": output_root,
-                "model-version": model_version,
-                "results-version": results_version,
-            },
-            task_resources={
-                "queue": queue,
-                "cores": 1,
-                "memory": "35Gb",
-                "runtime": "60m",
-                "project": "proj_rapidresponse",
-            },
-            max_attempts=2,
-            log_root=str(cm_data.results / results_version),
-        )
     if len(forecast_years) > 0:
-        print(f"Running forecast inference for years {forecast_years}")
+        task_tuples.extend(itertools.product(
+            [measure], cmip6_scenario, forecast_years,
+            sex_id, age_group_id, draw_range,
+        ))
+
+    if task_tuples:
+        print(
+            f"Submitting {len(task_tuples)} inference tasks "
+            f"(historical years: {historical_years}, forecast years: {forecast_years})"
+        )
         jobmon.run_parallel(
             runner="sttask",
             task_name="inference",
-            node_args={
-                "measure": [measure],
-                "cmip6-scenario": cmip6_scenario,
-                "year": forecast_years,
-                "sex-id": sex_id,
-                "age-group-id" : age_group_id,
-                "draw": draw_range,
-            },
+            flat_node_args=(arg_names, task_tuples),
             task_args={
                 "output-root": output_root,
                 "model-version": model_version,
@@ -696,11 +819,12 @@ def model_inference(
             task_resources={
                 "queue": queue,
                 "cores": 1,
-                "memory": "35Gb",
-                "runtime": "60m",
+                "memory": "55Gb",
+                "runtime": "80m",
                 "project": "proj_rapidresponse",
             },
             max_attempts=2,
+            concurrency_limit = 1000,
             log_root=str(cm_data.results / results_version),
         )
     
@@ -721,7 +845,7 @@ def model_inference(
             "runtime": "60m",
             "project": "proj_rapidresponse",
         },
-        max_attempts=1,
+        max_attempts=2,
         log_root=str(cm_data.results / results_version),
     )
     print(
