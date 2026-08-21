@@ -469,9 +469,85 @@ class ClimateMalnutritionData:
         path = self.results / results_version / "forecast.parquet"
         return pd.read_parquet(path)
 
+    #############################
+    # Residual step artifacts   #
+    #############################
+
+    def scenario_draws_path(self, results_version: str, scenario: str) -> Path:
+        return self.results / results_version / f"{scenario}.parquet"
+
+    def load_scenario_draws(self, results_version: str, scenario: str) -> pd.DataFrame:
+        """Load the per-scenario draws written by the forecasting step."""
+        path = self.scenario_draws_path(results_version, scenario)
+        if not path.exists():
+            message = f"File {path} does not exist."
+            raise FileNotFoundError(message)
+        return pd.read_parquet(path)
+
+    def shifted_scenario_draws_path(self, results_version: str, scenario: str) -> Path:
+        return self.results / results_version / f"{scenario}_shifted.parquet"
+
+    def save_shifted_scenario_draws(
+        self, draws: pd.DataFrame, results_version: str, scenario: str
+    ) -> None:
+        path = self.shifted_scenario_draws_path(results_version, scenario)
+        touch(path, exist_ok=True)
+        draws.to_parquet(path)
+
+    def load_shifted_scenario_draws(
+        self, results_version: str, scenario: str
+    ) -> pd.DataFrame:
+        return pd.read_parquet(
+            self.shifted_scenario_draws_path(results_version, scenario)
+        )
+
+    def shifted_prevalence_path(self, results_version: str) -> Path:
+        return self.results / results_version / "shifted_prevalence.parquet"
+
+    def save_shifted_prevalence(
+        self, draws: pd.DataFrame, results_version: str
+    ) -> None:
+        path = self.shifted_prevalence_path(results_version)
+        touch(path, exist_ok=True)
+        draws.to_parquet(path)
+
+    def load_shifted_prevalence(self, results_version: str) -> pd.DataFrame:
+        return pd.read_parquet(self.shifted_prevalence_path(results_version))
+
+    def adjusted_sev_draws_path(self, results_version: str) -> Path:
+        return self.results / results_version / "adjusted_sev_draws.parquet"
+
+    def save_adjusted_sev_draws(
+        self, draws: pd.DataFrame, results_version: str
+    ) -> None:
+        path = self.adjusted_sev_draws_path(results_version)
+        touch(path, exist_ok=True)
+        draws.to_parquet(path)
+
+    def load_adjusted_sev_draws(self, results_version: str) -> pd.DataFrame:
+        return pd.read_parquet(self.adjusted_sev_draws_path(results_version))
+
+    def sev_means_path(self, results_version: str) -> Path:
+        return self.results / results_version / "sev_means.parquet"
+
+    def save_sev_means(self, means: pd.DataFrame, results_version: str) -> None:
+        path = self.sev_means_path(results_version)
+        touch(path, exist_ok=True)
+        means.to_parquet(path)
+
+    def load_sev_means(self, results_version: str) -> pd.DataFrame:
+        return pd.read_parquet(self.sev_means_path(results_version))
+
     @property
     def shared_inputs(self) -> Path:
         return self.root.parent / "input"
+
+    @property
+    def gbd_inputs(self) -> Path:
+        return self.shared_inputs / "gbd_prevalence"
+
+    def load_age_group_metadata(self) -> pd.DataFrame:
+        return pd.read_parquet(self.gbd_inputs / "age_group_metadata.parquet")
 
     def load_ldi_distributions(self, geospecificity: str, version: str) -> pd.DataFrame:
         if geospecificity != "national" and geospecificity != "admin2":
