@@ -250,7 +250,7 @@ class ClimateMalnutritionData:
             # Remove duplicates and sort
             initial_points = sorted(list(set(initial_points)))
 
-        if predictor.name == 'ldi_pc_pd' or predictor.name == 'consumption_pd':
+        if predictor.name.startswith('ldi_pc_pd') or predictor.name.startswith('consumption_pd'):
             points_df = self.load_ldi_distributions('admin2', predictor.version)
             points_df['value'] = points_df['ldipc'] / 365.25
         else:
@@ -564,15 +564,15 @@ class ClimateMalnutritionData:
         return rt.load_raster(path).set_no_data_value(np.nan).astype(np.float32)
 
     def save_fhs_shapes(self, gdf: gpd.GeoDataFrame) -> None:
-        path = self._PROCESSED_DATA_ROOT / "ihme" / "fhs_most_detailed.parquet"
+        path = self.shared_inputs / "shapefiles" / "fhs_most_detailed_shapefile.parquet"
         touch(path, exist_ok=True)
         gdf.to_parquet(path)
 
     def load_fhs_shapes(self, *, most_detailed_only: bool = True) -> gpd.GeoDataFrame:
-        path = self._PROCESSED_DATA_ROOT / "ihme" / "fhs_most_detailed.parquet"
+        path = self.shared_inputs / "shapefiles" / "fhs_23.parquet"
         fhs_shapes = gpd.read_parquet(path)
 
-        hierarchy_path = self._PROCESSED_DATA_ROOT / "ihme" / "fhs_hierarchy.parquet"
+        hierarchy_path = self.shared_inputs / "fhs_location_metadata.parquet"
         hierarchy = pd.read_parquet(hierarchy_path)
         most_detailed_locs = hierarchy.loc[
             hierarchy.most_detailed == 1, "location_id"
@@ -586,7 +586,7 @@ class ClimateMalnutritionData:
         return fhs_shapes
 
     def load_fhs_hierarchy(self) -> pd.DataFrame:
-        path = self._PROCESSED_DATA_ROOT / "ihme" / "fhs_hierarchy.parquet"
+        path = self.shared_inputs / "fhs_hierarchy.parquet"
         hierarchy = pd.read_parquet(path)
         return hierarchy
 
@@ -752,7 +752,7 @@ def extract_random_effects_from_scam(model, random_effect_name='ihme_loc_id'):
     if re_smooth and re_levels:
         first = int(re_smooth.rx2('first.para')[0]) - 1
         last = int(re_smooth.rx2('last.para')[0])
-        re_values = all_coefs[first:last]
+        re_values = all_coefs[first:last].flatten()
         
         # Check lengths match before building
         if len(re_levels) == len(re_values):

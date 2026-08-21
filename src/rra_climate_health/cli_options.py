@@ -14,7 +14,7 @@ _T = TypeVar("_T")
 _P = ParamSpec("_P")
 
 
-VALID_MEASURES = ["wasting", "stunting", "underweight", "anemia", "lbw", "neonatal_mortality"]
+VALID_MEASURES = ["wasting", "stunting", "underweight", "anemia", "lbw", "neonatal_mortality", "child_mortality"]
 
 
 def get_choice_callback(
@@ -46,7 +46,7 @@ VALID_SOURCE_TYPES = [
     "cgf",
     "anemia",
     "child_mortality",
-    "lbw"
+    "lbw",
 ]
 
 
@@ -110,15 +110,15 @@ AGE_GROUP_IDS_BY_MEASURE: dict[str, list[str]] = {
     "stunting":           ["238", "388", "389", "34"],
     "wasting":            ["238", "388", "389", "34"],
     "underweight":        ["238", "388", "389", "34"],
-    "anemia":             ["34", "8", "9", "10", "11", "12", "13", "14", "238", "389", "15"],
+    #"anemia":             ["34", "8", "9", "10", "11", "12", "13", "14", "238", "389", "15"],
+    "anemia":             ["8", "9", "10", "11", "12", "13", "14"],
     "lbw":                ["164"],
     "neonatal_mortality": ["42"],
+    #"child_mortality":    ["42", "388", "888", "389", "238", "50", "51", "52"],
+    "child_mortality": ['age_1_m', 'age_3_m', 'age_6_m', 'age_12_m', 'age_24_m', 'age_36_m', 'age_48_m', 'age_60_m',]
 }
 
-VALID_AGE_GROUP_IDS = sorted(
-    {a for ages in AGE_GROUP_IDS_BY_MEASURE.values() for a in ages},
-    key=int,
-)
+VALID_AGE_GROUP_IDS = set([a for ages in AGE_GROUP_IDS_BY_MEASURE.values() for a in ages])
 
 def resolve_age_group_ids_for_measure(
     measure: str,

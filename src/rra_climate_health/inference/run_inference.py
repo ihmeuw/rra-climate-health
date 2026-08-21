@@ -29,14 +29,19 @@ from rra_climate_health.model_specification import (
 #from memory_profiler import profile
 import gc
 
-FORECASTED_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/9/future/population/20250219_draining_fix_old_pop_v5/population.nc'
-HISTORICAL_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/9/past/population/20231002_etl_run_id_359/population.nc'
+#FORECASTED_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/9/future/population/20250219_draining_fix_old_pop_v5/population.nc'
+#HISTORICAL_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/9/past/population/20231002_etl_run_id_359/population.nc'
+
+FORECASTED_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/32/future/population/future_population_s130v41/population.nc'
+HISTORICAL_POPULATIONS_FILEPATH = '/mnt/share/forecasting/data/16/past/population/20250603_etl_run_id_417/population.nc'
 
 AGE_GROUP_AGGREGATES: dict[int, list[int]] = {
     4: [388, 389],
     5: [238, 34],
     42: [2, 3],
+    1: [2, 3, 388, 389, 238, 34]
 }
+
 CMIP_LDI_SCENARIO_MAP = {
     #"ssp119": "1",
     "ssp126": "better",
@@ -253,7 +258,7 @@ def get_model_prevalence(  # noqa: C901 PLR0912
     spec: ModelSpecification,
     cmip6_scenario: str,
     year: int,
-    age_group_id: int,
+    age_group_id: int | str,
     sex_id: int,
     cm_data: ClimateMalnutritionData,
     raster_template: rt.RasterArray,
@@ -269,7 +274,7 @@ def get_model_prevalence(  # noqa: C901 PLR0912
     z_accum = np.zeros_like(raster_template) #raster_template.copy()
     for predictor in spec.predictors:
         print(predictor.name)
-        if predictor.name == "ldi_pc_pd" or predictor.name == 'consumption_pd':
+        if predictor.name == "ldi_pc_pd" or predictor.name.startswith('consumption'):
             continue  # deal with after
 
         if predictor.name == "intercept":
@@ -309,7 +314,7 @@ def get_model_prevalence(  # noqa: C901 PLR0912
     threshold_predictor = next(
         (x for x in spec.predictors if x.name == threshold_flag_varname), None
     )
-    income_predictor = next((x for x in spec.predictors if x.name == "ldi_pc_pd" or x.name == 'consumption_pd'), None)
+    income_predictor = next((x for x in spec.predictors if x.name == "ldi_pc_pd" or x.name.startswith('consumption_pd')), None)
     ldi_scenario = CMIP_LDI_SCENARIO_MAP[cmip6_scenario]
     ldi_version = income_predictor.version
     prevalence = 0
@@ -398,10 +403,15 @@ def get_model_prevalence(  # noqa: C901 PLR0912
 
 #@profile
 def get_ldi_z_component(ldi_scenario:str, year:int, ldi_version:str, beta_ldi, degree, var_info, decile, cm_data: ClimateMalnutritionData, raster_template):
-    if "ldi_pc_pd" in var_info:
-        transform_func = var_info["ldi_pc_pd"]["transformer"]
+    # Get consumption/income variable name
+    for var in var_info.keys():
+        if var.startswith("ldi") or var.startswith("consumption"):
+            ldi_varname = var
+            break
     else:
-        transform_func = var_info["consumption_pd"]["transformer"]
+        raise ValueError("No LDI or consumption variable found in variable info object.")
+    
+    transform_func = var_info[ldi_varname]["transformer"]
     dec_str = f"{decile:.1f}"
 
     z_ldi = rt.RasterArray(
@@ -421,7 +431,7 @@ def model_inference_main(
     cmip6_scenario: str,
     year: int,
     sex_id: int,
-    age_group_id: int,
+    age_group_id: int | str,
     draw: int,
 ) -> None:
     cm_data = ClimateMalnutritionData(output_dir / measure)
@@ -498,7 +508,6 @@ def model_inference_main(
 
 
 def load_population_timeseries(
-    cm_data: ClimateMalnutritionData,
     locs_of_interest: Sequence[int],
     age_group_ids: Sequence[int],
 ) -> pd.DataFrame:
@@ -527,15 +536,23 @@ def load_population_timeseries(
 
     forecast_pop = (
         xr.open_dataset(FORECASTED_POPULATIONS_FILEPATH)
-        .mean(dim="draw")
         .sel(
             age_group_id=detailed_to_load,
-            year_id=range(2022, 2101),
             location_id=locs_of_interest,
-            scenario=0,
+            year_id=range(FIRST_FORECAST_YEAR, 2101),
+            scenario=130,
         )
         .to_dataframe().drop(columns = ["scenario"])
+        .pivot_table(
+            index=["location_id", "year_id", "age_group_id", "sex_id"],
+            columns="draw",
+            values="draws",
+        )
     )
+    forecast_pop.columns = [f"draw_{i}" for i in forecast_pop.columns]
+    idx_cols = ['location_id', 'year_id', 'age_group_id', 'sex_id']
+    forecast_pop = forecast_pop.reset_index().set_index(idx_cols)
+
     forecast_pop = _aggregate(forecast_pop)
 
     forecast_sex_ids = forecast_pop.index.get_level_values("sex_id").unique().tolist()
@@ -543,8 +560,8 @@ def load_population_timeseries(
         xr.open_dataset(HISTORICAL_POPULATIONS_FILEPATH)
         .sel(
             age_group_id=detailed_to_load,
-            location_id=locs_of_interest,
             sex_id=forecast_sex_ids,
+            location_id=locs_of_interest,
         )
         .to_dataframe()
         .reorder_levels(forecast_pop.index.names)
@@ -554,10 +571,25 @@ def load_population_timeseries(
         historical_pop.index.get_level_values("year_id")
         < forecast_pop.index.get_level_values("year_id").min()
     ]
-    pop = pd.concat([historical_pop, forecast_pop]).sort_index()
+    historical_pop = historical_pop[['population']*250]
+    historical_pop.columns = forecast_pop.columns
+    pop = pd.concat([historical_pop, forecast_pop], axis=0).sort_index()
     return pop
 
 REFERENCE_SCENARIO = "ssp245"
+
+def aggregate_mortality_over_ages(df, resulting_age_group_id = 1, age_column = 'age_group_id'):
+    original_idx = list(df.index.names)
+    
+    # Convert to probability of surviving the age, getting the product, 
+    # then re-transforming to the aggregate mortality rate
+    temp_df = 1.0 - df
+    temp_df = temp_df.reset_index().drop(columns = [age_column])
+    temp_df = 1.0 - (temp_df.groupby([x for x in original_idx if x != age_column]).prod())
+    temp_df = temp_df.reset_index()
+    temp_df[age_column] = resulting_age_group_id
+    temp_df = temp_df.set_index(original_idx)
+    return temp_df
 
 def forecast_scenarios(
     output_dir: Path,
@@ -606,17 +638,20 @@ def forecast_scenarios(
         scenario_df = scenario_df.pivot(index=idx_cols, columns='draw', values='value')
         scenario_df.columns = [f'draw_{col}' for col in scenario_df.columns]
         scenario_df = scenario_df.reset_index().set_index(idx_cols).sort_index()
+        if measure == 'child_mortality':
+            scenario_df = aggregate_mortality_over_ages(scenario_df, resulting_age_group_id = 1)
         scenario_df.to_parquet(
             results_path / f"{scenario}.parquet", index=True)
         dfs.append(scenario_df)
+
 
     combined = pd.concat(dfs)
     draw_cols = combined.columns
     combined['prevalence'] = combined.mean(axis=1)
     combined = combined.drop(columns=draw_cols)
     pop = load_population_timeseries(
-        cm_data, locs_of_interest, age_group_ids=age_group_ids
-    )
+        locs_of_interest, age_group_ids=combined.index.get_level_values('age_group_id').unique()
+    ).mean(axis=1).rename("population").to_frame()
 
     merged = combined.merge(pop, left_index=True, right_index=True, how="left")
     merged["affected"] = merged["prevalence"] * merged["population"]
@@ -696,11 +731,11 @@ def model_inference_task(
         cmip6_scenario,
         int(year),
         int(sex_id),
-        int(resolved_age_group_id),
+        resolved_age_group_id,
         int(draw)
     )
 
-FIRST_FORECAST_YEAR = 2022
+FIRST_FORECAST_YEAR = 2024
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
@@ -719,7 +754,7 @@ def model_inference(
     cmip6_scenario: list[str],
     year: list[str],
     sex_id: list[int],
-    age_group_id: list[int],
+    age_group_id: list[int | str],
     draws: int,
     queue: str,
 ) -> None:
@@ -786,6 +821,7 @@ def model_inference(
                 "project": "proj_rapidresponse",
             },
             max_attempts=2,
+            concurrency_limit = 1000,
             log_root=str(cm_data.results / results_version),
         )
     

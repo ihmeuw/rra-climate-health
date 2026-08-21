@@ -98,6 +98,7 @@ class OutcomeVariable(StrEnum):
     ANEMIA = "anemia"
     LOW_BIRTH_WEIGHT = "lbw"
     NEONATAL_MORTALITY = "neonatal_mortality"
+    CHILD_MORTALITY = "child_mortality"
 
 
 class PredictorSpecification(BaseModel):

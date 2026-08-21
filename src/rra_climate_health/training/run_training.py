@@ -125,20 +125,24 @@ def model_training_main(
 
     # Validation
     target_measure = model_spec.measure.value
-    if year_variable not in df.columns:
-        df[year_variable] = raw_df[year_variable]
+    # Preserving id columns to merge with GBD data for validation
+    columns_to_keep = [year_variable, "ihme_loc_id", "age_group_id", "sex_id", "age_sex"]
+    for col in columns_to_keep:
+        if col in raw_df and col not in df.columns:
+            df[col] = raw_df[col]
 
     # summary = training_validation.validate_model(df, model_spec, target_measure, year_variable, var_info)
     # summary.to_csv(cm_data.models / model_version / "validation_results.csv", index=False)
     # training_validation.update_results_file(summary, cm_data.models / "validation_results.csv", 
     #                                         model_version, submodel)
     
-    # training_diagnostics.run_training_diagnostics(model, df, model_spec, cm_data, model_version, submodel, raw_df, var_info)
-
     if not submodel:
         # Only save intercept raster for full model
         icept_raster = utils.get_intercept_raster(model_spec, coefs, ranefs, cm_data)
         cm_data.save_rasterized_intercept(model_version, icept_raster, predictor = 1)
+    
+    training_diagnostics.run_training_diagnostics(model, df, model_spec, cm_data, model_version, submodel, raw_df, var_info)
+
 
 
 @click.command()  # type: ignore[arg-type]
@@ -219,8 +223,8 @@ def model_training(
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "250Gb",
-            "runtime": "6h",
+            "memory": "500Gb",
+            "runtime": "150h",
             "project": "proj_rapidresponse",
         },
         max_attempts=1,
