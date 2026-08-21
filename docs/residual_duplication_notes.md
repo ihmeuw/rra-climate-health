@@ -28,21 +28,40 @@ slightly odd place for a shared helper.  Moving it to `utils.py` or a
 `population.py` would be cleaner, but those two admin2 scripts import it as
 `oldinf.load_population_timeseries`, so a move needs them updated too.
 
-## 2. Population file paths — **[open]**
+## 2. Population file paths — **[open, but not what it looks like]**
 
 * `paths.py::FORECASTED_POPULATIONS_FILEPATH` → forecasting data `7`
 * `inference/run_inference.py::FORECASTED_POPULATIONS_FILEPATH` → data `32`
   (plus `HISTORICAL_POPULATIONS_FILEPATH` → data `16`)
 * `malnutrition_fhs/src/data_utils.py` → the same data `32` / `16` pair
 
-The module-level constants in `run_inference.py` shadow the `paths.py` one and
-are the versions actually in use.  The residual step inherits them by reusing
-`load_population_timeseries`, so it is consistent with inference — but
-`paths.py` is now stale and misleading.
+This is not a live duplication: **the `paths.py` copy is never read.**  Nothing
+in the repository accesses `paths.FORECASTED_POPULATIONS_FILEPATH`, and there is
+no `getattr` on the module, so nothing is hiding.  The complete set of
+`paths.<ATTR>` accesses in tracked files is `MODEL_ROOTS` (2),
+`FHS_LOCATION_METADATA_FILEPATH` (2), `AGE_SPANS_FILEPATH` (1) and the three SDI
+names this port added, plus one
+`from rra_climate_health.paths import OUTPUT_ROOT` in a notebook.
 
-**Suggested:** delete or update `paths.py::FORECASTED_POPULATIONS_FILEPATH` and
-move the two live paths there.  Not done here because I did not want to change
-what inference reads as a side effect of this port.
+The two things that look like uses are not:
+
+* `run_inference.py` opens `FORECASTED_POPULATIONS_FILEPATH` at line ~545, but
+  that resolves to its *own* module-level constant (data `32`, defined near the
+  top of the file).  It does not import `paths` at all.
+* `notebooks/2024_07_02_postprocessing.ipynb` assigns its own local variable of
+  the same name, also pointing at data `7`.
+
+So `paths.py` is not stale-and-shadowed, it is simply dead: the one place a
+reader would naturally look for the population path holds a value nobody uses.
+The same is true of `GLOBAL_POPULATION_FILEPATH`,
+`LBD_ADMIN2_METADATA_FILEPATH`, `MODELS` and `RESULTS`, which are defined there
+and referenced nowhere.
+
+**Suggested:** delete `paths.py::FORECASTED_POPULATIONS_FILEPATH` -- that is a
+runtime no-op.  Do *not* "move the live paths into `paths.py`": that would
+create a coupling that does not exist today and would risk changing what
+inference reads.  `paths.py` is intentionally left untouched by this port apart
+from the SDI additions.
 
 ## 3. Constants — **[partly resolved]**
 
