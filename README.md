@@ -6,70 +6,109 @@
 A collection of geospatial models examining the relationship between climate variables,
 socio-demographic indicators, and health outcomes.
 
-## Setting up a development environment
+## Quick start
+
+**If you are working on the IHME cluster, this is what you want:**
+
+```sh
+# 1. Install pixi (once per machine)
+curl -fsSL https://pixi.sh/install.sh | sh
+
+# 2. Clone this repository, then from inside it:
+pixi install -e cluster-dev
+
+# 3. Drop into a shell with that environment activated
+pixi shell -e cluster-dev
+```
+
+Everything (Python, R, `jobmon`, linters, tests) is now on your `PATH`, so
+`strun`, `sttask`, `pytest`, `python` etc. work directly.
+
+> **Note:** plain `pixi install` builds **only** the `default` environment,
+> which has *no* `jobmon` and *no* dev tooling. It does not install the other
+> environments. Almost everyone working on this repo needs `-e cluster-dev` —
+> pass the `-e` flag or you will be missing `jobmon` when you try to launch
+> jobs. See [Environments](#environments) below.
+
+Step 2 must be run **on the IHME network** (in-office or on VPN), because
+`jobmon` comes from the IHME artifactory. Everything else works anywhere.
+
+## Environments
 
 This project uses [pixi](https://pixi.sh) to manage both the Python and the R
-sides of the environment in a single lockfile. Pixi pulls R itself (and
-`r-scam`, `r-lme4`, `r-lmertest`, `r-emmeans`, `r-mgcv`) from conda-forge so
-that `rpy2` is ABI-compatible with the R it links against at runtime — this
-is what previously made the install brittle across machines.
+sides of the environment in a single lockfile (`pixi.lock`, checked in). There
+are four environments, built from three optional feature sets:
 
-* Install pixi (once per machine):
+| Environment   | What you get                                  | Use it when                                          | Needs IHME network |
+| ------------- | --------------------------------------------- | ---------------------------------------------------- | ------------------ |
+| `default`     | Python + R + the modelling stack              | Running models on a laptop / off-network CI          | no                 |
+| `dev`         | `default` + ruff, mypy, pytest, mkdocs        | Linting/testing without cluster submission           | no                 |
+| `cluster`     | `default` + `jobmon`                          | Submitting SLURM jobs, no code changes               | yes                |
+| `cluster-dev` | `default` + `dev` + `cluster`                 | **The normal choice** — hands-on work on the cluster | yes                |
 
-    ```sh
-    curl -fsSL https://pixi.sh/install.sh | sh
-    ```
+Useful things to know about pixi's environment handling:
 
-* Clone this repository.
-
-* Install the runtime environment:
-
-    ```sh
-    pixi install
-    ```
-
-* Drop into a shell with the environment activated:
-
-    ```sh
-    pixi shell
-    ```
-
-  Or run a single command in the env without activating:
-
-    ```sh
-    pixi run strun ...
-    ```
-
-### Submitting jobs to the IHME cluster
-
-`jobmon` lives in the optional `cluster` feature because it comes from the
-IHME artifactory (which requires being on the IHME network — VPN or
-in-office). Add it on top of the default env:
+* `pixi install` installs **one** environment at a time. With no `-e` flag it
+  installs `default`. Use `-e <name>` to pick another, or `--all` to build all
+  four at once (this needs IHME network access, because of the `cluster` envs).
+* `pixi run` and `pixi shell` auto-install the environment if it is missing, so
+  `pixi install` is really just a way to pre-warm it.
+* The `-e` flag applies per command, so it is easiest to activate once per
+  terminal with `pixi shell -e cluster-dev` and then work normally.
 
 ```sh
-pixi install -e cluster      # default + jobmon
-pixi shell -e cluster
+pixi shell -e cluster-dev              # activate for this terminal
+pixi run -e cluster-dev strun ...      # or run a single command, no activation
+pixi run -e cluster-dev pytest         # run the tests
+pixi list -e cluster-dev               # what actually got installed
 ```
 
-### Development tools
+## Why pixi (and why R is in the lockfile)
 
-Linters, type checking, tests, and docs live in the optional `dev` feature.
+Pixi pulls R itself (and `r-scam`, `r-lme4`, `r-lmertest`, `r-emmeans`,
+`r-mgcv`) from conda-forge so that `rpy2` is ABI-compatible with the R it links
+against at runtime — this is what previously made the install brittle across
+machines.
+
+`jobmon` is kept out of the `default` environment on purpose: it comes from the
+IHME artifactory, so bundling it into `default` would make a plain
+`pixi install` fail for anyone off the IHME network (including public GitHub
+Actions runners).
+
+## Development
+
+### Pre-commit
+
+Pre-commit hooks run all the auto-formatting (`ruff format`), linters (e.g.
+`ruff` and `mypy`), and other quality checks to make sure the changeset is in
+good shape before a commit/push happens.
+
+Install the hooks so they run on each commit:
 
 ```sh
-pixi install -e dev          # default + dev tooling
-pixi shell -e dev
-pixi run -e dev pytest
-
-# Both at once (typical for hands-on work on the cluster):
-pixi install -e cluster-dev
+pixi run -e cluster-dev pre-commit install
 ```
+
+Or so they run only on each push:
+
+```sh
+pixi run -e cluster-dev pre-commit install -t pre-push
+```
+
+Or run all checks manually against all files:
+
+```sh
+pixi run -e cluster-dev pre-commit run --all-files
+```
+
+(`-e dev` works just as well for any of these if you don't need `jobmon`.)
 
 ### Updating the lockfile
 
-Edit `[tool.pixi.*]` in `pyproject.toml`, then:
+Edit `[tool.pixi.*]` in `pyproject.toml`, then re-solve and install:
 
 ```sh
-pixi install             # re-solves and updates pixi.lock
+pixi install -e cluster-dev    # re-solves and updates pixi.lock
 ```
 
 Commit both `pyproject.toml` and `pixi.lock` together.
@@ -124,28 +163,5 @@ To move jobmon to a new version:
 Commit both `pyproject.toml` and `pixi.lock`. Note that a plain `pixi update`
 likely will not auto-bump past the constraint next time either, so raise the
 floor (or the pin) again when you want a newer jobmon.
-
-### Pre-commit
-
-Pre-commit hooks run all the auto-formatting (`ruff format`), linters (e.g. `ruff` and `mypy`), and other quality
- checks to make sure the changeset is in good shape before a commit/push happens.
-
-You can install the hooks with (runs for each commit):
-
-```sh
-pixi run -e dev pre-commit install
-```
-
-Or if you want them to run only for each push:
-
-```sh
-pixi run -e dev pre-commit install -t pre-push
-```
-
-Or if you want e.g. want to run all checks manually for all files:
-
-```sh
-pixi run -e dev pre-commit run --all-files
-```
 
 ---

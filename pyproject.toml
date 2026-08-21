@@ -54,12 +54,14 @@ packages = ["src/rra_climate_health"]
 # anywhere; cluster users add `-e cluster` to pull jobmon from the IHME
 # artifactory.
 #
-# Quick start:
-#   pixi install                          # default runtime env (anywhere)
-#   pixi shell                            # activate it
+# Quick start (note: `pixi install` builds ONE env -- `default` -- unless you
+# pass -e/--all; most people working on this repo want `cluster-dev`):
+#   pixi install -e cluster-dev           # dev tooling + jobmon (IHME network)
+#   pixi shell -e cluster-dev             # activate it
+#   pixi install                          # default runtime env only (anywhere)
 #   pixi install -e dev                   # adds linters, mypy, mkdocs, tests
 #   pixi install -e cluster               # adds jobmon (IHME network only)
-#   pixi install -e cluster-dev           # both
+#   pixi install --all                    # all four envs (IHME network only)
 # ---------------------------------------------------------------------------
 
 [tool.pixi.workspace]
