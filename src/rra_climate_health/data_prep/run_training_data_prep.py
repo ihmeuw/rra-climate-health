@@ -2841,6 +2841,31 @@ def run_training_data_prep_child_mortality_monthly(
     df["hh_id"] = df["hh_id"].astype("int")
     df.drop(columns=["old_hh_id"], inplace=True)
 
+    # create indv_id
+    # get unique invidiuals and clean variables
+    df["line_id"] = df["line_id"].astype(int)
+
+    df["indv_id"] = (
+        df[["nid", "psu", "hh_id", "line_id","sex_id","birth_year","birth_month"]].astype(str).agg("_".join, axis=1)
+    )
+
+
+    # if duplicates exist in indv_id, they're being recorded twice, once alive and
+    # once dead. Keep only dead record, which would occur later
+    df_dedup = df[~df.duplicated(subset=["indv_id"], keep=False)]
+    df_dup = df[df.duplicated(subset=["indv_id"], keep=False)]
+
+    df_dup_last = df_dup.sort_values("child_alive").drop_duplicates(subset=["indv_id"], keep="last")
+    assert len(df_dup_last) == df_dup_last["indv_id"].nunique()
+
+    assert len(df)-len(df_dedup)-len(df_dup) ==0
+    df_dup = df_dup.sort_values("indv_id")
+
+    df = pd.concat([df_dedup, df_dup_last], axis=0)
+    assert len(df)==df["indv_id"].nunique(), "indv_id not unique"
+
+    df.to_parquet(output_path_version / "child_mortality_indv_id.parquet", index=False)
+
     # Prepping wealth dataset
     dhs_wealth_data_raw = get_DHS_wealth_dataset()
     dhs_wealth_data = dhs_wealth_data_raw.copy()
@@ -3058,11 +3083,11 @@ def run_training_data_prep_child_mortality_monthly(
     # df_climate = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_with_climate.parquet")
 
     # get unique invidiuals and clean variables
-    df_climate["line_id"] = df_climate["line_id"].astype(int)
+    # df_climate["line_id"] = df_climate["line_id"].astype(int)
 
-    df_climate["indv_id"] = (
-        df_climate[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
-    )
+    # df_climate["indv_id"] = (
+    #     df_climate[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
+    # )
     logging.info(f"{df_climate['indv_id'].nunique():,} unique individuals in data")
 
     # avg number of months per individual
@@ -3476,6 +3501,15 @@ def run_training_data_prep_child_mortality_monthly(
     print(len(df_grouped_cumulative))
     df_grouped_cumulative = df_grouped_cumulative.drop_duplicates()
     print(len(df_grouped_cumulative))
+
+    # fix problematic rows
+    # 1. Ensure that child_mortality is 1 only once, corresponding to the
+    # age_month_original if child_alive = 0. 
+    # For child_alive == 0, get max age_month
+
+    # 2. Keep rows leading up to max age, then drop thereafter
+
+
     df_grouped_cumulative.to_parquet(
         Path(output_path_version) / "data_constant_vars.parquet",
         index=False,
