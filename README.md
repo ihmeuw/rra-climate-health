@@ -33,6 +33,24 @@ Everything (Python, R, `jobmon`, linters, tests) is now on your `PATH`, so
 Step 2 must be run **on the IHME network** (in-office or on VPN), because
 `jobmon` comes from the IHME artifactory. Everything else works anywhere.
 
+## Running the pipeline
+
+Four steps, launched with `strun` (submits a `jobmon` workflow to SLURM) or run
+directly with `sttask` (one unit of work in the current process):
+
+```sh
+strun training specifications/stunting.yaml -q long.q       # -> model version
+strun inference -m stunting -t <model-version> \
+    -c all -y all -s all -a all -d 100                      # -> results version, then forecast
+strun residual -m stunting -r <results-version>             # -> final draws, SEVs, plots
+```
+
+See [Running the pipeline](https://ihmeuw.github.io/rra-climate-health/running/)
+for what each step consumes and produces, how versions chain together, and how
+to pick a run back up after a failure, and
+[Current Versions](https://ihmeuw.github.io/rra-climate-health/versions/) for
+the model and results versions in use per measure.
+
 ## Environments
 
 This project uses [pixi](https://pixi.sh) to manage both the Python and the R

@@ -15,6 +15,8 @@ theme:
 
 nav:
   - Introduction: 'index.md'
+  - Running the pipeline: 'running.md'
+  - Current Versions: 'versions.md'
   - Input Data: 'inputs.md'
   - Training Methodology: 'model.md'
   - Inference and Forecasting: 'inference.md'
