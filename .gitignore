@@ -91,3 +91,11 @@ venv.bak/
 # Specifications
 specifications/
 
+# Core dumps. A crashed run drops these in its working directory, and for this
+# codebase they are the size of the process's resident set -- tens of GB.
+# Anchored to the repo root so these patterns can never shadow a future
+# package directory named `core`.
+/core
+/core.[0-9]*
+*.core
+
