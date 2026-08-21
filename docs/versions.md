@@ -20,18 +20,20 @@ All paths below are relative to the output root:
 
 ## Current versions by measure
 
-| Measure | Model version | Results version | Status | Notes |
+| Measure | Model version | Results version | Notes |
 | --- | --- | --- | --- | --- |
-| `stunting` | `2026_07_06.04` | `2026_07_13.01` | ? | |
-| `wasting` | `2026_07_21.03` | `2026_07_26.01` | ? | |
-| `underweight` | `2026_07_06.03` | `2026_07_07.03` | ? | |
-| `anemia` | `2026_08_01.32` | `2026_08_01.02` | ? | |
-| `lbw` | `2026_08_18.01` | `2026_08_18.01` | in progress | Scenario draw files exist but no `forecast.parquet`; residual step not run |
-| `neonatal_mortality` | `2026_08_03.02` | `2026_08_03.04` | ? | A parallel run, results `2026_08_03.03` from model `2026_08_03.01`, is equally complete — pick one |
-| `child_mortality` | `2026_08_17.01` | `2026_08_17.07` | ? | Newer model versions (`2026_08_17.02`, `2026_08_20.01`) have no results version yet |
+| `stunting` | `2025_04_03.01` | `2025_05_09.01` | Paper submission | 
+| `wasting` | `2025_04_03.01` | `2025_05_09.01` | Paper submission | 
+| `underweight` | `2025_04_03.01` | `2025_05_09.01` | Paper submission | 
+| `stunting` | `2026_07_06.04` | `2026_07_13.01` | Latest stunting | 
+| `wasting` | `2026_07_21.01` | `2026_07_26.01` | Latest wasting | 
+| `underweight` | `2026_07_06.03` | `2026_07_07.03` | Latest underweight | 
+| `anemia` | `2026_08_01.32` | `2026_08_01.02` | Latest anemia | 
+| `lbw` | `2026_08_18.01` | `2026_08_18.01` |  Scenario draw files exist but no `forecast.parquet`; residual step not run |
+| `neonatal_mortality` | `2026_08_03.02` | `2026_08_03.04` | Candidate run, without precipitation |
+| `neonatal_mortality` |  `2026_08_03.01`|`2026_08_03.03` | Latest neonatal |
+| `child_mortality` | `2026_08_17.01` | `2026_08_17.07` | Bad run |
 
-Suggested values for `Status`: **current** (use this), **superseded**,
-**in progress**, **exploratory**.
 
 ## What "complete" means
 
@@ -69,5 +71,3 @@ MODEL=$(grep -Po '(?<=model: ).*' $ROOT/$MEASURE/results/$RESULTS/results_spec.y
 cat $ROOT/$MEASURE/models/$MODEL/specification.yaml
 ```
 
-Move a superseded row's `Status` to **superseded** rather than deleting it, so
-that numbers already circulated stay traceable to a version.
