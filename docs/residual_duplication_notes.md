@@ -84,9 +84,18 @@ The residual diagnostics use the second one to decide which population to pull.
 These are two different concepts sharing a shape, so my read is that they should
 stay separate but be renamed to say which is which (e.g.
 `MODELED_AGE_GROUPS_BY_MEASURE` vs `REPORTED_AGE_GROUPS_BY_MEASURE`) and live in
-the same file.  Worth confirming that `VALID_AGE_GROUPS_FOR_MEASURE` is complete
-— `lbw` is missing, so the superregion plot and the counts table would
-`KeyError` on that measure.
+the same file.  The rename is still open; the `lbw` gap has since been filled.
+
+**[resolved]** The *typing* half of this is now settled — the part that actually
+broke runs.  `AGE_GROUP_IDS_BY_MEASURE` still holds strings (click choices are
+strings), but `cli_options.normalize_age_group_id` converts them to int at the single
+point where tasks are dispatched, so results tables, scenario parquets and
+`results_spec.yaml` all carry int `age_group_id` again.  Only measures listed in
+`cli_options.NAMED_AGE_STRATA_MEASURES` keep strings, and only until the forecast step
+collapses them.  `ResultsSpecification` coerces numeric age groups to int on read, so
+specs written during the string-typed window heal themselves, and
+`load_population_timeseries` now raises `TypeError` rather than silently producing an
+all-NaN population join.
 
 ## 4. Location hierarchy loaders — **[resolved]**
 

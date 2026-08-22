@@ -118,7 +118,58 @@ AGE_GROUP_IDS_BY_MEASURE: dict[str, list[str]] = {
     "child_mortality": ['age_1_m', 'age_3_m', 'age_6_m', 'age_12_m', 'age_24_m', 'age_36_m', 'age_48_m', 'age_60_m',]
 }
 
-VALID_AGE_GROUP_IDS = set([a for ages in AGE_GROUP_IDS_BY_MEASURE.values() for a in ages])
+# Measures whose "age groups" are not GBD age group IDs at all.  ``child_mortality`` is
+# fit on named discrete-time survival intervals (``age_1_m`` is [0, 1) months,
+# ``age_3_m`` is [1, 3), ... ``age_60_m`` is [48, 60)), which tile 0-60 months and do not
+# line up with any GBD age group.  They exist only as a modeling stratum: the forecast
+# step collapses them into the single reported age group 1 (Under 5) via
+# ``inference.run_inference.aggregate_mortality_over_ages``.  Every other measure's age
+# groups are GBD IDs and must be ints by the time they reach a dataframe, because the
+# population and GBD inputs are keyed on int64 ``age_group_id``.
+NAMED_AGE_STRATA_MEASURES: set[str] = {"child_mortality"}
+
+
+def normalize_age_group_id(measure: str, age_group_id: str | int) -> int | str:
+    """Convert a CLI age-group value to the type the rest of the pipeline expects.
+
+    ``AGE_GROUP_IDS_BY_MEASURE`` holds strings because click choices are strings.  For
+    every measure except those in ``NAMED_AGE_STRATA_MEASURES`` those strings are numeric
+    GBD IDs and must become ints here -- this is the single conversion point between the
+    CLI's string world and the int64 world of the population and GBD inputs.  Named
+    strata are passed through untouched.
+    """
+    if measure in NAMED_AGE_STRATA_MEASURES:
+        return age_group_id
+    return int(age_group_id)
+
+
+def normalize_age_group_ids(
+    measure: str,
+    age_group_ids: list[str] | list[int] | list[str | int],
+) -> list[int | str]:
+    """List form of :func:`normalize_age_group_id`."""
+    return [normalize_age_group_id(measure, a) for a in age_group_ids]
+
+
+def _age_group_sort_key(age_group_id: str) -> tuple[int, int, str]:
+    """Sort numeric age group IDs numerically, then named strata by their month bound.
+
+    Keeps ``age_1_m, age_3_m, ... age_60_m`` in interval order rather than the
+    lexical order that would put ``age_12_m`` before ``age_1_m``.
+    """
+    if age_group_id.isdigit():
+        return (0, int(age_group_id), "")
+    digits = "".join(c for c in age_group_id if c.isdigit())
+    return (1, int(digits) if digits else 0, age_group_id)
+
+
+# A deterministically ordered list, not a set: ``rra_tools.with_choice`` takes
+# ``choices[-1]`` as the default when ``allow_all`` is False, and renders the choices in
+# order in ``--help``.  A set would make both vary from process to process.
+VALID_AGE_GROUP_IDS = sorted(
+    {a for ages in AGE_GROUP_IDS_BY_MEASURE.values() for a in ages},
+    key=_age_group_sort_key,
+)
 
 def resolve_age_group_ids_for_measure(
     measure: str,
@@ -253,6 +304,9 @@ __all__ = [
     "with_sex_id",
     "VALID_AGE_GROUP_IDS",
     "AGE_GROUP_IDS_BY_MEASURE",
+    "NAMED_AGE_STRATA_MEASURES",
+    "normalize_age_group_id",
+    "normalize_age_group_ids",
     "resolve_age_group_ids_for_measure",
     "with_age_group_id",
     "VALID_PREDICTION_YEARS",

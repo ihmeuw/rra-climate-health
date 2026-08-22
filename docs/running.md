@@ -149,6 +149,14 @@ strun inference -m stunting -t 2026_07_06.04 \
 per measure in `cli_options.AGE_GROUP_IDS_BY_MEASURE`. Passing an age group
 that the measure does not model is a hard error rather than a silent no-op.
 
+Age group IDs are integers everywhere downstream of the CLI: population and GBD
+inputs are keyed on int64 `age_group_id`, so `cli_options.normalize_age_group_id`
+converts the CLI's strings once, at the point tasks are dispatched. The exception
+is the measures in `cli_options.NAMED_AGE_STRATA_MEASURES` -- currently just
+`child_mortality`, which is fit on named survival intervals (`age_1_m` ...
+`age_60_m`) rather than GBD age groups. Those names stay strings through
+inference and are collapsed to the reported age group `1` by the forecast step.
+
 The launcher allocates the next **results version**, writes
 `results/{results_version}/results_spec.yaml` recording the model version,
 draws, age groups, sexes, scenarios and years, and then submits the fan-out.
