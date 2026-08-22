@@ -132,16 +132,6 @@ For `child_mortality` the age-specific mortality rates are combined across ages
 into a single aggregate (`age_group_id` 1) by multiplying survival
 probabilities, `1 - prod(1 - m_a)`, rather than summing rates.
 
-That aggregation is also the point where `child_mortality` rejoins the integer
-world. Its strata are named survival intervals (`age_1_m` is [0, 1) months,
-`age_3_m` is [1, 3), ... `age_60_m` is [48, 60)), which tile 0-60 months and have
-no GBD equivalent, so they are deliberately *not* mapped onto GBD age group IDs.
-They stay strings for as long as they exist, and `aggregate_mortality_over_ages`
-replaces them with the int `1`. Every other measure carries int `age_group_id`
-from the moment its task is dispatched; `load_population_timeseries` raises a
-`TypeError` if it is ever handed a non-integer age group, because the alternative
-is an all-NaN population join that fails silently.
-
 ## What inference does *not* do
 
 The prevalences coming out of forecasting are the model's own, and they do not
