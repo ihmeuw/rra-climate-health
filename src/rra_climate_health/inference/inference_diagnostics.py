@@ -290,7 +290,7 @@ def plot_gbd_comparison(  # noqa: PLR0915
             ).loc[:, "X.Intercept."]
             random_effects_list.append(temp_re)
 
-    prediction = cm_data.load_results_table(results_version, scenarios, year_ids, sex_ids, age_group_ids, 1)
+    prediction = cm_data.load_results_table(results_version, scenarios, year_ids, age_group_ids, sex_ids, 1)
 
     prediction['version_label'] = version_label
     prediction['measure'] = measure

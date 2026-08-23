@@ -504,7 +504,7 @@ def model_inference_main(
     df["year_id"] = year
     df["draw"] = draw
     df["scenario"] = cmip6_scenario
-    cm_data.save_results_table(df, results_version, cmip6_scenario, year, sex_id, age_group_id, draw)
+    cm_data.save_results_table(df, results_version, cmip6_scenario, year, age_group_id, sex_id, draw)
 
 
 def load_population_timeseries(
@@ -520,6 +520,16 @@ def load_population_timeseries(
         {} if locs_of_interest is None else {"location_id": list(locs_of_interest)}
     )
     age_group_ids = list(age_group_ids)
+
+    non_integer = [a for a in age_group_ids if not isinstance(a, (int, np.integer))]
+    if non_integer:
+        msg = (
+            "load_population_timeseries needs integer GBD age group IDs, got "
+            f"{non_integer!r}. The population and GBD inputs are keyed on int64 "
+            "age_group_id, so named model strata (child_mortality's age_1_m ... "
+            "age_60_m) must be collapsed to a reported age group before this point."
+        )
+        raise TypeError(msg)
 
     requested_aggregates = [a for a in age_group_ids if a in AGE_GROUP_AGGREGATES]
     requested_detailed = [a for a in age_group_ids if a not in AGE_GROUP_AGGREGATES]
@@ -736,7 +746,7 @@ def model_inference_task(
         cmip6_scenario,
         int(year),
         int(sex_id),
-        resolved_age_group_id,
+        clio.normalize_age_group_id(measure, resolved_age_group_id),
         int(draw)
     )
 
@@ -763,8 +773,11 @@ def model_inference(
 ) -> None:
     """Run model inference."""
     age_group_id = clio.resolve_age_group_ids_for_measure(measure, age_group_id)
+    # The spec records the types the forecast and residual steps will work in; the task
+    # fan-out below keeps the raw CLI strings, which each task re-normalizes itself.
+    spec_age_group_ids = clio.normalize_age_group_ids(measure, age_group_id)
     cm_data = ClimateMalnutritionData(Path(output_root) / measure)
-    results_version = cm_data.new_results_version(model_version, age_group_id,
+    results_version = cm_data.new_results_version(model_version, spec_age_group_ids,
         sex_id, year, cmip6_scenario, draws)
     draw_range = list(range(0, draws))
     print(

@@ -366,7 +366,7 @@ class ClimateMalnutritionData:
 
     def new_results_version(self, 
         model_version: str,
-        age_groups: list[int],
+        age_groups: list[int | str],
         sex_ids: list[int],
         years: list[int], 
         scenarios: list[str],
@@ -429,7 +429,7 @@ class ClimateMalnutritionData:
         sex_id: str | int,
         draw: int,
     ) -> None:
-        path = self.results / model_version / f"{year}_{scenario}_{sex_id}_{age_group_id}_{draw}.parquet"
+        path = self.results / model_version / f"{year}_{scenario}_{age_group_id}_{sex_id}_{draw}.parquet"
         touch(path, exist_ok=True)
         results.to_parquet(path)
     
@@ -449,7 +449,7 @@ class ClimateMalnutritionData:
                     for sex_id in sex_ids:
                         for draw in range(0, draws):
                             path = self.results / model_version / \
-                                f"{year}_{scenario}_{sex_id}_{age_group_id}_{draw}.parquet"
+                                f"{year}_{scenario}_{age_group_id}_{sex_id}_{draw}.parquet"
                             dfs.append(pd.read_parquet(path))
         return pd.concat(dfs)
 
