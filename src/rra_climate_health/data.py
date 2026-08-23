@@ -364,13 +364,14 @@ class ClimateMalnutritionData:
     def results(self) -> Path:
         return self.root / "results"
 
-    def new_results_version(self, 
+    def new_results_version(self,
         model_version: str,
         age_groups: list[int | str],
         sex_ids: list[int],
-        years: list[int], 
+        years: list[int],
         scenarios: list[str],
-        draws: int) -> str:
+        draws: int,
+        save_rasters: bool = False) -> str:
         run_directory = get_run_directory(self.results)
         mkdir(run_directory)
         # create results specification file
@@ -384,6 +385,7 @@ class ClimateMalnutritionData:
                 scenarios=scenarios,
                 years=years,
                 sex_ids = sex_ids,
+                save_rasters=save_rasters,
             )
         )
         return run_directory.name
@@ -418,6 +420,66 @@ class ClimateMalnutritionData:
         )
         mkdir(path.parent, parents=True, exist_ok=True)
         save_raster(results, path)
+
+    def load_raster_results(
+        self,
+        results_version: str,
+        scenario: str,
+        year: str | int,
+        age_group_id: str | int,
+        sex_id: str | int,
+        draw: int,
+    ) -> rt.RasterArray:
+        return rt.load_raster(
+            self.raster_results_path(
+                results_version, scenario, year, age_group_id, sex_id, draw
+            )
+        )
+
+    def mean_raster_results_path(
+        self,
+        results_version: str,
+        scenario: str,
+        year: str | int,
+        age_group_id: str | int,
+        sex_id: str | int,
+    ) -> Path:
+        # No draw suffix: this is the mean over draws, produced by the
+        # coalesce_rasters task from the per-draw rasters.
+        return (
+            self.results
+            / results_version
+            / f"{year}_{scenario}_{age_group_id}_{sex_id}.tif"
+        )
+
+    def save_mean_raster_results(
+        self,
+        results: rt.RasterArray,
+        results_version: str,
+        scenario: str,
+        year: str | int,
+        age_group_id: str | int,
+        sex_id: str | int,
+    ) -> None:
+        path = self.mean_raster_results_path(
+            results_version, scenario, year, age_group_id, sex_id
+        )
+        mkdir(path.parent, parents=True, exist_ok=True)
+        save_raster(results, path)
+
+    def load_mean_raster_results(
+        self,
+        results_version: str,
+        scenario: str,
+        year: str | int,
+        age_group_id: str | int,
+        sex_id: str | int,
+    ) -> rt.RasterArray:
+        return rt.load_raster(
+            self.mean_raster_results_path(
+                results_version, scenario, year, age_group_id, sex_id
+            )
+        )
 
     def save_results_table(
         self,

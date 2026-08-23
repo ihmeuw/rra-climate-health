@@ -235,6 +235,18 @@ def with_overwrite() -> ClickOption[_P, _T]:
     )
 
 
+def with_save_rasters() -> ClickOption[_P, _T]:
+    return click.option(
+        "--save-rasters",
+        help=(
+            "Save the prevalence rasters for the last GBD year and the last "
+            "forecast year, coalesce the forecast-year draws to a mean raster, "
+            "and produce raster diff diagnostics."
+        ),
+        is_flag=True,
+    )
+
+
 def with_output_root(default: str | Path) -> ClickOption[_P, _T]:
     return click.option(
         "--output-root",
@@ -312,6 +324,7 @@ __all__ = [
     "VALID_PREDICTION_YEARS",
     "with_year",
     "with_overwrite",
+    "with_save_rasters",
     "with_output_root",
     "with_results_version",
     "with_model_version",

@@ -42,6 +42,7 @@ directly with `sttask` (one unit of work in the current process):
 strun training specifications/stunting.yaml -q long.q       # -> model version
 strun inference -m stunting -t <model-version> \
     -c all -y all -s all -a all -d 100                      # -> results version, then forecast
+    # add --save-rasters for 2023/2100 rasters + raster diff maps
 strun residual -m stunting -r <results-version>             # -> final draws, SEVs, plots
 ```
 

@@ -15,6 +15,9 @@ class ResultsSpecification(BaseModel):
     sex_ids: list[int] = []
     scenarios: list[str] = []
     years: list[int] = []
+    # Whether inference was run with --save-rasters, i.e. whether this version
+    # has (or had) prediction rasters for the last GBD and last forecast years.
+    save_rasters: bool = False
 
     @field_validator("age_groups", mode="before")
     @classmethod

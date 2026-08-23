@@ -22,6 +22,8 @@ from rra_climate_health import utils
 from rra_climate_health.constants import (
     AGE_GROUP_AGGREGATES,
     FIRST_FORECAST_YEAR,
+    LAST_FORECAST_YEAR,
+    LAST_GBD_YEAR,
     REFERENCE_SCENARIO,
 )
 from rra_climate_health.data import DEFAULT_ROOT, ClimateMalnutritionData
@@ -433,6 +435,7 @@ def model_inference_main(
     sex_id: int,
     age_group_id: int | str,
     draw: int,
+    save_rasters: bool = False,
 ) -> None:
     cm_data = ClimateMalnutritionData(output_dir / measure)
     spec = cm_data.load_model_specification(model_version)
@@ -460,7 +463,7 @@ def model_inference_main(
         training_data_version,
         draw,
     )
-    if year == 2023 or year == 2100:    
+    if save_rasters and year in (LAST_GBD_YEAR, LAST_FORECAST_YEAR):
         cm_data.save_raster_results(
             model_prevalence,
             results_version,
@@ -555,7 +558,7 @@ def load_population_timeseries(
         xr.open_dataset(FORECASTED_POPULATIONS_FILEPATH)
         .sel(
             age_group_id=detailed_to_load,
-            year_id=range(FIRST_FORECAST_YEAR, 2101),
+            year_id=range(FIRST_FORECAST_YEAR, LAST_FORECAST_YEAR + 1),
             scenario=130,
             **loc_selector,
         )
@@ -725,6 +728,7 @@ def forecast_scenarios_task(
 @clio.with_sex_id()
 @clio.with_age_group_id()
 @clio.with_draw()
+@clio.with_save_rasters()
 def model_inference_task(
     output_root: str,
     measure: str,
@@ -735,6 +739,7 @@ def model_inference_task(
     sex_id: str,
     age_group_id: str,
     draw: str,
+    save_rasters: bool,
 ) -> None:
     """Run model inference."""
     [resolved_age_group_id] = clio.resolve_age_group_ids_for_measure(measure, [age_group_id])
@@ -747,7 +752,8 @@ def model_inference_task(
         int(year),
         int(sex_id),
         clio.normalize_age_group_id(measure, resolved_age_group_id),
-        int(draw)
+        int(draw),
+        save_rasters=save_rasters,
     )
 
 @click.command()  # type: ignore[arg-type]
@@ -760,6 +766,7 @@ def model_inference_task(
 @clio.with_age_group_id(allow_all=True)
 @clio.with_queue()
 @clio.with_n_draws()
+@clio.with_save_rasters()
 def model_inference(
     output_root: str,
     model_version: str,
@@ -770,6 +777,7 @@ def model_inference(
     age_group_id: list[int | str],
     draws: int,
     queue: str,
+    save_rasters: bool,
 ) -> None:
     """Run model inference."""
     age_group_id = clio.resolve_age_group_ids_for_measure(measure, age_group_id)
@@ -778,7 +786,7 @@ def model_inference(
     spec_age_group_ids = clio.normalize_age_group_ids(measure, age_group_id)
     cm_data = ClimateMalnutritionData(Path(output_root) / measure)
     results_version = cm_data.new_results_version(model_version, spec_age_group_ids,
-        sex_id, year, cmip6_scenario, draws)
+        sex_id, year, cmip6_scenario, draws, save_rasters=save_rasters)
     draw_range = list(range(0, draws))
     print(
         f"Running inference for {measure} using {model_version}, making {draws} draws. \n \
@@ -815,6 +823,15 @@ def model_inference(
             sex_id, age_group_id, draw_range,
         ))
 
+    inference_task_args: dict[str, Any] = {
+        "output-root": output_root,
+        "model-version": model_version,
+        "results-version": results_version,
+    }
+    if save_rasters:
+        # A None value renders as a bare --save-rasters in the task command.
+        inference_task_args["save-rasters"] = None
+
     if task_tuples:
         print(
             f"Submitting {len(task_tuples)} inference tasks "
@@ -824,11 +841,7 @@ def model_inference(
             runner="sttask",
             task_name="inference",
             flat_node_args=(arg_names, task_tuples),
-            task_args={
-                "output-root": output_root,
-                "model-version": model_version,
-                "results-version": results_version,
-            },
+            task_args=inference_task_args,
             task_resources={
                 "queue": queue,
                 "cores": 1,
@@ -861,6 +874,57 @@ def model_inference(
         max_attempts=2,
         log_root=str(cm_data.results / results_version),
     )
+
+    # The rasters only exist for LAST_GBD_YEAR and LAST_FORECAST_YEAR, and only
+    # the forecast year has multiple draws to coalesce.  These run after the
+    # forecast so a raster problem never blocks the main deliverable; each
+    # run_parallel call blocks, so all draw rasters exist before coalescing and
+    # all mean rasters exist before the diff diagnostics.
+    if save_rasters and str(LAST_FORECAST_YEAR) in [str(yr) for yr in year]:
+        jobmon.run_parallel(
+            runner="sttask",
+            task_name="coalesce_rasters",
+            node_args={
+                "measure": [measure],
+                "cmip6-scenario": cmip6_scenario,
+                "age-group-id": age_group_id,
+                "sex-id": sex_id,
+            },
+            task_args={
+                "output-root": output_root,
+                "results-version": results_version,
+            },
+            task_resources={
+                "queue": queue,
+                "cores": 1,
+                "memory": "20Gb",
+                "runtime": "120m",
+                "project": "proj_rapidresponse",
+            },
+            max_attempts=2,
+            log_root=str(cm_data.results / results_version),
+        )
+        jobmon.run_parallel(
+            runner="sttask",
+            task_name="raster_diagnostics",
+            node_args={
+                "measure": [measure],
+            },
+            task_args={
+                "output-root": output_root,
+                "results-version": results_version,
+            },
+            task_resources={
+                "queue": queue,
+                "cores": 1,
+                "memory": "20Gb",
+                "runtime": "30m",
+                "project": "proj_rapidresponse",
+            },
+            max_attempts=2,
+            log_root=str(cm_data.results / results_version),
+        )
+
     print(
         f"Inference complete, results can be found at {cm_data.results / results_version}"
     )

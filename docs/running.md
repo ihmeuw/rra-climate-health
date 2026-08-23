@@ -144,6 +144,7 @@ strun inference -m stunting -t 2026_07_06.04 \
 | `-s/--sex-id` | `1` (male), `2` (female), or `all` |
 | `-a/--age-group-id` | An age group valid for the measure, or `all` |
 | `-d/--draws` | Number of draws to run |
+| `--save-rasters` | Also write the prevalence rasters for 2023 and 2100, coalesce the 2100 draws into mean rasters, and produce the raster diff maps (off by default) |
 
 `all` for age groups expands to the measure's own age groups, which are listed
 per measure in `cli_options.AGE_GROUP_IDS_BY_MEASURE`. Passing an age group
@@ -151,7 +152,8 @@ that the measure does not model is a hard error rather than a silent no-op.
 
 The launcher allocates the next **results version**, writes
 `results/{results_version}/results_spec.yaml` recording the model version,
-draws, age groups, sexes, scenarios and years, and then submits the fan-out.
+draws, age groups, sexes, scenarios, years and whether `--save-rasters` was
+on, and then submits the fan-out.
 Again: the version is chosen for you and printed on stdout.
 
 Two things about how the task list is built:
@@ -169,7 +171,9 @@ Per-task outputs in `results/{results_version}/`:
 | File | Contents |
 | --- | --- |
 | `{year}_{scenario}_{age_group_id}_{sex_id}_{draw}.parquet` | Population-weighted prevalence per most-detailed FHS location |
-| `{year}_{scenario}_{age_group_id}_{sex_id}_{draw}.tif` | The prevalence raster — **only saved for 2023 and 2100**, since a raster per year/draw would be enormous |
+| `{year}_{scenario}_{age_group_id}_{sex_id}_{draw}.tif` | The prevalence raster — **only with `--save-rasters`, and only for 2023 and 2100**, since a raster per year/draw would be enormous. The 2100 per-draw files are deleted after coalescing (below); 2023 only ever has draw 0 |
+| `{2100}_{scenario}_{age_group_id}_{sex_id}.tif` | Draw-mean 2100 raster, written by the `coalesce_rasters` tasks (`--save-rasters` only) |
+| `raster_scenario_diff.png`, `raster_year_diff.png` | Raster diff maps, written by the `raster_diagnostics` task (`--save-rasters` only) |
 
 Tasks ask for 55 Gb and 80 minutes, with `max_attempts=2` and a concurrency
 limit of 1000.
@@ -177,6 +181,42 @@ limit of 1000.
 **`strun inference` submits the forecast step for you** as a second jobmon
 workflow once the fan-out finishes. You only run `forecast` by hand in the
 rerun case below.
+
+#### Raster outputs and raster diagnostics (`--save-rasters`)
+
+By default no rasters are written — inference only keeps the
+location-aggregated tables. Pass `--save-rasters` to `strun inference` to turn
+on the raster pathway, which adds three things:
+
+1. **Raster snapshots.** Each inference task for 2023 (`LAST_GBD_YEAR`) or
+   2100 (`LAST_FORECAST_YEAR`) also writes its prevalence raster. The years
+   are fixed constants rather than an option because multi-valued options
+   don't thread through the jobmon task templates.
+2. **Coalescing.** After the forecast step, one `coalesce_rasters` job per
+   (scenario, age, sex) averages the 2100 per-draw rasters into a single mean
+   raster (`{2100}_{scenario}_{age}_{sex}.tif`, no draw suffix) and then
+   deletes the per-draw files, freeing roughly 1–1.5 Gb per combination at
+   100 draws. Draws are only deleted after the mean raster has been written
+   and read back successfully, so the step is safe to rerun: an interrupted
+   job is finished or recomputed on retry. 2023 rasters only exist as draw 0
+   and are never deleted. Jobs ask for 20 Gb / 120 minutes.
+3. **Diff maps.** A single `raster_diagnostics` job (20 Gb / 30 minutes)
+   plots, for one representative age/sex per measure
+   (`constants.RASTER_DIAGNOSTIC_AGE_SEX`, falling back to the first age
+   group and sex in the results spec):
+    * `raster_scenario_diff.png` — 2100, `ssp585` minus `ssp126`;
+    * `raster_year_diff.png` — reference scenario, 2100 minus 2023.
+
+Both new task types also run standalone, e.g. against a results version that
+already has rasters from an earlier run:
+
+```sh
+sttask coalesce_rasters -m stunting -r <results-version> -c ssp245 -a 388 -s 2
+sttask raster_diagnostics -m stunting -r <results-version>
+```
+
+The diagnostics job skips (with a message) any map whose input rasters are
+missing, so it degrades gracefully on partially rasterized versions.
 
 ### 3. Forecast
 
