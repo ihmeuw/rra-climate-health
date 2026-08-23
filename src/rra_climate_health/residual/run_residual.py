@@ -76,7 +76,7 @@ def get_residual_prediction(
     model_ref_df = model_ref_df.rename(columns={"prevalence": "model_value"})
 
     gbd_df = gbd_df[gbd_df["year_id"] <= last_gbd_year]
-    gbd_df = gbd_df[~gbd_df.age_group_id.isin([2, 3])]  # filter out 2/3
+    gbd_df = gbd_df[gbd_df.age_group_id.isin(model_ref_df.age_group_id.unique())] 
     gbd_df = gbd_df.rename(columns={"gbd_mean_prevalence": "gbd_value"})
 
     gbd_model_df = pd.merge(
