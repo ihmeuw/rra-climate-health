@@ -27,14 +27,16 @@ We also use those coordinates to triangulate the altitude / elevation of the hou
 ## GBD comparison inputs
 
 The residual step compares the forecast against GBD, so it needs cached GBD
-prevalence, SEVs and prevalence/SEV pairs in
+prevalence, mortality, SEVs, prevalence/SEV pairs and age metadata in
 `{output_root}/input/gbd_prevalence/`. Those files are created by
 `src/rra_climate_health/data_prep/save_gbd_inputs.py`, which must be run **with
 an IHME environment rather than the project's pixi environment** because it is
-the only thing here that uses `get_draws` and `db_queries`:
+the only thing here that uses the IHME database libraries. Make yourself a clone
+of the official IHME GBD environment (`gbdenv`) and use its interpreter:
 
 ```bash
-/path/to/ihme/python src/rra_climate_health/data_prep/save_gbd_inputs.py \
+/path/to/your/gbdenv/bin/python \
+    src/rra_climate_health/data_prep/save_gbd_inputs.py \
     --output-root /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition
 ```
 

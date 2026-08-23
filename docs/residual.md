@@ -30,33 +30,55 @@ estimates from `{output_root}/input/gbd_prevalence/`:
 | `gbd_mean_{measure}_prevalence.parquet` | the residual model's outcome |
 | `gbd_draws_{measure}_{metric}_100.parquet` | the intercept shift, for prevalence and SEV |
 | `prev_to_sev_{measure}.parquet` | fitting the prevalence-to-SEV conversion |
+| `age_group_metadata.parquet` | age group names on the diagnostic plots |
 
 These are **not** created by the pipeline itself.  They come from
 `src/rra_climate_health/data_prep/save_gbd_inputs.py`, which must be run
-**with an IHME environment, not the project's pixi environment**:
+**with an IHME environment, not the project's pixi environment**.  Make
+yourself a clone of the official IHME GBD environment (`gbdenv`) and use its
+interpreter:
 
 ```bash
-/path/to/ihme/python src/rra_climate_health/data_prep/save_gbd_inputs.py \
+/path/to/your/gbdenv/bin/python \
+    src/rra_climate_health/data_prep/save_gbd_inputs.py \
     --output-root /mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition
 ```
 
-`--steps` (`gbd`, `prev-to-sev`, `age-metadata`) and `--measure` let you
-refresh a subset; `--release-id` selects the GBD release (16 by default).
-
-That script is the only thing in the repository that imports `get_draws` and
-`db_queries`, and it is deliberately kept out of the `strun`/`sttask` CLI and
-out of `pixi.lock`: pulling the IHME-internal dependency tree into the project
+That script is the only thing in the repository that imports the IHME database
+libraries, and it is deliberately kept out of the `strun`/`sttask` CLI and out
+of `pixi.lock`: pulling the IHME-internal dependency tree into the project
 environment is exactly what we want to avoid.  For the same reason it imports
 nothing from `rra_climate_health` (the package `__init__` imports `rpy2`, which
 an IHME environment will not have) and depends only on `argparse`, `pandas` and
 `numpy`.  Run it as a plain script path, not with `python -m`.
 
+### Steps
+
+`--measure` and `--steps` refresh a subset.  The steps are:
+
+| Step | Writes | In the default set? |
+| --- | --- | --- |
+| `prevalence` | `gbd_{mean,draws}_{measure}_prevalence*` | yes |
+| `mortality` | `gbd_{mean,draws}_{neonatal,child}_mortality_prevalence*` | yes |
+| `age-metadata` | `age_group_metadata.parquet` | yes |
+| `sev` | `gbd_{mean,draws}_{measure}_sev*` | no |
+| `prev-to-sev` | `prev_to_sev_{measure}.parquet` | no |
+
+Prevalence is pulled over the GBD hierarchy with
+`ihme_cc_get_estimates.get_model_estimates` and population-weighted up to any
+FHS most-detailed location GBD does not estimate directly.  LBW uses release 34
+(GBD25); everything else uses release 16 (GBD23).  Mortality comes from the life
+table (`life_table_parameter_id=3`, age groups 42 and 1), and since it has no
+draws there, the draw files repeat the mean.
+
+`sev` and `prev-to-sev` still need updating for the more recent changes to the
+shared IHME functions, so they are not in the default step list.  They are
+carried over as they last worked -- `get_draws(source="sev", ...)` and
+`get_outputs`/`get_model_results` -- which is what produced the copies currently
+on disk, but those entry points are not available in a current GBD environment.
+
 If an input is missing, the residual step raises a `FileNotFoundError` naming
 both the file and the command to create it.
-
-Note that `age_group_metadata.parquet`, which the diagnostics read for age group
-names, is a different and larger file than the `age_metadata.parquet` this
-script writes, and is not produced here.
 
 ## What it does
 
@@ -148,7 +170,7 @@ Ported from the `malnutrition_fhs` repo:
 | `src/plotting.py` | `rra_climate_health/residual/residual_diagnostics.py` |
 | `src/data_utils.py` | `rra_climate_health/residual/residual_data.py` |
 | `src/constants.py` | `rra_climate_health/constants.py` |
-| `src/2025_05_01_SaveGBD.ipynb` | `rra_climate_health/data_prep/save_gbd_inputs.py` |
+| `src/2026_07_07_SaveGBDNew.ipynb` | `rra_climate_health/data_prep/save_gbd_inputs.py` |
 | `src/PrepareSubmission2026.ipynb` | `rra_climate_health/residual/prepare_submission.py` |
 
 See [residual_duplication_notes.md](residual_duplication_notes.md) for the
