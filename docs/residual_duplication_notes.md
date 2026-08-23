@@ -142,19 +142,25 @@ table is arguably now redundant.
 
 ## 7. `save_gbd_inputs.py` is deliberately standalone — **[open by design]**
 
-`data_prep/save_gbd_inputs.py` re-declares `ME_ID_DICT`, `REI_ID_DICT` and
-`resample_like_fhs`, which also exist in `residual/residual_data.py`.
+`data_prep/save_gbd_inputs.py` re-declares `ME_ID_DICT`, `REI_ID_DICT`,
+`resample_like_fhs` and `aggregate_forecast_hierarchy`, all of which also exist
+in `residual/residual_data.py`.
 
-This one is intentional and should stay.  The script runs under an IHME
-environment to reach `get_draws`/`db_queries`, and it cannot import from
-`rra_climate_health` at all because the package `__init__` imports `rpy2`.
-Sharing code would mean either pulling the IHME dependency tree into
+This one is intentional and should stay.  The script runs under a clone of the
+official IHME GBD environment to reach the database libraries, and it cannot
+import from `rra_climate_health` at all because the package `__init__` imports
+`rpy2`.  Sharing code would mean either pulling the IHME dependency tree into
 `pixi.lock` or making the package `__init__` importable without `rpy2` --
-neither is worth it for two ID dicts and one resampling helper.
+neither is worth it here.
 
-The GBD ID dicts now live *only* in the script (they were briefly in
-`constants.py`, but nothing in the package used them).  `resample_like_fhs` is
-genuinely in two places; the copies carry comments pointing at each other.
+The GBD ID dicts live *only* in the script (they were briefly in `constants.py`,
+but nothing in the package used them).  `resample_like_fhs` and
+`aggregate_forecast_hierarchy` are genuinely in two places; the copies carry
+comments pointing at each other.  `aggregate_forecast_hierarchy` is the larger
+of the two (~80 lines of pandas) and is the one most worth revisiting if the
+`rpy2`-free-`__init__` question is ever reopened -- the script needs it because
+GBD does not estimate every FHS most-detailed location, so prevalence has to be
+population-weighted up the GBD hierarchy before it can be subset to FHS.
 
 ## 8. Hierarchy aggregation — **[open, low priority]**
 
@@ -186,15 +192,21 @@ Deliberate, so worth listing:
   cached parquet was missing.  Those are not ported: the package must not
   depend on the IHME-internal stack.  Creating those inputs is now the explicit
   job of `data_prep/save_gbd_inputs.py` (ported from
-  `malnutrition_fhs/src/2025_05_01_SaveGBD.ipynb`, which is what actually
+  `malnutrition_fhs/src/2026_07_07_SaveGBDNew.ipynb`, which is what actually
   produced them), and the loaders raise a `FileNotFoundError` naming the file
   and the command to create it.
 
-  Worth knowing: the two disagreed about what they produced.  The old
-  `get_prev_to_sev_table_db` fallback used `release_id=9` and applied no year
-  filter, while the notebook -- the version actually used -- uses
-  `release_id=16` and filters to 1990-2022 because `get_model_results` ignores
-  its `year_id` argument.  The script follows the notebook.
+  Worth knowing: the old `get_prev_to_sev_table_db` fallback used `release_id=9`
+  and applied no year filter, while the notebook uses `release_id=16` and
+  filters to 1990-2022 because `get_model_results` ignores its `year_id`
+  argument.  The script follows the notebook.
+* **`sev` and `prev-to-sev` are not in the script's default steps.**  Both
+  still need updating for the more recent changes to the shared IHME functions,
+  so they are carried over as they last worked (`get_draws(source="sev", ...)`
+  and `get_outputs`/`get_model_results`) rather than rewritten against APIs that
+  cannot express them -- SEVs are keyed by `rei_id`, which
+  `ihme_cc_get_estimates.get_model_estimates` has no parameter for.  The cached
+  copies on disk are what the residual step currently reads.
 * **`plot_multiple_superregion_prevalence_rate` population leak.**  In the
   original, the GBD loop reused the `population` variable left over from the
   last iteration of the forecast loop.  For a single measure — which is all the
