@@ -917,7 +917,7 @@ def model_inference(
             task_resources={
                 "queue": queue,
                 "cores": 1,
-                "memory": "20Gb",
+                "memory": "60Gb",
                 "runtime": "30m",
                 "project": "proj_rapidresponse",
             },
