@@ -103,9 +103,23 @@ The raster template that everything is resampled onto is the 1 km Global Human
 Settlement Layer template.
 
 Only the location-aggregated table is kept for every task. Full prevalence
-rasters are written for **2023 and 2100 only** — one raster per
-scenario/year/age/sex/draw for a century would be unmanageable, and those two
-years cover the "map of today vs map of the end of the century" diagnostic.
+rasters are opt-in via the `--save-rasters` flag on `strun inference`, and even
+then are written for **2023 and 2100 only** (`LAST_GBD_YEAR` and
+`LAST_FORECAST_YEAR`) — one raster per scenario/year/age/sex/draw for a
+century would be unmanageable, and those two years cover the "map of today vs
+map of the end of the century" diagnostic.
+
+When the flag is on, two extra workflows run after the forecast step. First,
+`coalesce_rasters` jobs average the 2100 per-draw rasters of each
+(scenario, age, sex) into a single mean raster and delete the per-draw files
+to reclaim the space (2023 is historical, so it only ever has a draw-0 raster,
+which is kept). Then a `raster_diagnostics` job renders two diff maps for one
+representative age/sex stratum — age and sex enter the model as categorical
+terms, and with no population forecast rasters there is nothing to aggregate
+them over, so one stratum is reported
+(`constants.RASTER_DIAGNOSTIC_AGE_SEX`): the 2100 spread between the worst and
+best scenarios (`raster_scenario_diff.png`), and the change from 2023 to 2100
+under the reference scenario (`raster_year_diff.png`).
 
 ## Past years versus forecast years
 
