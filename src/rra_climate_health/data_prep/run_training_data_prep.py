@@ -3258,11 +3258,11 @@ def run_training_data_prep_child_mortality_monthly(
     )
     del rel_lookup_lf; gc.collect()
 
-    before_rows = pl.scan_parquet(abs_out).select(pl.len()).collect().item()
-    after_rows = pl.scan_parquet(rel_out).select(pl.len()).collect().item()
-    logging.info(
-        f"Dropped {before_rows - after_rows:,} rows with missing values in key merged variables (consumption_pd, days_over_30C_monthly) after merging monthly climate variables"
-    )
+    # before_rows = pl.scan_parquet(abs_out).select(pl.len()).collect().item()
+    # after_rows = pl.scan_parquet(rel_out).select(pl.len()).collect().item()
+    # logging.info(
+    #     f"Dropped {before_rows - after_rows:,} rows with missing values in key merged variables (consumption_pd, days_over_30C_monthly) after merging monthly climate variables"
+    # )
 
     # df_climate = pd.read_parquet(
     #     Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet"
@@ -3593,16 +3593,11 @@ def resume_child_mortality_from_parquet(input_parquet_path: str | Path) -> None:
     # df_climate["any_days_over_30C"] = np.where(df_climate["days_over_30C"] > 0, 1, 0)
 
     # Write to output
-    # df_climate.to_parquet(Path(output_path_version) / "data.parquet", index=False)
-    # del df_climate; gc.collect()
+    print("saving df_climate ...")
+    df_climate.to_parquet(Path(output_path_version) / "data.parquet", index=False)
+    del df_climate; gc.collect()
+    print("df_climate saved")
 
-    # Add absolute monthly climate vars thresholds
-    # climate_vars_da = get_all_climate_vars_year_months_for_latlongs(
-    #     df_climate[["lat", "long", "int_year", "int_month"]],
-    #     year_var="int_year",
-    #     month_var="int_month",
-    # )
-    # climate_vars_da.to_netcdf(Path(output_path_version) / "abs_month_climate_vars.nc")
     climate_vars_da = xr.open_dataarray(Path(output_path_version) / "abs_month_climate_vars.nc")
     climate_vars_df = climate_vars_da.to_dataframe().reset_index()
     del climate_vars_da; gc.collect()
@@ -3619,6 +3614,7 @@ def resume_child_mortality_from_parquet(input_parquet_path: str | Path) -> None:
         inplace=True,
     )
     # pivot wide
+    print("pivoting climate_vars_df")
     climate_vars_wide_df = climate_vars_df.pivot_table(
         index=["int_year", "int_month", "lat", "long"],
         columns="climate_var",
@@ -3643,19 +3639,18 @@ def resume_child_mortality_from_parquet(input_parquet_path: str | Path) -> None:
         inplace=True,
     )
 
+    print("saving climate_vars_wide_df")
     # Streaming merge abs thresholds using Polars (avoids doubling 400M-row DF in memory)
     abs_lookup_pl = pl.from_pandas(climate_vars_wide_df)
     del climate_vars_wide_df; gc.collect()
     abs_out = Path(output_path_version) / "data_monthly_expanded_abs_thresholds.parquet"
     (
-        pl.from_pandas(df_climate).lazy()
+        pl.scan_parquet(Path(output_path_version) / "data.parquet")
         .join(abs_lookup_pl.lazy(), on=["int_year", "int_month", "lat", "long"], how="left")
         .sink_parquet(abs_out)
     )
-    # del abs_lookup_pl; gc.collect()
-
-    print(f"Saved data to {abs_out}")
-
+    del abs_lookup_pl; gc.collect()
+    print("climate_vars_wide_df saved")
 
 def run_training_data_prep_neonatal(
     output_root: str,
