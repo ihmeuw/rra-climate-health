@@ -3268,7 +3268,7 @@ def run_training_data_prep_child_mortality_monthly(
     #     Path(output_path_version) / "data_monthly_expanded_rel_thresholds.parquet"
     # )
 
-    # TODO: Create binned version of data
+
     # check:
     print(f"max age_month: {pl.scan_parquet(rel_out).select(pl.col('age_month').max()).collect().item()}")
 
@@ -3431,7 +3431,7 @@ def run_training_data_prep_child_mortality_monthly(
         logging.info(
             f"Built cumulative frame for {bin_name}: {bin_frame.height:,} rows"
         )
-        del individuals_in_bin
+        # del individuals_in_bin
         gc.collect()
         # Add the within-bin dummy columns so the output mirrors df_grouped_within_bin
         for other_bin in time_bin_dict:
@@ -3560,97 +3560,195 @@ def resume_child_mortality_from_parquet(input_parquet_path: str | Path) -> None:
     output_path_version = Path(measure_root) / "training_data" / version
     os.makedirs(output_path_version, exist_ok=True, mode=0o777)
 
-    input_parquet_path = Path(input_parquet_path)
+    # input_parquet_path = Path(input_parquet_path)
 
     # Paste subsequent processing steps here
-    df_climate = pd.read_parquet(input_parquet_path)
+    abs_out = input_parquet_path
 
+    time_bin_dict = {
+        "age_1_m": (0, 1),
+        "age_3_m": (1, 3),
+        "age_6_m": (3, 6),
+        "age_12_m": (6, 12),
+        "age_24_m": (12, 24),
+        "age_36_m": (24, 36),
+        "age_48_m": (36, 48),
+        "age_60_m": (48, 60),
+    }
 
+    ## Get weighted averages (by number of months in bin) of explanatory variables, grouping by binned age_month and child_alive status
+    get_max_vars = [
+        "year_start",
+        "year_end",
+        "nid",
+        # "survey_name",
+        "int_year",
+        "int_month",
+        "sex_id",
+        # "mothers_age_year",
+        # "aod_months",
+        "age_month",
+        # "hhweight",
+        "pweight",
+        "birth_year",
+        "birth_month",
+        "int_birth_year_diff_months",
+        "age_month_original",
+        "int_year_original",
+        "int_month_original",
+        # "age_group_id_agg",
+        # "any_days_over_30C",
+        "child_alive",
+        "child_mortality",
+    ]
 
-    # df_climate = pd.read_parquet("/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_exploded_with_climate.parquet")
+    get_avg_vars = [
+        # "mean_temperature",
+        # "days_over_30C",
+        # "precipitation_days",
+        # "total_precipitation",
+        # "mean_low_temperature",
+        # "mean_high_temperature",
+        # "relative_humidity",
+        # "elevation",
+        "consumption",
+        "consumption_pd",
+        "days_over_24C_monthly",
+        "days_over_25C_monthly",
+        "days_over_26C_monthly",
+        "days_over_27C_monthly",
+        "days_over_28C_monthly",
+        "days_over_29C_monthly",
+        "days_over_30C_monthly",
+        "days_over_31C_monthly",
+        "days_over_32C_monthly",
+        "mean_temperature_monthly",
+        "total_precipitation_monthly",
+        # "q75_monthly",
+        # "q80_monthly",
+        # "q85_monthly",
+        # "q90_monthly",
+        # "q95_monthly",
+    ]
 
-    # get unique invidiuals and clean variables
-    # df_climate["line_id"] = df_climate["line_id"].astype(int)
+    # Edit to preserve indv_id
+    identity_vars = [
+        "ihme_loc_id",
+        "geospatial_id",
+        "psu",
+        "strata",
+        "line_id",
+        "hh_id",
+        "lat",
+        "long",
+        # "lbd_admin2_id",
+        "indv_id",
+    ]
 
-    # df_climate["indv_id"] = (
-    #     df_climate[["nid", "psu", "hh_id", "line_id"]].astype(str).agg("_".join, axis=1)
-    # )
-    # logging.info(f"{df_climate['indv_id'].nunique():,} unique individuals in data")
+    group_by_vars_within_bin = identity_vars + [
+        "age_1_m",
+        "age_3_m",
+        "age_6_m",
+        "age_12_m",
+        "age_24_m",
+        "age_36_m",
+        "age_48_m",
+        "age_60_m",
+    ]
 
-    # avg number of months per individual
-    avg_months_per_indv = len(df_climate) / df_climate["indv_id"].nunique()
-    print(f"Average number of months per individual: {avg_months_per_indv:.2f}")
-
-    # flip child_alive so 1 = died, 0 = alive for easier interpretation
-    df_climate["child_mortality"] = 1 - df_climate["child_alive"]
-
-    df_climate["consumption"] = df_climate["ldipc_weighted_no_match"]
-
-    # make version of consumption that is per day
-    df_climate["consumption_pd"] = df_climate["consumption"] / 365
-
-    # make any day over 30C variable binary
-    # df_climate["any_days_over_30C"] = np.where(df_climate["days_over_30C"] > 0, 1, 0)
-
-    # Write to output
-    print("saving df_climate ...")
-    df_climate.to_parquet(Path(output_path_version) / "data.parquet", index=False)
-    del df_climate; gc.collect()
-    print("df_climate saved")
-
-    climate_vars_da = xr.open_dataarray(Path(output_path_version) / "abs_month_climate_vars.nc")
-    climate_vars_df = climate_vars_da.to_dataframe().reset_index()
-    del climate_vars_da; gc.collect()
-
-    # set names to merge
-    climate_vars_df.drop(columns=["point", "longitude", "latitude"], inplace=True)
-    climate_vars_df.rename(
-        columns={
-            "year": "int_year",
-            "month": "int_month",
-            "lat_orig": "lat",
-            "long_orig": "long",
-        },
-        inplace=True,
+    # Edit to preserve indv_id
+    # Load only needed columns from rel_out into Polars (avoids full pandas load)
+    needed_cols = list(
+        dict.fromkeys(
+            identity_vars + ["age_month"] + get_max_vars + get_avg_vars
+        )
     )
-    # pivot wide
-    print("pivoting climate_vars_df")
-    climate_vars_wide_df = climate_vars_df.pivot_table(
-        index=["int_year", "int_month", "lat", "long"],
-        columns="climate_var",
-        values="value",
-    ).reset_index()
-    del climate_vars_df; gc.collect()
+    df_pl = pl.scan_parquet(abs_out).select(needed_cols).collect()
 
-    climate_vars_wide_df.rename(
-        columns={
-            "mean_temperature": "mean_temperature_monthly",
-            "total_precipitation": "total_precipitation_monthly",
-            "days_over_24C": "days_over_24C_monthly",
-            "days_over_25C": "days_over_25C_monthly",
-            "days_over_26C": "days_over_26C_monthly",
-            "days_over_27C": "days_over_27C_monthly",
-            "days_over_28C": "days_over_28C_monthly",
-            "days_over_29C": "days_over_29C_monthly",
-            "days_over_30C": "days_over_30C_monthly",
-            "days_over_31C": "days_over_31C_monthly",
-            "days_over_32C": "days_over_32C_monthly",
-        },
-        inplace=True,
+    max_age_per_indv = df_pl.group_by("indv_id").agg(
+        pl.col("age_month").max().alias("max_age_month")
     )
 
-    print("saving climate_vars_wide_df")
-    # Streaming merge abs thresholds using Polars (avoids doubling 400M-row DF in memory)
-    abs_lookup_pl = pl.from_pandas(climate_vars_wide_df)
-    del climate_vars_wide_df; gc.collect()
-    abs_out = Path(output_path_version) / "data_monthly_expanded_abs_thresholds.parquet"
-    (
-        pl.scan_parquet(Path(output_path_version) / "data.parquet")
-        .join(abs_lookup_pl.lazy(), on=["int_year", "int_month", "lat", "long"], how="left")
-        .sink_parquet(abs_out)
+    print("loopig over time bin frames")
+    cumulative_frames = []
+    for bin_name, bin_month in time_bin_dict.items():
+        lower, upper = bin_month
+        # Only include individuals who have at least one observation within this bin,
+        # meaning they did not exit the interview before reaching this age period
+        eligible_ids = max_age_per_indv.filter(pl.col("max_age_month") >= lower).select("indv_id")
+
+        # individuals_in_bin = (
+        #     df_pl.filter((pl.col("age_month") >= lower) & (pl.col("age_month") < upper))
+        #     .select(identity_vars)
+        #     .unique()
+        # )
+        bin_frame = (
+            df_pl.filter(pl.col("age_month") < upper)
+            .join(eligible_ids, on="indv_id", how="inner")
+            .group_by(identity_vars)
+            .agg(
+                [pl.col(var).max().alias(var) for var in get_max_vars]
+                + [pl.col(var).mean().alias(f"{var}_cumul") for var in get_avg_vars]
+            )
+            .with_columns(pl.lit(bin_name).alias("bin_name"))
+        )
+        # logging.info(
+        #     f"Built cumulative frame for {bin_name}: {bin_frame.height:,} rows"
+        # )
+        # del individuals_in_bin
+        gc.collect()
+        # Add the within-bin dummy columns so the output mirrors df_grouped_within_bin
+        for other_bin in time_bin_dict:
+            bin_frame = bin_frame.with_columns(
+                pl.lit(1 if other_bin == bin_name else 0).alias(other_bin)
+            )
+        cumulative_frames.append(bin_frame)
+        del bin_frame
+        gc.collect()
+
+    print("concatenating dataframes")
+    df_grouped_cumulative = pl.concat(cumulative_frames).to_pandas()
+
+    # Perform quick fix. THe above loop resulted in extra
+    # duplicate rows for children who either died or exited interview
+    for ag in [
+        "age_1_m",
+        "age_3_m",
+        "age_6_m",
+        "age_12_m",
+        "age_24_m",
+        "age_36_m",
+        "age_48_m",
+        "age_60_m",
+    ]:
+        df_grouped_cumulative.loc[df_grouped_cumulative[ag] == 1, "age_group"] = ag
+
+    bounds_df = pd.DataFrame(
+        [
+            (bin_name, bounds[0], bounds[1])
+            for bin_name, bounds in time_bin_dict.items()
+        ],
+        columns=["bin_name", "lower_bound", "upper_bound"],
     )
-    del abs_lookup_pl; gc.collect()
-    print("climate_vars_wide_df saved")
+    df_grouped_cumulative = df_grouped_cumulative.merge(
+        bounds_df, on="bin_name", how="left"
+    )
+
+    df_grouped_cumulative = df_grouped_cumulative[
+        df_grouped_cumulative["age_month"] >= df_grouped_cumulative["lower_bound"]
+    ]
+
+    print(len(df_grouped_cumulative))
+    df_grouped_cumulative = df_grouped_cumulative.drop_duplicates()
+    print(len(df_grouped_cumulative))
+
+    print("saving data")
+    # assert len(df_grouped_cumulative[df_grouped_cumulative["child_mortality"].isna()]) == 0, "Missing child_mortality values in final data"
+    df_grouped_cumulative.to_parquet(
+        Path(output_path_version) / "data.parquet",
+        index=False,
+    )
+    print("data saved")
 
 def run_training_data_prep_neonatal(
     output_root: str,
