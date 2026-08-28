@@ -307,6 +307,20 @@ def get_model_prevalence(  # noqa: C901 PLR0912
             )
             # Not a raster, but the coefficient applies to the whole raster and can be added to the sum
             z_accum = z_accum + category_coef # type: ignore[assignment]
+        elif (
+            spec.measure in clio.NAMED_AGE_STRATA_MEASURES
+            and predictor.transform.type == "categorical"
+            and predictor.name in clio.AGE_GROUP_IDS_BY_MEASURE[spec.measure]
+        ):
+            # One-hot age-interval dummy (e.g. age_1_m): 1 for the stratum this
+            # task is computing, 0 (the reference level) for every other stratum.
+            category_coef = get_categorical_coefficient(
+                coefs,
+                predictor.name,
+                1 if predictor.name == age_group_id else 0,
+                training_data_types,
+            )
+            z_accum = z_accum + category_coef # type: ignore[assignment]
         else:
             z_accum = z_accum + get_transformed_variable_raster(predictor, cm_data, cmip6_scenario, year, raster_template, coefs, var_info, draw, spline_effect_loaders)
 
