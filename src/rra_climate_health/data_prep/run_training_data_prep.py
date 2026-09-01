@@ -22,6 +22,8 @@ import matplotlib.ticker as mticker
 from scipy.interpolate import PchipInterpolator
 
 
+from rra_tools import jobmon
+
 import rra_climate_health.cli_options as clio
 from rra_climate_health import paths
 
@@ -893,6 +895,45 @@ def get_ldipc_from_asset_score(
     if len(asset_df_ldipc) != len(asset_df):
         raise RuntimeError("Mismatch in length of asset data and LDI-PC data.")
     return asset_df_ldipc  # type: ignore[no-any-return]
+
+
+def add_rank_columns(
+    asset_df_ldipc: pd.DataFrame,
+    asset_score_col: str = "wealth_index_dhs",
+    *,
+    within_nid: bool = True,
+) -> pd.DataFrame:
+    """TEMPORARY -- investigation only; delete this function and its call sites
+    when the asset-score/consumption rank investigation is done.
+
+    Adds two household-grain percentile-rank columns to the output of
+    get_ldipc_from_asset_score:
+
+      asset_rank  -- rank of the asset score
+      ldipc_rank  -- rank of ldipc_weighted_no_match (the column that becomes
+                     `consumption` downstream)
+
+    within_nid=True ranks inside each survey, which is the only grain where an
+    asset-score rank is meaningful -- each DHS wealth index is a survey-specific
+    PCA, so raw scores are not comparable across NIDs. within_nid=False ranks
+    over the pooled frame.
+
+    Note the two ranks are near-identical when within_nid=True: ldipc is a
+    strictly increasing PCHIP transform of the weighted population percentile,
+    which is itself the asset-score ordering. They diverge only on asset-score
+    ties (broken by incidental row order in the cumsum) and on NIDs spanning
+    multiple years (sorted by year before asset score).
+    """
+    df = asset_df_ldipc.copy()
+
+    if within_nid:
+        df["asset_rank"] = df.groupby("nid")[asset_score_col].rank(pct=True)
+        df["ldipc_rank"] = df.groupby("nid")["ldipc_weighted_no_match"].rank(pct=True)
+    else:
+        df["asset_rank"] = df[asset_score_col].rank(pct=True)
+        df["ldipc_rank"] = df["ldipc_weighted_no_match"].rank(pct=True)
+
+    return df
 
 
 WEALTH_DATASET_COMMON_COLUMNS = [
@@ -4433,15 +4474,49 @@ def run_training_data_prep_neonatal(
 
 @click.command()  # type: ignore[arg-type]
 @clio.with_output_root(DEFAULT_ROOT)
-@clio.with_source_type(allow_all=True)
+@clio.with_source_type()
 @click.option("--module", default=None, help="Specify the module (e.g., 'dem_br').")
-def run_training_data_prep(
+def run_training_data_prep_task(
     output_root: str, source_type: str, module: str = None
 ) -> None:
-    """Run training data prep."""
+    """Run training data prep for one source type (a single jobmon task)."""
     print(f"Running training data prep for {source_type}...")
-    # for src in source_type:
     run_training_data_prep_main(output_root, source_type, module=module)
+
+
+@click.command()  # type: ignore[arg-type]
+@clio.with_output_root(DEFAULT_ROOT)
+@clio.with_source_type(allow_all=True)
+@click.option("--module", default=None, help="Specify the module (e.g., 'dem_br').")
+@clio.with_queue()
+def run_training_data_prep(
+    output_root: str, source_type: str | list[str], queue: str, module: str = None
+) -> None:
+    """Launch training data prep on the cluster via jobmon."""
+    source_types = [source_type] if isinstance(source_type, str) else list(source_type)
+
+    # Only forward --module when set; jobmon builds a literal command string, so
+    # a None here would be passed through as the string "None".
+    task_args: dict[str, str] = {"output-root": str(output_root)}
+    if module is not None:
+        task_args["module"] = module
+
+    jobmon.run_parallel(
+        runner="sttask",
+        task_name="data_prep",
+        node_args={"source-type": source_types},
+        task_args=task_args,
+        task_resources={
+            "queue": queue,
+            # the prep functions fan out over mp.Pool(processes=25)
+            "cores": 26,
+            "memory": "900Gb",
+            "runtime": "72h",
+            "project": "proj_rapidresponse",
+        },
+        max_attempts=1,
+        log_root=str(output_root),
+    )
 
 
 output_root = DEFAULT_ROOT
