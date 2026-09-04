@@ -509,10 +509,10 @@ df_avg_merge <- unique(df_avg[,.(indv_id,age_month,cumhaz_fe,pred_prob_fe)])
 
 df_model_merged <- merge(df_model,df_avg_merge,by=c("indv_id","age_month"),all.x=TRUE)
 
-# Sort by individual and age (important for cumsum)
+# Sort by individual and age 
 setorder(df_model_merged, indv_id, age_month)
 
-# Step 1: predict with RE (you already have this)
+# Step 1: predict with RE 
 df_model_merged[, pred_prob_re := predict(model, newdata = df_model_merged, type = "response")]
 
 # Step 2: cumulative hazard with mixed effects
@@ -533,49 +533,6 @@ print("Predictions on input data saved.")
 #==============================================================================
 # SECTION 3.c: PREDICT ON FIX EFFECT DATA USING PREDICT
 #==============================================================================
-
-
-## PREVIOUS METHOD
-
-age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m",
-              "age_24_m","age_36_m","age_48_m","age_60_m")
-
-
-overall_grid_p <- data.table()
-for (v in age_vars) {
-  
-    
-    # 2-D grid over both spline variables
-    pred_grid <- CJ(
-      days_over_30C_monthly = seq(min(df_model$days_over_30C_monthly, na.rm = TRUE),
-                                  max(df_model$days_over_30C_monthly, na.rm = TRUE),
-                                  length.out = 500),
-      consumption_pd        = seq(min(df_model$consumption_pd, na.rm = TRUE),
-                                  max(df_model$consumption_pd, na.rm = TRUE),
-                                  length.out = 500)
-    )
-    pred_grid[, `:=`(
-      age_1_m  = 0L, age_3_m  = 0L, age_6_m  = 0L, age_12_m = 0L,
-      age_24_m = 0L, age_36_m = 0L, age_48_m = 0L, age_60_m = 0L,
-      sex_id   = factor("Female", levels = c("Male", "Female")),
-      total_precipitation_monthly = median(df_model$total_precipitation_monthly, na.rm = TRUE),
-      birth_year          = as.integer(median(df_model$birth_year, na.rm = TRUE)),
-      ihme_loc_id         = df_model$ihme_loc_id[4]
-    )]
-    
-    pred_grid[,(v):=1L]
-    
-    overall_grid_p <- rbind(overall_grid_p,pred_grid)
-}
-
-
-overall_grid_p[, pred_prob_fe := predict(model, newdata = overall_grid_p, type = "response",exclude = "s(ihme_loc_id)")]
-overall_grid_p[,max(pred_prob_fe),by=ihme_loc_id]
-
-overall_grid_plast <- fread(paste0(results_dir, summary_file, "_predictions_with_both_splines_ranged_all_ages.csv"))
-overall_grid_plast[,max(pred_prob_fe),by=ihme_loc_id]
-write_parquet(overall_grid_p, paste0(results_dir, summary_file, "_predictions_with_both_splines_ranged_all_ages.parquet"))
-
 
 ## CURRENT METHOD
 age_vars <- c("age_1_m","age_3_m","age_6_m","age_12_m",
