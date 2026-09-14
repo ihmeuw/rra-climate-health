@@ -19,6 +19,7 @@ PLOT_OUTPUT = "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrit
 OUTPUT_PATH = (
     Path(PLOT_OUTPUT) / "covariates_by_country.pdf"
 )  # TODO: set final destination
+STRATUM_OUTPUT_PATH = Path(PLOT_OUTPUT) / "covariates_by_mortality_status.pdf"
 locs = get_location_metadata(location_set_id=39, release_id=16)
 countries = ["Namibia", "Angola", "Rwanda"]
 vars_of_interest = ["consumption_pd_cumul", "days_over_30C_monthly_cumul"]
@@ -32,9 +33,9 @@ BOX_COLOR = "#1f4257"
 
 # Load data and format #########################################################
 df = pd.read_parquet(DATA_PATH)
+
 df = df.merge(locs[["ihme_loc_id", "location_name"]], on="ihme_loc_id", how="left")
-df = df[df["location_name"].isin(countries)]
-df["ihme_loc_id"].unique()
+
 
 # select max age_month per indv_id
 df = df.loc[df.groupby("indv_id")["age_month"].idxmax()]
@@ -94,3 +95,55 @@ fig.tight_layout()
 fig.savefig(OUTPUT_PATH, format="pdf", bbox_inches="tight")
 plt.close(fig)
 print(f"Saved {OUTPUT_PATH}")
+
+
+# Make plot across all countries ###############################################
+# top row: across all countries
+# second row: among child_mortality ==1 only
+# third row: among child_mortality ==0 only
+# Pooled across every country there are far too many rows to scatter, so each
+# panel is just the per-birth-year box plot.
+strata = [
+    ("All children", df),
+    ("Died (child_mortality == 1)", df[df["child_mortality"] == 1]),
+    ("Survived (child_mortality == 0)", df[df["child_mortality"] == 0]),
+]
+
+fig, axes = plt.subplots(
+    nrows=len(strata),
+    ncols=len(vars_of_interest),
+    figsize=(11, 11),
+)
+
+for row, (stratum_label, stratum) in enumerate(strata):
+    for col, var in enumerate(vars_of_interest):
+        ax = axes[row, col]
+        grouped = stratum.dropna(subset=[var]).groupby("birth_year")[var]
+        positions = [year for year, _ in grouped]
+        distributions = [values.to_numpy() for _, values in grouped]
+        if distributions:
+            ax.boxplot(
+                distributions,
+                positions=positions,
+                widths=0.6,
+                manage_ticks=False,
+                showfliers=False,
+                boxprops={"color": BOX_COLOR, "linewidth": 0.8},
+                whiskerprops={"color": BOX_COLOR, "linewidth": 0.8},
+                capprops={"color": BOX_COLOR, "linewidth": 0.8},
+                medianprops={"color": BOX_COLOR, "linewidth": 1.4},
+            )
+
+        ax.grid(True, color="0.9", linewidth=0.6)
+        ax.set_axisbelow(True)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+        ax.set_title(f"{stratum_label} — {VAR_LABELS.get(var, var)}", fontsize=10)
+        ax.set_xlabel("Birth year")
+        ax.set_ylabel(VAR_LABELS.get(var, var))
+
+fig.suptitle("Model covariates by birth year, all countries", fontsize=13)
+fig.tight_layout()
+fig.savefig(STRATUM_OUTPUT_PATH, format="pdf", bbox_inches="tight")
+plt.close(fig)
+print(f"Saved {STRATUM_OUTPUT_PATH}")
