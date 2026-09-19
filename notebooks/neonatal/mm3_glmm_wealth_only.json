@@ -1,0 +1,26 @@
+{
+ "signature": {
+  "n_rows": 4562,
+  "n_groups": 60,
+  "births": 1711538,
+  "deaths": 51629
+ },
+ "fitted_at": "2026-09-18 17:08",
+ "formula": "cbind(deaths, survivors) ~ wealth_rank + (1 | ihme_loc_id)",
+ "fixef": {
+  "(Intercept)": -3.512345094835247,
+  "wealth_rank2": -0.05416658881306057,
+  "wealth_rank3": -0.11679947582069741,
+  "wealth_rank4": -0.21589631468757967,
+  "wealth_rank5": -0.3963038598729772
+ },
+ "se": {
+  "(Intercept)": 0.05564030641949537,
+  "wealth_rank2": 0.012686115635938577,
+  "wealth_rank3": 0.013148635816890271,
+  "wealth_rank4": 0.013875798196997276,
+  "wealth_rank5": 0.01542605452395517
+ },
+ "ranef_sd": 0.4201920802778306,
+ "summary": "Generalized linear mixed model fit by maximum likelihood (Laplace\n  Approximation) [glmerMod]\n Family: binomial  ( logit )\nFormula: cbind(deaths, survivors) ~ wealth_rank + (1 | ihme_loc_id)\n   Data: mm3_r_df\n\n      AIC       BIC    logLik -2*log(L)  df.resid \n  23320.7   23359.3  -11654.4   23308.7      4556 \n\nScaled residuals: \n    Min      1Q  Median      3Q     Max \n-4.7418 -0.7968 -0.1510  0.7986  8.2977 \n\nRandom effects:\n Groups      Name        Variance Std.Dev.\n ihme_loc_id (Intercept) 0.1766   0.4202  \nNumber of obs: 4562, groups:  ihme_loc_id, 60\n\nFixed effects:\n             Estimate Std. Error z value Pr(>|z|)    \n(Intercept)  -3.51235    0.05564 -63.126  < 2e-16 ***\nwealth_rank2 -0.05417    0.01269  -4.270 1.96e-05 ***\nwealth_rank3 -0.11680    0.01315  -8.883  < 2e-16 ***\nwealth_rank4 -0.21590    0.01388 -15.559  < 2e-16 ***\nwealth_rank5 -0.39630    0.01543 -25.691  < 2e-16 ***\n---\nSignif. codes:  0 \u2018***\u2019 0.001 \u2018**\u2019 0.01 \u2018*\u2019 0.05 \u2018.\u2019 0.1 \u2018 \u2019 1\n\nCorrelation of Fixed Effects:\n            (Intr) wlth_2 wlth_3 wlth_4\nwealth_rnk2 -0.106                     \nwealth_rnk3 -0.103  0.452              \nwealth_rnk4 -0.097  0.428  0.414       \nwealth_rnk5 -0.087  0.385  0.372  0.353"
+}

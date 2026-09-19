@@ -1,0 +1,29 @@
+{
+ "signature": {
+  "n_rows": 4562,
+  "n_groups": 60,
+  "births": 1711538,
+  "deaths": 51629,
+  "sdi_sum": 1814.144872
+ },
+ "fitted_at": "2026-09-18 16:55",
+ "formula": "cbind(deaths, survivors) ~ sdi + wealth_rank + (1 | ihme_loc_id)",
+ "fixef": {
+  "(Intercept)": -2.331526175968462,
+  "sdi": -2.8384548957255165,
+  "wealth_rank2": -0.054198459982946263,
+  "wealth_rank3": -0.11672482729578103,
+  "wealth_rank4": -0.21543878417505063,
+  "wealth_rank5": -0.39244971349504004
+ },
+ "se": {
+  "(Intercept)": 0.06021715052029404,
+  "sdi": 0.1101587209001654,
+  "wealth_rank2": 0.012688825294250167,
+  "wealth_rank3": 0.013151267030728508,
+  "wealth_rank4": 0.013878568531208474,
+  "wealth_rank5": 0.015429568819239214
+ },
+ "ranef_sd": 0.2967540990899621,
+ "summary": "Generalized linear mixed model fit by maximum likelihood (Laplace\n  Approximation) [glmerMod]\n Family: binomial  ( logit )\nFormula: cbind(deaths, survivors) ~ sdi + wealth_rank + (1 | ihme_loc_id)\n   Data: mm2_r_df\n\n      AIC       BIC    logLik -2*log(L)  df.resid \n  22657.2   22702.2  -11321.6   22643.2      4555 \n\nScaled residuals: \n    Min      1Q  Median      3Q     Max \n-5.7118 -0.7812 -0.1687  0.7335  9.2421 \n\nRandom effects:\n Groups      Name        Variance Std.Dev.\n ihme_loc_id (Intercept) 0.08806  0.2968  \nNumber of obs: 4562, groups:  ihme_loc_id, 60\n\nFixed effects:\n             Estimate Std. Error z value Pr(>|z|)    \n(Intercept)  -2.33153    0.06022 -38.719  < 2e-16 ***\nsdi          -2.83845    0.11016 -25.767  < 2e-16 ***\nwealth_rank2 -0.05420    0.01269  -4.271 1.94e-05 ***\nwealth_rank3 -0.11672    0.01315  -8.876  < 2e-16 ***\nwealth_rank4 -0.21544    0.01388 -15.523  < 2e-16 ***\nwealth_rank5 -0.39245    0.01543 -25.435  < 2e-16 ***\n---\nSignif. codes:  0 \u2018***\u2019 0.001 \u2018**\u2019 0.01 \u2018*\u2019 0.05 \u2018.\u2019 0.1 \u2018 \u2019 1\n\nCorrelation of Fixed Effects:\n            (Intr) sdi    wlth_2 wlth_3 wlth_4\nsdi         -0.746                            \nwealth_rnk2 -0.098  0.000                     \nwealth_rnk3 -0.095  0.000  0.452              \nwealth_rnk4 -0.089 -0.001  0.428  0.414       \nwealth_rnk5 -0.074 -0.009  0.385  0.372  0.353"
+}
