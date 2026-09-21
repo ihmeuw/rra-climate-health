@@ -53,6 +53,68 @@ CMIP_LDI_SCENARIO_MAP = {
     "constant_climate": "better",
 }
 
+# Income predictors are resolved by exact name rather than by prefix. A prefix
+# test cannot tell the per-decile income variable apart from a country-level
+# summary of the same variable (consumption_pd_national_median starts with
+# "consumption_pd"), and `next()` would silently return whichever the spec
+# happened to list first.
+#
+# DECILE_INCOME_PREDICTORS  - varies across the income distribution, so the
+#     prevalence integration walks it decile by decile.
+# NATIONAL_INCOME_PREDICTORS - one value per country-year, read off the national
+#     LDI distribution at NATIONAL_INCOME_PERCENTILE. Constant across deciles, so
+#     it is added to z_accum once, before the decile loop.
+DECILE_INCOME_PREDICTORS = ("ldi_pc_pd", "consumption_pd")
+NATIONAL_INCOME_PREDICTORS = ("consumption_pd_national_median",)
+NATIONAL_INCOME_PERCENTILE = 0.5
+
+
+def get_national_income_z(
+    predictor,
+    cm_data: ClimateMalnutritionData,
+    ldi_scenario: str,
+    ldi_version: str,
+    year: int,
+    raster_template: rt.RasterArray,
+    coefficients,
+    var_info,
+) -> rt.RasterArray:
+    """beta * transform(national LDI percentile), broadcast over a country's pixels.
+
+    The predictor is a NATIONAL quantity, so the value is broadcast downwards:
+    one number per country, copied to every admin2 unit in it and then to every
+    pixel of that admin2. Nothing is aggregated up from admin2. admin2 only
+    appears because the raster stores admin2 location_ids, so it is the join key
+    between a pixel and its country.
+    """
+    national = cm_data.load_national_ldi_percentile(
+        ldi_version, ldi_scenario, year, NATIONAL_INCOME_PERCENTILE
+    )
+    # admin2 location_id -> its country's ihme_loc_id -> that country's value
+    national_parent = cm_data.load_national_parent_of_admin2(
+        ldi_version, ldi_scenario, year
+    )
+    by_admin2 = national_parent.map(national).astype(np.float32)
+
+    loc_flat = pd.Series(cm_data.load_admin2_raster().to_numpy().ravel())
+    values = loc_flat.map(by_admin2).to_numpy().reshape(raster_template.shape)
+
+    n_missing = int(np.isnan(values).sum() - np.isnan(loc_flat.to_numpy()).sum())
+    if n_missing > 0:
+        print(
+            f"{predictor.name}: {n_missing:,} pixels have an admin2 with no "
+            f"national LDI value and stay NaN"
+        )
+
+    beta = coefficients.loc[predictor.name].astype(np.float32)
+    transform_func = var_info[predictor.name]["transformer"]
+    return rt.RasterArray(
+        beta * np.array(transform_func(values)).astype(np.float32),
+        transform=raster_template.transform,
+        crs=raster_template.crs,
+        no_data_value=np.nan,
+    ).astype(np.float32)
+
 
 def get_categorical_coefficient(
     coefs: "pd.Series[float]",
@@ -272,12 +334,41 @@ def get_model_prevalence(  # noqa: C901 PLR0912
     training_data_types = cm_data.load_training_data_types(training_data_version)
     spline_effect_loaders = get_spline_effect_loaders(spec, cm_data)
 
+    # The decile integration below needs these, and so does the national-income
+    # branch inside the loop, so resolve them up front.
+    ldi_scenario = CMIP_LDI_SCENARIO_MAP[cmip6_scenario]
+    income_predictor = next(
+        (x for x in spec.predictors if x.name in DECILE_INCOME_PREDICTORS), None
+    )
+    if income_predictor is None:
+        error_message = (
+            "No per-decile income predictor in the specification; expected one of "
+            f"{DECILE_INCOME_PREDICTORS}."
+        )
+        raise ValueError(error_message)
+    ldi_version = income_predictor.version
+
     # partial_estimates = {}
     z_accum = np.zeros_like(raster_template) #raster_template.copy()
     for predictor in spec.predictors:
         print(predictor.name)
-        if predictor.name == "ldi_pc_pd" or predictor.name.startswith('consumption'):
+        if predictor.name in DECILE_INCOME_PREDICTORS:
             continue  # deal with after
+
+        if predictor.name in NATIONAL_INCOME_PREDICTORS:
+            # Constant within a country-year, so it belongs in z_accum rather
+            # than inside the decile loop.
+            z_accum = z_accum + get_national_income_z(
+                predictor,
+                cm_data,
+                ldi_scenario,
+                predictor.version or ldi_version,
+                year,
+                raster_template,
+                coefs,
+                var_info,
+            )
+            continue
 
         if predictor.name == "intercept":
             z_accum = z_accum + cm_data.load_rasterized_intercept(spec.version.model)
@@ -330,9 +421,8 @@ def get_model_prevalence(  # noqa: C901 PLR0912
     threshold_predictor = next(
         (x for x in spec.predictors if x.name == threshold_flag_varname), None
     )
-    income_predictor = next((x for x in spec.predictors if x.name == "ldi_pc_pd" or x.name.startswith('consumption_pd')), None)
-    ldi_scenario = CMIP_LDI_SCENARIO_MAP[cmip6_scenario]
-    ldi_version = income_predictor.version
+    # income_predictor, ldi_scenario and ldi_version are resolved before the
+    # predictor loop above, because the national-income branch needs them too.
     prevalence = 0
     
     if not threshold_flag_varname and income_predictor.spline is None:
@@ -419,13 +509,18 @@ def get_model_prevalence(  # noqa: C901 PLR0912
 
 #@profile
 def get_ldi_z_component(ldi_scenario:str, year:int, ldi_version:str, beta_ldi, degree, var_info, decile, cm_data: ClimateMalnutritionData, raster_template):
-    # Get consumption/income variable name
-    for var in var_info.keys():
-        if var.startswith("ldi") or var.startswith("consumption"):
+    # Get the per-decile consumption/income variable name. Matched exactly, so a
+    # country-level summary such as consumption_pd_national_median cannot be
+    # picked up here and have its transform applied to the decile raster.
+    for var in DECILE_INCOME_PREDICTORS:
+        if var in var_info:
             ldi_varname = var
             break
     else:
-        raise ValueError("No LDI or consumption variable found in variable info object.")
+        raise ValueError(
+            "No per-decile LDI or consumption variable found in variable info "
+            f"object; expected one of {DECILE_INCOME_PREDICTORS}."
+        )
     
     transform_func = var_info[ldi_varname]["transformer"]
     dec_str = f"{decile:.1f}"
