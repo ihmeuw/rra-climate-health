@@ -630,8 +630,8 @@ class ClimateMalnutritionData:
 
         The national distributions are the same ones the training data reads a
         household's within-survey rank off, so a country-level summary predictor
-        (e.g. consumption_pd_national_median) resolves to the same quantity at
-        training and inference time.
+        (e.g. consumption_pd_national_median, consumption_median_RT) resolves to
+        the same quantity at training and inference time.
         """
         path = self.shared_inputs / "ldi" / version / "national_estimates.parquet"
         national = pd.read_parquet(
@@ -650,7 +650,7 @@ class ClimateMalnutritionData:
                 f"{percentile}."
             )
             raise ValueError(error_message)
-        # ldipc is annual; the training covariate is per day
+        # ldipc is annual; the training covariates are per day
         return national.set_index("ihme_loc_id")["ldipc"] / 365.0
 
     def load_national_parent_of_admin2(

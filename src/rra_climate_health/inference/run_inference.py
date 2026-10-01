@@ -64,8 +64,31 @@ CMIP_LDI_SCENARIO_MAP = {
 # NATIONAL_INCOME_PREDICTORS - one value per country-year, read off the national
 #     LDI distribution at NATIONAL_INCOME_PERCENTILE. Constant across deciles, so
 #     it is added to z_accum once, before the decile loop.
-DECILE_INCOME_PREDICTORS = ("ldi_pc_pd", "consumption_pd")
-NATIONAL_INCOME_PREDICTORS = ("consumption_pd_national_median",)
+#
+# Anything not named here falls through to get_transformed_variable_raster,
+# which looks for a climate NetCDF under
+# .../climate_downscale/results/annual/<scenario>/<name>/<draw>.nc. A national
+# income predictor that is missing from this tuple therefore fails with a
+# FileNotFoundError naming a climate path, which is misleading - the variable
+# is not climate data at all. Every training-time alias for the national
+# median belongs here; they differ only in how the column was built during
+# training, and all resolve to the same quantity at inference.
+#
+# All of them must be trained in dollars per DAY, which is what
+# load_national_ldi_percentile returns. A column left in the annual units
+# ldipc is stored in does not raise; under a log transform it silently shifts
+# the linear predictor by beta * log(365).
+# consumption_pd_cumul is the child_mortality analogue of consumption_pd: built
+# at training time as a cumulative mean over the child's exposure months, but
+# resolved at inference exactly like consumption_pd, off the per-decile LDI
+# distribution. Training already treats it that way - get_points_for_spline_effect
+# tests startswith("consumption_pd"), so the decile-mapped spline effects file is
+# written for it - and this list is the matching entry on the inference side.
+DECILE_INCOME_PREDICTORS = ("ldi_pc_pd", "consumption_pd", "consumption_pd_cumul")
+NATIONAL_INCOME_PREDICTORS = (
+    "consumption_pd_national_median",
+    "consumption_median_RT",
+)
 NATIONAL_INCOME_PERCENTILE = 0.5
 
 
@@ -96,14 +119,25 @@ def get_national_income_z(
     )
     by_admin2 = national_parent.map(national).astype(np.float32)
 
-    loc_flat = pd.Series(cm_data.load_admin2_raster().to_numpy().ravel())
-    values = loc_flat.map(by_admin2).to_numpy().reshape(raster_template.shape)
+    admin2_raster = cm_data.load_admin2_raster()
+    loc_flat = pd.Series(admin2_raster.to_numpy().ravel())
+    mapped = loc_flat.map(by_admin2)
+    values = mapped.to_numpy().reshape(raster_template.shape)
 
-    n_missing = int(np.isnan(values).sum() - np.isnan(loc_flat.to_numpy()).sum())
-    if n_missing > 0:
+    # Only pixels that carry a real admin2 id count as missing. Ocean and other
+    # off-land pixels hold the raster's no_data_value and are NaN by design, so
+    # counting every NaN in `values` would report the whole ocean as a failure.
+    on_land = loc_flat.notna()
+    no_data = admin2_raster.no_data_value
+    if no_data is not None and not (isinstance(no_data, float) and np.isnan(no_data)):
+        on_land &= loc_flat != no_data
+    unmapped = on_land & mapped.isna()
+    if unmapped.any():
+        missing_ids = sorted(loc_flat[unmapped].unique())
         print(
-            f"{predictor.name}: {n_missing:,} pixels have an admin2 with no "
-            f"national LDI value and stay NaN"
+            f"{predictor.name}: {int(unmapped.sum()):,} land pixels across "
+            f"{len(missing_ids)} admin2 unit(s) have no national LDI value and "
+            f"stay NaN (first few: {missing_ids[:10]})"
         )
 
     beta = coefficients.loc[predictor.name].astype(np.float32)
@@ -116,28 +150,48 @@ def get_national_income_z(
     ).astype(np.float32)
 
 
+def categorical_values_match(label: Any, value: Any) -> bool:
+    """Does a coefficient's category label refer to the value being predicted?
+
+    The two sides never share a type. The label is parsed out of a formula
+    string such as "C(sex_id)2", so it is always text, while the value comes
+    from the task arguments and is typically an int.
+
+    Casting both through the training dtype does not reconcile them when that
+    dtype is `object`: numpy's object_ is a no-op, so '2' == 2 stays False. The
+    failure is silent rather than loud - every level misses, the function falls
+    through to its reference-level branch and returns 0.0, and the term simply
+    vanishes from the linear predictor. That is what made both sex_id tasks
+    write byte-identical rasters at the male (reference) level.
+
+    Numeric equality is tried first so 2, '2' and 2.0 agree, with a trimmed
+    string comparison behind it for genuinely non-numeric levels.
+    """
+    if label == value:
+        return True
+    try:
+        return float(label) == float(value)
+    except (TypeError, ValueError):
+        return str(label).strip() == str(value).strip()
+
+
 def get_categorical_coefficient(
     coefs: "pd.Series[float]",
     variable_name: str,
     variable_value: Any,
-    training_data_types: "pd.Series[Any]",
+    training_data_types: "pd.Series[Any]",  # noqa: ARG001  kept for call compatibility
 ) -> float:
-    expected_value = training_data_types[variable_name].type(variable_value) 
     # Regex to extract the value from the categorical predictor coefficients
     pattern = re.compile(rf"C\({variable_name}\)(.+)")
 
     # Look for match
     for idx in coefs.index:
         match = pattern.match(idx)
-        if match:
-            # Extract the value from the matched string and compare
-            extracted_value = match.group(1)
-            extracted_value = training_data_types[variable_name].type(extracted_value) 
-            if extracted_value == expected_value:
-                print(
-                    f"Variable '{variable_name}' found with value '{variable_value}' in coefficients."
-                )
-                return coefs.loc[idx]  # type: ignore[no-any-return]
+        if match and categorical_values_match(match.group(1), variable_value):
+            print(
+                f"Variable '{variable_name}' found with value '{variable_value}' in coefficients."
+            )
+            return coefs.loc[idx]  # type: ignore[no-any-return]
 
     # Check if the base variable is in the predictors as a categorical, if so, assume the provided value is the reference
     base_var_index = f"C({variable_name})"
@@ -246,6 +300,42 @@ def get_nonspatial_predictor_raster(
         raise NotImplementedError(msg)
     return var_raster * pred_value  # type: ignore[no-any-return]
 
+# Inference reads the ANNUAL climate rasters, but a `_prev_N_mo` training
+# column is looked up straight out of the MONTHLY ERA5 file with no arithmetic
+# (see get_climate_vars_for_prev_months in run_training_data_prep). The two
+# sources are not in the same units, so the annual raster has to be rescaled to
+# whatever the monthly file holds before the fitted coefficient is applied.
+#
+# Verified against the sources for 2010 by averaging all twelve monthly slices
+# and comparing with the annual value on the same grid:
+#
+#   mean over the 12 monthly slices :    2.7234
+#   annual value                    :  893.69
+#   annual/12                          mean 74.4743   ratio to monthly 27.346
+#   annual/365                         mean  2.4485   ratio to monthly  0.899
+#
+# so total_precipitation is a per-DAY rate monthly and a per-YEAR total
+# annually: the divisor is 365, not 12. Dividing by 12 inflated the term about
+# 27-fold, which at beta = -0.003976 subtracted 0.13 to 0.46 from the linear
+# predictor and pushed predictions well below both GBD and the survey data.
+#
+# days_over_* is a per-month day count in the monthly file and a per-year day
+# count annually, so 12 is right there. mean_temperature is an average rather
+# than an accumulation and needs no rescaling at all.
+ANNUAL_TO_TRAINING_DIVISOR = {
+    "total_precipitation": 365.0,
+    "mean_temperature": 1.0,
+}
+DEFAULT_ANNUAL_TO_TRAINING_DIVISOR = 12.0
+
+
+def get_annual_to_training_divisor(variable: str) -> float:
+    """Rescale an annual climate raster into the units the model was fitted on."""
+    return ANNUAL_TO_TRAINING_DIVISOR.get(
+        variable, DEFAULT_ANNUAL_TO_TRAINING_DIVISOR
+    )
+
+
 #@profile
 def get_transformed_variable_raster(predictor, cm_data, cmip6_scenario, year, raster_template, coefficients, var_info, draw, spline_effect_loaders, apply_coefficient=True):
     print(f"Getting raster for {predictor.name} {year} {cmip6_scenario} {draw} {apply_coefficient}")
@@ -272,16 +362,15 @@ def get_transformed_variable_raster(predictor, cm_data, cmip6_scenario, year, ra
             else predictor.name
         )
         # TODO: temporary
-        transform_monthly = False
+        divisor = 1.0
         if re.match(r"(days_over_[^_]+|precipitation_days|total_precipitation|mean_temperature)_.+", variable):
-            if variable.startswith("days_over") or variable.startswith("precipitation_days") or variable.startswith("total_precipitation"):
-                transform_monthly = True
             variable = re.sub(r"^(days_over_[^_]+|precipitation_days|total_precipitation|mean_temperature)_.+$", r"\1", variable)
+            divisor = get_annual_to_training_divisor(variable)
             print(f"Using variable {variable} for predictor {predictor.name}")
         ds = cm_data.load_climate_raster(variable, cmip6_scenario, year, draw).astype(np.float32)
-        if transform_monthly:
-            print(f"Transforming {variable} to monthly units (x/12)")
-            ds = ds / 12
+        if divisor != 1.0:
+            print(f"Rescaling annual {variable} to training units (/{divisor:g})")
+            ds = ds / divisor
     rasterize = lambda x: utils.xarray_to_raster(x, nodata=np.nan).resample_to(raster_template).astype(np.float32)
 
     if predictor.spline is not None:

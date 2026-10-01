@@ -137,8 +137,18 @@ def get_residual_prediction(
         + residual_prediction_df.sex_id.astype(str)
     )
 
+    # `sdi:C(...)` rather than `sdi + sdi*C(...)`: a pure interaction with no
+    # main sdi term makes patsy use full dummy coding, so EVERY super region
+    # gets its own standalone slope coefficient and none is a reference level.
+    #
+    # The old formula gave each region `sdi + sdi:C(...)[T.region]`, a slope
+    # shared with the reference region plus an offset. That shared term is what
+    # made the non-positive-slope adjustment move every region at once (see
+    # adjust_sdi_slopes_non_positive). It also expanded out C(super_region_name)
+    # main effects that the location_age_sex dummies already span, which is what
+    # made the design rank-deficient.
     residual_model_sr = smf.ols(
-        "residual_value ~ 0 + sdi + sdi*C(super_region_name) + C(location_age_sex)",
+        "residual_value ~ 0 + sdi:C(super_region_name) + C(location_age_sex)",
         data=gbd_model_df,
     ).fit()
     print(residual_model_sr.summary())
@@ -343,166 +353,80 @@ def custom_predict_with_coeffs(
     return predictions
 
 
-def adjust_sdi_slopes_non_positive(  # noqa: C901, PLR0912
+def adjust_sdi_slopes_non_positive(
     coefficients_series: "pd.Series[float]",
     model_exog_names: list[str],
     all_super_region_levels: list[str],
 ) -> "pd.Series[float]":
-    """
-    Adjusts SDI-related coefficients in a copy of the coefficients series
-    so that the effective slope of 'sdi' for any super_region_name is never positive.
+    """Clip any positive SDI slope to zero, one super region at a time.
 
-    The adjustment prioritizes changing the main 'sdi' coefficient if the
-    reference region's slope is positive, and then adjusts interaction terms.
+    The model is fitted with `sdi:C(super_region_name)` and no main sdi term,
+    so each super region owns a standalone slope coefficient and none of them
+    is shared. Clipping one therefore cannot move any other.
+
+    This used to be far more involved, because the old formula gave each region
+    a shared `sdi` term plus an offset. Fixing a positive REFERENCE region meant
+    zeroing that shared term, which silently re-based every other region's
+    slope by the same amount - Sub-Saharan Africa went from -2.844 to -6.565
+    without anything in its own data changing, and because the intercepts were
+    left alone the predictions stopped averaging to the observed residuals.
 
     Args:
-        coefficients_series (pd.Series): The original coefficient series from the model.
-        model_exog_names (list): List of all exogenous variable names from the
-                                 fitted model (e.g., residual_model_sr.model.exog_names).
-                                 Used to identify interaction terms correctly.
-        all_super_region_levels (list): A list of all unique super_region_name
-                                        category levels (e.g., from
-                                        gbd_model_df['super_region_name'].cat.categories.tolist()).
+        coefficients_series: the fitted coefficients.
+        model_exog_names: the fitted model's exog_names, used to find the slope
+            terms.
+        all_super_region_levels: every super region level present in the data,
+            used only to warn when one has no slope term.
 
     Returns:
-        pd.Series: A new pandas Series with the modified coefficients.
+        A copy of the coefficients with every positive SDI slope set to zero.
     """
     modified_coeffs = coefficients_series.copy()
 
-    sdi_main_coeff_name = "sdi"  # Standard name for the main sdi coefficient
+    # Terms look like 'sdi:C(super_region_name)[Sub-Saharan Africa]'. The
+    # optional 'T.' is tolerated so a reference-coded fit still parses.
+    pattern = re.compile(r"^sdi:C\(super_region_name\)\[(?:T\.)?(.*)\]$")
+    slope_terms = {}
+    for term_name in model_exog_names:
+        match = pattern.match(term_name)
+        if match:
+            slope_terms[match.group(1)] = term_name
 
-    if sdi_main_coeff_name not in modified_coeffs:
+    if not slope_terms:
         print(
-            f"Warning: Main SDI coefficient '{sdi_main_coeff_name}' not found in "
-            "coefficients. Cannot perform slope adjustments for SDI."
+            "Warning: no 'sdi:C(super_region_name)[...]' slope terms found; "
+            "leaving coefficients unchanged. Check the model formula."
         )
         return modified_coeffs
 
-    current_beta_sdi = modified_coeffs[sdi_main_coeff_name]
-    print(f"Initial main '{sdi_main_coeff_name}' coefficient: {current_beta_sdi:.4f}")
-
-    # Discover sdi:C(super_region_name) interaction terms and their associated levels
-    sdi_interaction_term_map = {}  # Maps super_region_level -> interaction_term_name
-    found_interaction_levels = []
-
-    # Regex to capture level from terms like 'sdi:C(super_region_name)[T.SR2]' or
-    # 'sdi:C(super_region_name)[SR_North]'
-    # This pattern tries to be flexible for common patsy naming conventions.
-    interaction_pattern = re.compile(r"sdi:C\(super_region_name\)\[(T\.)?(.*?)\]$")
-
-    for term_name in model_exog_names:
-        match = interaction_pattern.fullmatch(term_name)
-        if match:
-            # group(2) is the actual level name, e.g., "SR2" or "SR_North"
-            level_name = match.group(2)
-            sdi_interaction_term_map[level_name] = term_name
-            found_interaction_levels.append(level_name)
-
-    # Determine reference levels (those in all_super_region_levels but not having an
-    # explicit interaction term)
-    reference_super_region_levels = [
-        level for level in all_super_region_levels if level not in found_interaction_levels
-    ]
-
-    if not reference_super_region_levels and not sdi_interaction_term_map:
+    missing = [lvl for lvl in all_super_region_levels if lvl not in slope_terms]
+    if missing:
         print(
-            "Warning: No SDI interaction terms found and no reference levels "
-            "identified. Check model formula and `super_region_name` levels if "
-            "this is unexpected."
+            f"Warning: no slope term for super region(s) {missing}. With "
+            "`sdi:C(super_region_name)` every level should have one; a level "
+            "without a term is being treated as a reference and cannot be "
+            "clipped."
         )
-    elif not reference_super_region_levels and len(found_interaction_levels) == len(
-        all_super_region_levels
-    ):
+    if "sdi" in modified_coeffs.index:
         print(
-            "Note: All super_region_name levels appear to have explicit sdi "
-            "interaction terms. The main 'sdi' coefficient's role might differ from "
-            "a typical reference slope. Proceeding by checking its value first."
+            "Warning: a bare 'sdi' coefficient is present, so slopes are "
+            "shared across super regions and clipping one will move the "
+            "others. Expected the formula to use `sdi:C(super_region_name)`."
         )
 
-    # Step 1: Adjust for reference super_region_name level(s)
-    # The effective slope for a reference level is simply the main 'sdi' coefficient.
-    if reference_super_region_levels:  # Only if there are clearly defined reference levels
-        print(
-            "Identified reference super_region_name level(s) for sdi interaction: "
-            f"{reference_super_region_levels}"
-        )
-        if current_beta_sdi > 0:
-            print(
-                f"  Slope for reference region(s) ({current_beta_sdi:.4f}) is positive. "
-                f"Adjusting main '{sdi_main_coeff_name}' coefficient: "
-                f"{current_beta_sdi:.4f} -> 0.0"
-            )
-            modified_coeffs[sdi_main_coeff_name] = 0.0
-            current_beta_sdi = 0.0  # Update for subsequent calculations
+    n_clipped = 0
+    for level, term_name in sorted(slope_terms.items()):
+        slope = float(modified_coeffs[term_name])
+        if slope > 0:
+            print(f"  {level}: slope {slope:+.4f} is positive -> 0.0")
+            modified_coeffs[term_name] = 0.0
+            n_clipped += 1
         else:
-            print(
-                f"  Slope for reference region(s) ({current_beta_sdi:.4f}) is not "
-                f"positive. No change to main '{sdi_main_coeff_name}'."
-            )
-    elif not sdi_interaction_term_map:  # No interactions at all, only main sdi effect
-        if current_beta_sdi > 0:
-            print(
-                f"  Only main '{sdi_main_coeff_name}' effect found. Its value "
-                f"({current_beta_sdi:.4f}) is positive. Adjusting main "
-                f"'{sdi_main_coeff_name}' coefficient: {current_beta_sdi:.4f} -> 0.0"
-            )
-            modified_coeffs[sdi_main_coeff_name] = 0.0
-            current_beta_sdi = 0.0
-    else:
-        # All levels have interaction terms, or some other structure.
-        # Check main sdi independently.
-        if current_beta_sdi > 0 and not reference_super_region_levels:
-            # If main SDI term represents a general intercept for slope before
-            # interactions
-            print(
-                f"  Main '{sdi_main_coeff_name}' coefficient ({current_beta_sdi:.4f}) "
-                "is positive. Given all regions have interactions or no clear "
-                "reference, setting it to 0.0 to ensure it doesn't contribute "
-                "positively before interactions are considered."
-            )
-            # Decision: Do we always zero out main sdi if positive and all regions
-            # have interactions? Or do we let each region's interaction fully define
-            # its offset from potentially positive main sdi? Forcing overall slope to
-            # be <=0, it is safer to adjust main sdi if it is positive.
-            print(
-                f"  Adjusting main '{sdi_main_coeff_name}' coefficient: "
-                f"{current_beta_sdi:.4f} -> 0.0"
-            )
-            modified_coeffs[sdi_main_coeff_name] = 0.0
-            current_beta_sdi = 0.0
-
-    # Step 2: Adjust for non-reference super_region_name levels (those with explicit
-    # interaction terms)
-    print("\nProcessing non-reference regions (or all regions if explicit terms exist):")
-    for level, interaction_term_name in sdi_interaction_term_map.items():
-        beta_sdi_interaction = modified_coeffs[interaction_term_name]
-        # Effective slope for this level = (potentially modified) main_sdi_coeff +
-        # interaction_coeff
-        effective_slope = current_beta_sdi + beta_sdi_interaction
-
-        print(f"  Region '{level}' (term: '{interaction_term_name}'):")
-        print(
-            f"    Current main_sdi_coeff: {current_beta_sdi:.4f}, "
-            f"Interaction_coeff: {beta_sdi_interaction:.4f}"
-        )
-        print(f"    Calculated effective_slope: {effective_slope:.4f}")
-
-        if effective_slope > 0:
-            # We want: current_beta_sdi + new_beta_sdi_interaction = 0
-            # So, new_beta_sdi_interaction = -current_beta_sdi
-            new_interaction_coeff_value = -current_beta_sdi
-            print(
-                f"    Effective slope is positive. Adjusting interaction "
-                f"'{interaction_term_name}': {beta_sdi_interaction:.4f} -> "
-                f"{new_interaction_coeff_value:.4f}"
-            )
-            modified_coeffs[interaction_term_name] = new_interaction_coeff_value
-        else:
-            print(
-                f"    Effective slope is not positive. No change to "
-                f"'{interaction_term_name}'."
-            )
-
+            print(f"  {level}: slope {slope:+.4f} is not positive, left as fitted")
+    print(
+        f"Clipped {n_clipped} of {len(slope_terms)} super-region SDI slopes; "
+        f"the other {len(slope_terms) - n_clipped} are unchanged."
+    )
     return modified_coeffs
 
 
@@ -571,6 +495,13 @@ def residual_main(  # noqa: PLR0915
                 results_version, REFERENCE_SCENARIO
             ).droplevel("scenario")
             shifted_scenario = shifted_draws.add(diff_scenario)
+        # A prevalence cannot be negative. The residual model is an additive
+        # extrapolation in prevalence space with nothing bounding it, so it can
+        # and does push the shifted draws below zero far from the anchor year.
+        # Clip here, at the point the draws are written, so the saved files and
+        # everything downstream of them agree with the diagnostic plots - which
+        # were already clipping at display time only.
+        shifted_scenario = shifted_scenario.clip(lower=0.0)
         shifted_scenario["scenario"] = scenario
         shifted_scenario = shifted_scenario.set_index("scenario", append=True)
         cm_data.save_shifted_scenario_draws(
@@ -628,7 +559,7 @@ def residual_main(  # noqa: PLR0915
                 .mean(axis=1)
                 .droplevel("scenario")
             )
-    draws_mean_df["adjusted_model_value"] = shifted_draws.mean(axis=1)
+    draws_mean_df["adjusted_model_value"] = shifted_draws.clip(lower=0.0).mean(axis=1)
     draws_mean_df["residual_model_value"] = model_plus_predicted_residual.reorder_levels(
         draws_mean_df.index.names
     ).mean(axis=1)
