@@ -1,4 +1,4 @@
-LDI_VERSION = "v8"
+LDI_VERSION = "v9"
 import gc
 import multiprocessing as mp
 from functools import partial
@@ -897,43 +897,683 @@ def get_ldipc_from_asset_score(
     return asset_df_ldipc  # type: ignore[no-any-return]
 
 
-def add_rank_columns(
-    asset_df_ldipc: pd.DataFrame,
-    asset_score_col: str = "wealth_index_dhs",
-    *,
-    within_nid: bool = True,
+LDIPC_METHOD_COLUMNS = [
+    "ldipc_unweighted_no_match",
+    "ldipc_weighted_no_match",
+    "ldipc_unweighted_match",
+    "ldipc_weighted_match",
+]
+
+# Default household grain of the wealth extractions. Percentiles are computed on
+# this grain so that siblings sharing a household are not counted twice.
+DEFAULT_HOUSEHOLD_COLS = ["nid", "ihme_loc_id", "psu", "hh_id"]
+
+
+def load_reference_ldi_distributions(
+    cm_data,  # instance providing the load_ldi_distributions() method
+    ldi_version: str = "",
 ) -> pd.DataFrame:
-    """TEMPORARY -- investigation only; delete this function and its call sites
-    when the asset-score/consumption rank investigation is done.
+    """Load national LDI-PC distributions, collapsed to the reference scenario.
 
-    Adds two household-grain percentile-rank columns to the output of
-    get_ldipc_from_asset_score:
-
-      asset_rank  -- rank of the asset score
-      ldipc_rank  -- rank of ldipc_weighted_no_match (the column that becomes
-                     `consumption` downstream)
-
-    within_nid=True ranks inside each survey, which is the only grain where an
-    asset-score rank is meaningful -- each DHS wealth index is a survey-specific
-    PCA, so raw scores are not comparable across NIDs. within_nid=False ranks
-    over the pooled frame.
-
-    Note the two ranks are near-identical when within_nid=True: ldipc is a
-    strictly increasing PCHIP transform of the weighted population percentile,
-    which is itself the asset-score ordering. They diverge only on asset-score
-    ties (broken by incidental row order in the cumsum) and on NIDs spanning
-    multiple years (sorted by year before asset score).
+    Different LDI versions encode the reference scenario differently, so try the
+    known encodings in turn.
     """
-    df = asset_df_ldipc.copy()
+    ldi = cm_data.load_ldi_distributions(geospecificity="national", version=ldi_version)
+    if "scenario" in ldi.columns:
+        scenarios = ldi.scenario.unique()
+        for reference_scenario in (0, "reference", 4.5):
+            if reference_scenario in scenarios:
+                return ldi.loc[ldi["scenario"] == reference_scenario].drop(
+                    "scenario", axis=1
+                )
+        raise ValueError("No valid scenario in LDI data.")
+    return ldi
 
-    if within_nid:
-        df["asset_rank"] = df.groupby("nid")[asset_score_col].rank(pct=True)
-        df["ldipc_rank"] = df.groupby("nid")["ldipc_weighted_no_match"].rank(pct=True)
-    else:
-        df["asset_rank"] = df[asset_score_col].rank(pct=True)
-        df["ldipc_rank"] = df["ldipc_weighted_no_match"].rank(pct=True)
 
+def find_best_clip_quantile(
+    reference_curve: np.ndarray,
+    pop_pct: np.ndarray,
+    asset_scores: np.ndarray,
+) -> float:
+    """Find the tail truncation of an income distribution that best matches asset scores.
+
+    Iterates over clipping thresholds of `reference_curve` and returns the quantile
+    whose truncated, min-max-scaled curve is closest to the min-max-scaled asset
+    scores. This is the search half of the `match_distribution` closure in
+    `get_ldipc_from_asset_score`, split out so the chosen threshold can be applied
+    to a *different* year's distribution than the one it was fit on.
+    """
+    asset_span = asset_scores.max() - asset_scores.min()
+    if asset_span == 0:
+        return 1.0
+    scaled_asset = (asset_scores - asset_scores.min()) / asset_span
+
+    best_quantile = 1.0
+    minimum_difference = np.inf
+    for threshold_quantile in np.linspace(0.8, 1, 21):
+        candidate = apply_clip_quantile(reference_curve, threshold_quantile, pop_pct)
+        if candidate is None:
+            continue
+        candidate_span = candidate.max() - candidate.min()
+        if candidate_span == 0:
+            continue
+        scaled_candidate = (candidate - candidate.min()) / candidate_span
+        diff = np.abs(scaled_candidate - scaled_asset).sum()
+        if diff < minimum_difference:
+            minimum_difference = diff
+            best_quantile = threshold_quantile
+    return best_quantile
+
+
+def apply_clip_quantile(
+    reference_curve: np.ndarray,
+    clip_quantile: float,
+    pop_pct: np.ndarray,
+) -> np.ndarray | None:
+    """Evaluate `pop_pct` against `reference_curve` truncated at `clip_quantile`.
+
+    Returns None if the truncation leaves too few points to interpolate.
+    """
+    threshold_value = np.quantile(reference_curve, clip_quantile)
+    clipped_income = reference_curve[reference_curve <= threshold_value]
+    if len(clipped_income) < 2:
+        return None
+    clipped_interpolator = PchipInterpolator(
+        np.linspace(0, 1, len(clipped_income)), clipped_income
+    )
+    return clipped_interpolator(pop_pct)
+
+
+PERCENTILE_COLUMNS = [
+    "unweighted_population_percentile",
+    "weighted_population_percentile",
+    "unweighted_clip_quantile",
+    "weighted_clip_quantile",
+]
+
+# Grid used to represent an income curve when applying a clip quantile. The curve
+# has only 10 knots and is smooth, so this is far denser than needed.
+CLIP_GRID_POINTS = 100000
+
+
+def drop_stale_percentile_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Strip percentile columns left behind by an earlier pass.
+
+    `get_ldipc_from_asset_score` computes `unweighted_population_percentile` and
+    `weighted_population_percentile` for its own use and leaves them on its
+    output, so any frame descended from it arrives already carrying two of these
+    names. `get_asset_score_percentiles` is the function that defines them, and
+    every merge downstream of it keys on them, so a stale copy is not harmless:
+    a merge would rename both sides to *_x / *_y and the names would vanish.
+
+    Dropping is safe -- these are recomputed from the wealth extract, which is
+    where they came from in the first place.
+    """
+    stale_cols = [col for col in PERCENTILE_COLUMNS if col in df.columns]
+    return df.drop(columns=stale_cols) if stale_cols else df
+
+
+def get_asset_score_percentiles(
+    asset_df: pd.DataFrame,
+    cm_data,  # instance providing the load_ldi_distributions() method
+    asset_score_col: str = "wealth_index_dhs",
+    year_df_col: str = "year_start",
+    *,
+    ldi_version: str = "",
+    weights_col: str = "pweight",
+    household_cols: list[str] | None = None,
+    grid_points: int | None = None,
+) -> pd.DataFrame:
+    """Step 1 of birth-year LDI-PC: rank households within each survey.
+
+    Run this on the *wealth extract*, before it is merged onto survey data. That
+    matters: ranking has to cover every household the survey enumerated, not just
+    the ones that turned out to contain a child. Ranking after the merge would
+    rank a child-bearing subset and shift everybody's percentile.
+
+    Adds four columns, all constant within a household:
+
+      unweighted_population_percentile : rank of the asset score in the survey
+      weighted_population_percentile   : same, weighted by `weights_col`
+      unweighted_clip_quantile         : tail truncation for the *match* method
+      weighted_clip_quantile           : same, for the weighted percentile
+
+    On the clip quantiles: the *match* method exists because the income
+    distribution has a long rich tail that the asset index does not -- an asset
+    index built from "owns a fridge, owns a motorbike" saturates at the top. So
+    rather than reading a household's income off its raw rank, `match` shrinks
+    everyone's rank by a factor first, which is equivalent to lopping off the top
+    of the income distribution and restretching what remains over the full 0-100%
+    range. This function searches factors from 0.80 to 1.00 in 21 steps and keeps
+    whichever produces an income curve whose shape best matches the shape of the
+    asset scores. The chosen factor is what gets stored, so that
+    `assign_ldipc_by_birth_year` can apply it to a different year's distribution.
+
+    That search needs *an* income distribution to fit against, and uses the
+    survey's own `year_df_col`. It is only shape being compared, after min-max
+    scaling, and adjacent years of a country's LDI distribution are close to a
+    pure rescaling of each other, so the fitted factor is nearly invariant to
+    which year is used.
+
+    Parameters:
+      asset_df        : Wealth extract. One row per household, or set household_cols.
+      cm_data         : Object providing the load_ldi_distributions() method.
+      asset_score_col : Column name for the asset score.
+      year_df_col     : Survey year. Only used to fit the clip quantiles.
+      ldi_version     : Version identifier for LDI distribution.
+      weights_col     : Column name for household weights.
+      household_cols  : Grain to rank on. Defaults to DEFAULT_HOUSEHOLD_COLS; pass
+                        [] if `asset_df` is already one row per household.
+      grid_points     : Resolution of the clip search grid. Defaults to the
+                        heuristic used by `get_ldipc_from_asset_score`.
+
+    Returns:
+      `asset_df` with PERCENTILE_COLUMNS added.
+    """
+    household_cols = (
+        DEFAULT_HOUSEHOLD_COLS if household_cols is None else list(household_cols)
+    )
+    required_cols = {
+        "nid",
+        "ihme_loc_id",
+        asset_score_col,
+        year_df_col,
+        weights_col,
+        *household_cols,
+    }
+    missing_cols = sorted(required_cols - set(asset_df.columns))
+    if missing_cols:
+        msg = (
+            f"asset_df is missing required columns: {missing_cols}. Pass "
+            "household_cols=[] if each row is already one household."
+        )
+        raise ValueError(msg)
+
+    asset_df = drop_stale_percentile_columns(asset_df)
+
+    ldi = load_reference_ldi_distributions(cm_data, ldi_version)
+    ldi = ldi.sort_values(["ihme_loc_id", "year_id", "population_percentile"])
+
+    print("Ranking households within each survey and fitting match clip quantiles.")
+
+    results = []
+    for nid in asset_df.nid.unique():
+        nid_df = asset_df.loc[asset_df.nid == nid].copy()
+
+        if nid_df.ihme_loc_id.nunique() > 1:
+            msg = f"Multiple locations for NID {nid}"
+            raise ValueError(msg)
+        ihme_loc_id = nid_df.ihme_loc_id.iloc[0]
+
+        if nid_df[year_df_col].nunique() > 1:
+            print(f"Multiple years for NID {nid}: {nid_df[year_df_col].unique()}")
+        survey_year = int(nid_df[year_df_col].min())
+
+        # --- Survey-wide ranking, on household grain ---
+        if household_cols:
+            household_df = nid_df.groupby(household_cols, as_index=False).agg(
+                **{
+                    asset_score_col: (asset_score_col, "first"),
+                    weights_col: (weights_col, "first"),
+                    "n_asset_scores": (asset_score_col, "nunique"),
+                    "n_weights": (weights_col, "nunique"),
+                }
+            )
+            if (household_df.n_asset_scores != 1).any() or (
+                household_df.n_weights != 1
+            ).any():
+                msg = (
+                    f"NID {nid} has households with more than one {asset_score_col} "
+                    f"or {weights_col} value; the ranking grain is wrong."
+                )
+                raise RuntimeError(msg)
+            household_df = household_df.drop(columns=["n_asset_scores", "n_weights"])
+        else:
+            household_df = nid_df.copy()
+
+        # Sort explicitly by asset score: the weighted percentile is a running sum
+        # of weights, so it is only meaningful in asset-score order.
+        household_df = household_df.sort_values(asset_score_col, kind="mergesort")
+        total_weight = household_df[weights_col].sum()
+        if total_weight <= 0:
+            msg = f"Non-positive total {weights_col} for NID {nid}."
+            raise RuntimeError(msg)
+        household_df["unweighted_population_percentile"] = household_df[
+            asset_score_col
+        ].rank(pct=True)
+        household_df["weighted_population_percentile"] = (
+            household_df[weights_col].cumsum() / total_weight
+        )
+
+        # --- Fit the match method's tail truncation, against the survey year ---
+        survey_ldi = ldi.loc[
+            (ldi.ihme_loc_id == ihme_loc_id) & (ldi.year_id == survey_year)
+        ]
+        if survey_ldi.empty:
+            msg = f"No LDI data for NID {nid} ({ihme_loc_id}) in year {survey_year}."
+            raise ValueError(msg)
+        n_grid = (
+            grid_points
+            if grid_points is not None
+            else max(1000, min(1000000, len(household_df) * 100))
+        )
+        survey_curve = PchipInterpolator(
+            survey_ldi["population_percentile"], survey_ldi["ldipc"]
+        )(np.linspace(0, 1, n_grid))
+
+        asset_scores = household_df[asset_score_col].to_numpy()
+        household_df["unweighted_clip_quantile"] = find_best_clip_quantile(
+            survey_curve,
+            household_df["unweighted_population_percentile"].to_numpy(),
+            asset_scores,
+        )
+        household_df["weighted_clip_quantile"] = find_best_clip_quantile(
+            survey_curve,
+            household_df["weighted_population_percentile"].to_numpy(),
+            asset_scores,
+        )
+
+        if household_cols:
+            # merge resets the index; put the caller's back so that concatenating
+            # the per-NID frames does not manufacture a duplicated index.
+            original_index = nid_df.index
+            nid_df = merge_left_without_inflating(
+                nid_df,
+                household_df[household_cols + PERCENTILE_COLUMNS],
+                on=household_cols,
+            )
+            nid_df.index = original_index
+        else:
+            nid_df = household_df
+
+        results.append(nid_df)
+
+    asset_df_ranked = pd.concat(results)
+    if asset_df_ranked[PERCENTILE_COLUMNS].isna().sum().sum() != 0:
+        msg = "Null percentiles; check for null asset scores or weights."
+        raise RuntimeError(msg)
+    if len(asset_df_ranked) != len(asset_df):
+        msg = "Mismatch in length of asset data and ranked data."
+        raise RuntimeError(msg)
+    return asset_df_ranked  # type: ignore[no-any-return]
+
+
+def assign_ldipc_by_birth_year(
+    df: pd.DataFrame,
+    cm_data,  # instance providing the load_ldi_distributions() method
+    birth_year_col: str = "birth_year",
+    *,
+    ldi_version: str = "",
+    missing_year_policy: str = "null",
+    grid_points: int = CLIP_GRID_POINTS,
+    col_suffix: str = "",
+) -> pd.DataFrame:
+    """Step 2 of birth-year LDI-PC: look each row's rank up in its birth year.
+
+    Run this *after* the wealth extract has been merged onto survey data, which is
+    where `birth_year_col` first exists. `df` must already carry
+    PERCENTILE_COLUMNS from `get_asset_score_percentiles`.
+
+    Each row's survey-wide percentile is read off the national LDI distribution
+    for that row's birth year rather than the survey year, so two siblings in one
+    household share a percentile but get different LDI-PC values. The *match*
+    columns apply the clip quantile fitted in step 1 to the birth year's curve.
+
+    Birth years the LDI series does not cover -- it starts in 1980, and surveys
+    hold birth histories going back further -- are handled by
+    `missing_year_policy`. The default leaves those rows null rather than
+    inventing a value for them: there is no defensible income distribution to read
+    a 1979 birth off, and clamping to 1980 would quietly assert that 1979 and 1980
+    were the same, with the error growing the further back the birth year goes.
+
+    Parameters:
+      df                  : Merged survey data carrying PERCENTILE_COLUMNS.
+      cm_data             : Object providing the load_ldi_distributions() method.
+      birth_year_col      : Per-row year used to select the income distribution.
+      ldi_version         : Version identifier for LDI distribution.
+      missing_year_policy : What to do with a birth year the LDI series misses --
+                            'null' (default) leaves the LDI-PC columns NaN and
+                            `ldi_year_used` 0; 'clamp' falls back to the nearest
+                            year with data; 'raise' refuses.
+      grid_points         : Resolution used when applying a clip quantile.
+      col_suffix          : Appended to the four output column names.
+
+    Returns:
+      `df` with `ldipc_{unweighted,weighted}_{no_match,match}` (plus `col_suffix`)
+      and `ldi_year_used`, the LDI year each row resolved to (0 where no year
+      could be resolved).
+    """
+    if missing_year_policy not in ("raise", "clamp", "null"):
+        msg = "missing_year_policy must be 'null', 'clamp' or 'raise'."
+        raise ValueError(msg)
+
+    required_cols = {"ihme_loc_id", birth_year_col, *PERCENTILE_COLUMNS}
+    missing_cols = sorted(required_cols - set(df.columns))
+    if missing_cols:
+        msg = (
+            f"df is missing required columns: {missing_cols}. Run "
+            "get_asset_score_percentiles on the wealth extract first and carry "
+            "its output columns through the merge."
+        )
+        raise ValueError(msg)
+
+    df = df.copy()
+    if df[birth_year_col].isna().any():
+        n_null = int(df[birth_year_col].isna().sum())
+        msg = (
+            f"{n_null:,} of {len(df):,} rows have a null {birth_year_col}. "
+            "Recover or drop them before calling this function."
+        )
+        raise ValueError(msg)
+    if df[PERCENTILE_COLUMNS].isna().any().any():
+        n_null = int(df[PERCENTILE_COLUMNS].isna().any(axis=1).sum())
+        msg = (
+            f"{n_null:,} of {len(df):,} rows have null percentile columns, most "
+            "likely rows that failed to merge against the wealth extract. Drop "
+            "them before calling this function."
+        )
+        raise ValueError(msg)
+    df[birth_year_col] = df[birth_year_col].astype(int)
+
+    ldi = load_reference_ldi_distributions(cm_data, ldi_version)
+    ldi = ldi.sort_values(["ihme_loc_id", "year_id", "population_percentile"])
+    available_years = {
+        loc: np.sort(years)
+        for loc, years in ldi.groupby("ihme_loc_id")["year_id"].unique().items()
+    }
+    clamped_years: dict[tuple[str, int], int] = {}
+    null_years: dict[tuple[str, int], int] = {}
+
+    def resolve_ldi_year(ihme_loc_id: str, year: int) -> int | None:
+        """Map a requested year onto a year the LDI distribution actually covers.
+
+        Returns None when there is no such year and the policy is to null out.
+        """
+        years = available_years.get(ihme_loc_id)
+        if years is None:
+            msg = f"No LDI data at all for location {ihme_loc_id}."
+            raise ValueError(msg)
+        if year in years:
+            return year
+        if missing_year_policy == "raise":
+            msg = (
+                f"No LDI data for {ihme_loc_id} in year {year} (available: "
+                f"{years.min()}-{years.max()}). Pass missing_year_policy='clamp' "
+                "to fall back to the nearest available year, or 'null' to leave "
+                "these rows empty."
+            )
+            raise ValueError(msg)
+        if missing_year_policy == "null":
+            null_years[(ihme_loc_id, year)] = 0
+            return None
+        nearest = int(years[np.abs(years - year).argmin()])
+        clamped_years[(ihme_loc_id, year)] = nearest
+        return nearest
+
+    print(f"Assigning LDI-PC from each row's {birth_year_col} income distribution.")
+
+    out_cols = [col + col_suffix for col in LDIPC_METHOD_COLUMNS]
+    ldipc = {col: np.full(len(df), np.nan) for col in out_cols}
+    ldi_year_used = np.zeros(len(df), dtype=int)
+    grid = np.linspace(0, 1, grid_points)
+
+    unweighted_pct = df["unweighted_population_percentile"].to_numpy()
+    weighted_pct = df["weighted_population_percentile"].to_numpy()
+    unweighted_clip = df["unweighted_clip_quantile"].to_numpy()
+    weighted_clip = df["weighted_clip_quantile"].to_numpy()
+
+    # .indices gives positional row numbers, so this holds up whatever index the
+    # caller's frame carries -- including a duplicated one.
+    group_positions = df.groupby(["ihme_loc_id", birth_year_col], sort=False).indices
+    for (ihme_loc_id, birth_year), idx in group_positions.items():
+        resolved_year = resolve_ldi_year(ihme_loc_id, int(birth_year))
+        if resolved_year is None:
+            # Nothing to read this group's percentiles off. Leave the LDI-PC
+            # columns NaN and ldi_year_used 0.
+            null_years[(ihme_loc_id, int(birth_year))] += len(idx)
+            continue
+        ldi_year_used[idx] = resolved_year
+
+        ldi_df = ldi.loc[
+            (ldi.ihme_loc_id == ihme_loc_id) & (ldi.year_id == resolved_year)
+        ]
+        interpolator = PchipInterpolator(
+            ldi_df["population_percentile"], ldi_df["ldipc"]
+        )
+
+        ldipc["ldipc_unweighted_no_match" + col_suffix][idx] = interpolator(
+            unweighted_pct[idx]
+        )
+        ldipc["ldipc_weighted_no_match" + col_suffix][idx] = interpolator(
+            weighted_pct[idx]
+        )
+
+        # The clip quantile is fitted per survey, so one location-year can hold
+        # several. Apply each to the shared curve for this location-year.
+        year_curve = interpolator(grid)
+        for clips, pct, col in (
+            (unweighted_clip, unweighted_pct, "ldipc_unweighted_match"),
+            (weighted_clip, weighted_pct, "ldipc_weighted_match"),
+        ):
+            for clip in np.unique(clips[idx]):
+                clip_idx = idx[clips[idx] == clip]
+                matched = apply_clip_quantile(year_curve, clip, pct[clip_idx])
+                # Fall back to the untruncated curve if the clip left too few points.
+                if matched is None:
+                    matched = interpolator(pct[clip_idx])
+                ldipc[col + col_suffix][clip_idx] = matched
+
+    for col, values in ldipc.items():
+        df[col] = values
+    df["ldi_year_used"] = ldi_year_used
+
+    if clamped_years:
+        logging.warning(
+            f"Clamped {len(clamped_years)} location-years to the nearest year with "
+            f"LDI data, e.g. {list(clamped_years.items())[:5]}"
+        )
+    if null_years:
+        n_null_rows = sum(null_years.values())
+        year_range = f"{min(y for _, y in null_years)}-{max(y for _, y in null_years)}"
+        logging.warning(
+            f"Left {n_null_rows:,} of {len(df):,} rows null across "
+            f"{len(null_years)} location-years the LDI series does not cover "
+            f"(birth years {year_range})."
+        )
+
+    # Rows that resolved to a year must have come out with a value; rows that did
+    # not resolve are null on purpose.
+    resolved = ldi_year_used != 0
+    if df.loc[resolved, out_cols].isna().sum().sum() != 0:
+        msg = "Null LDI-PC values in one of the methods."
+        raise RuntimeError(msg)
     return df
+
+
+def get_ldipc_from_asset_score_by_birth_year(
+    asset_df: pd.DataFrame,
+    cm_data,  # instance providing the load_ldi_distributions() method
+    child_df: pd.DataFrame,
+    asset_score_col: str = "wealth_index_dhs",
+    year_df_col: str = "year_start",
+    birth_year_col: str = "birth_year",
+    *,
+    ldi_version: str = "",
+    weights_col: str = "pweight",
+    household_cols: list[str] | None = None,
+    missing_year_policy: str = "null",
+    grid_points: int | None = None,
+    col_suffix: str = "",
+) -> pd.DataFrame:
+    """Calculate LDI-PC from asset scores, matched to each child's *birth* year.
+
+    Same four methods as `get_ldipc_from_asset_score`:
+      (1) Unweighted percentiles, direct interpolation (no matching)
+      (2) Weighted percentiles, direct interpolation (no matching)
+      (3) Unweighted percentiles with distribution matching
+      (4) Weighted percentiles with distribution matching
+
+    The one difference is *which year's income distribution a percentile is read
+    off*. In both functions a household's place in the asset score distribution is
+    fixed by the survey it came from, so a household at asset percentile X in a
+    survey run in year Y stays at percentile X. What changes is the next step:
+
+      get_ldipc_from_asset_score : percentile X -> the consumption percentile X
+          estimated for year Y (the survey year). Every child in the household
+          gets that one value.
+      this function             : percentile X -> the consumption percentile X
+          estimated for year Z, where Z is that child's birth year. Siblings in
+          one household share percentile X but land on different LDI-PC values,
+          because they were born into different years of the country's income
+          distribution.
+
+    So a household at the 40th asset percentile in a 2015 survey, with children
+    born in 2005 and 2012, gets the 40th percentile of the 2005 consumption
+    distribution for the first child and of the 2012 distribution for the second,
+    rather than the 40th percentile of the 2015 distribution for both.
+
+    One wrinkle carried over from the original: the *match* methods do not read a
+    percentile straight off the curve, they first shrink everyone's percentile by
+    a factor fitted so that the resulting income curve has the same shape as the
+    asset scores (see `get_asset_score_percentiles` for why). That factor is
+    fitted once per survey against the *survey* year's curve, then applied to each
+    birth year's curve. Only shape enters the fit, and neighbouring years of a
+    country's LDI distribution are close to rescalings of one another, so which
+    year it is fitted on barely matters.
+
+    Why this takes two frames where `get_ldipc_from_asset_score` takes one: the
+    two things it needs live in two different places. The ranking has to run over
+    the whole wealth extract, because a household's percentile only means anything
+    relative to every household the survey enumerated -- including the ones that
+    turned out to contain no child. The birth year only exists on the child data.
+    So `asset_df` supplies the ranking and `child_df` supplies the birth years,
+    and the function joins them on `household_cols`.
+
+    Rows of `child_df` with no matching household in `asset_df` come back with the
+    LDI-PC columns left null, the same way a left merge of
+    `get_ldipc_from_asset_score` output onto child data would leave them. So do
+    rows whose birth year predates the LDI series, which starts in 1980 -- see
+    `missing_year_policy`.
+
+    Parameters:
+      asset_df            : Wealth extract, one row per household (or set
+                            household_cols). Used only for ranking; not returned.
+      cm_data             : Object providing the load_ldi_distributions() method.
+      child_df            : Child-level data carrying `birth_year_col` and the
+                            `household_cols` needed to join it to `asset_df`.
+      asset_score_col     : Column name for the asset score, in `asset_df`.
+      year_df_col         : Survey year in `asset_df`. Only used to fit the match
+                            factors.
+      birth_year_col      : Per-child year in `child_df`, used to pick the income
+                            distribution.
+      ldi_version         : Version identifier for LDI distribution.
+      weights_col         : Column name for household weights, in `asset_df`.
+      household_cols      : Household key, used both as the ranking grain and as
+                            the join key. Defaults to DEFAULT_HOUSEHOLD_COLS.
+      missing_year_policy : What to do with a birth year the LDI series misses
+                            (it starts in 1980) -- 'null' (default) leaves those
+                            rows empty, 'clamp' uses the nearest year with data,
+                            'raise' refuses.
+      grid_points         : Resolution of the interpolation grids.
+      col_suffix          : Appended to the four output column names.
+
+    Returns:
+      `child_df` with additional columns:
+        - ldipc_unweighted_no_match
+        - ldipc_weighted_no_match
+        - ldipc_unweighted_match
+        - ldipc_weighted_match
+        - ldi_year_used  (the LDI year each row resolved to, = birth year unless
+                          clamped; 0 for rows that did not match `asset_df` and
+                          for birth years the LDI series does not cover)
+    """
+    household_cols = (
+        DEFAULT_HOUSEHOLD_COLS if household_cols is None else list(household_cols)
+    )
+    if not household_cols:
+        msg = (
+            "household_cols cannot be empty: it is the key used to carry each "
+            "household's percentile from asset_df over to the children in child_df."
+        )
+        raise ValueError(msg)
+    missing_cols = sorted(
+        {birth_year_col, *household_cols} - set(child_df.columns)
+    )
+    if missing_cols:
+        msg = f"child_df is missing required columns: {missing_cols}."
+        raise ValueError(msg)
+
+    # Refuse to quietly replace survey-year results with birth-year ones under the
+    # same names. Reachable when child_df carries the output of
+    # `get_ldipc_from_asset_score` and no col_suffix is given to tell them apart.
+    clashing_cols = sorted(
+        {col + col_suffix for col in LDIPC_METHOD_COLUMNS} & set(child_df.columns)
+    )
+    if clashing_cols:
+        msg = (
+            f"child_df already has these output columns: {clashing_cols}. Pass a "
+            "col_suffix (e.g. col_suffix='_birth_year') to keep both sets, or drop "
+            "the existing ones first."
+        )
+        raise ValueError(msg)
+
+    # Step 1: rank each household within its own survey. Runs on the full wealth
+    # extract, so the percentiles are the same ones get_ldipc_from_asset_score
+    # would produce.
+    asset_df_ranked = get_asset_score_percentiles(
+        asset_df,
+        cm_data,
+        asset_score_col=asset_score_col,
+        year_df_col=year_df_col,
+        ldi_version=ldi_version,
+        weights_col=weights_col,
+        household_cols=household_cols,
+        grid_points=grid_points,
+    )
+
+    # Carry those percentiles onto the children. One row per household first, or
+    # the merge would inflate child_df. child_df is very likely descended from
+    # `get_ldipc_from_asset_score` and carrying two of these column names already,
+    # which would collide in the merge, so clear them out.
+    household_percentiles = asset_df_ranked[
+        household_cols + PERCENTILE_COLUMNS
+    ].drop_duplicates(subset=household_cols)
+    original_index = child_df.index
+    child_df = merge_left_without_inflating(
+        drop_stale_percentile_columns(child_df).reset_index(drop=True),
+        household_percentiles,
+        on=household_cols,
+    )
+
+    # Step 2: read each child's household percentile off the income distribution
+    # for that child's birth year. This is the step that differs from
+    # get_ldipc_from_asset_score, which reads them all off the survey year.
+    # Children whose household is not in the extract have no percentile to look
+    # up, so they sit out and keep null LDI-PC.
+    matched = child_df[PERCENTILE_COLUMNS].notna().all(axis=1)
+    n_unmatched = int((~matched).sum())
+    if n_unmatched:
+        print(
+            f"{n_unmatched:,} of {len(child_df):,} child rows have no household in "
+            "the wealth extract; leaving their LDI-PC null."
+        )
+    assigned = assign_ldipc_by_birth_year(
+        child_df.loc[matched],
+        cm_data,
+        birth_year_col=birth_year_col,
+        ldi_version=ldi_version,
+        missing_year_policy=missing_year_policy,
+        grid_points=CLIP_GRID_POINTS if grid_points is None else grid_points,
+        col_suffix=col_suffix,
+    )
+
+    new_cols = [col + col_suffix for col in LDIPC_METHOD_COLUMNS] + ["ldi_year_used"]
+    for col in new_cols:
+        child_df[col] = assigned[col].reindex(child_df.index)
+    child_df["ldi_year_used"] = child_df["ldi_year_used"].fillna(0).astype(int)
+    child_df.index = original_index
+    return child_df
+
 
 
 WEALTH_DATASET_COMMON_COLUMNS = [
@@ -1047,7 +1687,7 @@ def get_DHS_wealth_dataset() -> pd.DataFrame:
     df["hh_id"] = df["hh_id"].astype(int)
     df["psu"] = df["psu"].astype(int)
     df["hhweight"] = df["hhweight"].astype(int)
-    df["wealth_index_dhs"] = df["wealth_index_dhs"].astype(int)
+    df["wealth_index_dhs"] = df["wealth_index_dhs"].astype(float) # prevent precision loss
 
     df.dropna(subset=["strata"], inplace=True)
     df["strata"] = df["strata"].astype(int)
@@ -1380,7 +2020,7 @@ def get_age_month_at_year_end(row):
     age_months_at_year_end = (obs_year + 1 - birth_year) * 12 - birth_month
     return min(age_month, age_months_at_year_end)
 
-
+## Main indicator-specific data prep methods:
 def run_training_data_prep_cgf(  # noqa: PLR0915
     output_root: str | Path,
     data_source_type: str,
@@ -2966,6 +3606,29 @@ def run_training_data_prep_child_mortality_monthly(
     )
     logging.info(f"Total unique NIDs remaining: {df_merged['nid'].nunique():,}")
 
+    # Add the birth-year version of LDI-PC alongside the survey-year one above,
+    # matching what run_training_data_prep_neonatal does. It needs both frames:
+    # the raw extract to rank households against the whole survey, and df_merged
+    # for each child's birth year. col_suffix keeps both sets of columns so they
+    # can be compared.
+    #
+    # This runs BEFORE the monthly explode below, so it is assigned once per
+    # child and then copied onto every month of that child's exposure: a child
+    # observed at 48 months carries the income distribution of its BIRTH year,
+    # not of the year it was living through. For neonatal those are the same
+    # year by construction; here they are not. To use exposure-year income
+    # instead, this call has to move after the explode and read the per-row
+    # int_year the explode computes.
+    df_merged = get_ldipc_from_asset_score_by_birth_year(
+        dhs_wealth_data,
+        cm_data,
+        df_merged,
+        asset_score_col="wealth_index_dhs",
+        weights_col="hhweight",
+        ldi_version=LDI_VERSION,
+        col_suffix="_birth_year",
+    )
+
     # Include difference between int_year and birth_year for sensitivity analysis
     df_merged["int_birth_year_diff_months"] = 12 * (
         df_merged["int_year"] - df_merged["birth_year"]
@@ -2995,6 +3658,15 @@ def run_training_data_prep_child_mortality_monthly(
         "/mnt/team/rapidresponse/pub/population/modeling/climate_malnutrition/child_mortality/tmp/child_mortality_tmp_wealth_merged.parquet",
         index=False,
     )
+
+    # Drop the survey-year LDI-PC columns now that the birth-year ones replace
+    # them downstream. This has to happen BEFORE the explode below: the explode
+    # turns each child into one row per month of exposure, so every column still
+    # on the frame is multiplied by ~50. At 400m+ exploded rows one float64
+    # column costs roughly 3Gb resident, and this job already peaks at its
+    # 900Gb ceiling. The survey-year values are not lost - the temp parquet
+    # written just above is saved pre-explode and still carries them.
+    df_merged = df_merged.drop(columns=LDIPC_METHOD_COLUMNS, errors="ignore")
 
     # we want an int_year and int_month, and a new age_month incrementing for all
     # months up until age_month. Cut off age limit here at 60 months to avoid
@@ -3133,7 +3805,10 @@ def run_training_data_prep_child_mortality_monthly(
     # flip child_alive so 1 = died, 0 = alive for easier interpretation
     df_climate["child_mortality"] = 1 - df_climate["child_alive"]
 
-    df_climate["consumption"] = df_climate["ldipc_weighted_no_match"]
+    # Birth-year income, matching what run_training_data_prep_neonatal does.
+    # The survey-year columns are dropped before the explode above, so this is
+    # the only LDI-PC left on the frame.
+    df_climate["consumption"] = df_climate["ldipc_weighted_no_match_birth_year"]
 
     # make version of consumption that is per day
     df_climate["consumption_pd"] = df_climate["consumption"] / 365
@@ -3563,10 +4238,83 @@ def run_training_data_prep_child_mortality_monthly(
     #     index=False,
     # )
 
-    # assert len(df_grouped_cumulative[df_grouped_cumulative["child_mortality"].isna()]) == 0, "Missing child_mortality values in final data"
+    # ---- post-processing, ported from
+    # notebooks/child_mortality/child_mortality_data_checks_edits_10_07.ipynb --
+    # Births further than this many months before the interview are dropped from
+    # data.parquet but kept in data_no_10_yr_cutoff.parquet.  Inclusive, and 108
+    # rather than the 120 that filename implies.
+    max_recall_months = 108
+    # Columns the model cannot tolerate nulls in.
+    cols_to_check = [
+        "child_mortality",
+        "consumption_pd_cumul",
+        "int_birth_year_diff_months",
+        "birth_year",
+        "days_over_30C_monthly_cumul",
+        "total_precipitation_cumul",
+        "lat",
+        "long",
+    ]
+
+    # National median consumption from the RT income distributions rather than
+    # the survey households: the reference scenario at the 50th population
+    # percentile, divided to per-day so it sits on the same scale as
+    # consumption_pd.  Uses the same LDI_VERSION as the household matching above,
+    # so both read one income vintage.
+    # Merged on ihme_loc_id + birth_year alone, unlike the neonatal equivalent:
+    # this frame carries no location_id, so the merge brings one in alongside
+    # consumption_median_RT.
+    # Built from measure_root rather than reusing `cm_data`: that name is rebound
+    # to DEFAULT_ROOT further up, so it no longer tracks this run's output_root.
+    rt_consumption_df = ClimateMalnutritionData(measure_root).load_ldi_distributions(
+        geospecificity="national", version=LDI_VERSION
+    )
+    rt_consumption_df = rt_consumption_df[
+        (rt_consumption_df["scenario"] == "reference")
+        & (rt_consumption_df["population_percentile"] == 0.5)
+    ][["ihme_loc_id", "year_id", "location_id", "ldipc"]].rename(
+        columns={"year_id": "birth_year", "ldipc": "consumption_median_RT"}
+    )
+    df_grouped_cumulative = df_grouped_cumulative.drop(
+        columns="consumption_median_RT", errors="ignore"
+    ).merge(rt_consumption_df, on=["ihme_loc_id", "birth_year"], how="left")
+    n_missing_rt = int(df_grouped_cumulative["consumption_median_RT"].isna().sum())
+    if n_missing_rt:
+        msg = (
+            f"{n_missing_rt:,} rows have no {LDI_VERSION} national median "
+            "consumption after the merge; the LDI series is missing some "
+            "ihme_loc_id/birth_year present in the survey data."
+        )
+        raise ValueError(msg)
+    df_grouped_cumulative["consumption_median_RT"] /= 365
+
+    # Every column the model needs must be complete.  Checked before the recall
+    # cutoff, so it holds for both saved versions.
+    missing_counts = {
+        col: int(df_grouped_cumulative[col].isna().sum()) for col in cols_to_check
+    }
+    for col, n_missing in missing_counts.items():
+        print(f"{col}: {n_missing} missing values")
+    incomplete = {col: n for col, n in missing_counts.items() if n}
+    if incomplete:
+        msg = f"Missing values in required child_mortality columns: {incomplete}"
+        raise ValueError(msg)
+
+    # Save the uncut extract, then the recall-limited one the models train on.
     df_grouped_cumulative.to_parquet(
-        Path(output_path_version) / "data.parquet",
-        index=False,
+        Path(output_path_version) / "data_no_10_yr_cutoff.parquet", index=False
+    )
+    print(f"data_no_10_yr_cutoff.parquet saved ({len(df_grouped_cumulative):,} rows)")
+
+    df_grouped_cumulative = df_grouped_cumulative[
+        df_grouped_cumulative["int_birth_year_diff_months"] <= max_recall_months
+    ]
+    df_grouped_cumulative.to_parquet(
+        Path(output_path_version) / "data.parquet", index=False
+    )
+    print(
+        f"data.parquet saved ({len(df_grouped_cumulative):,} rows, "
+        f"int_birth_year_diff_months <= {max_recall_months})"
     )
     # for measure in MEASURES_IN_SOURCE[data_source_type]:
     #     measure_df = df_climate[df_climate[measure].notna()].copy()
@@ -3915,8 +4663,6 @@ def run_training_data_prep_neonatal(
     dhs_wealth_data_raw = get_DHS_wealth_dataset()
     dhs_wealth_data = dhs_wealth_data_raw.copy()
 
-    # Find out percent of anemia nids and hh_ids that can be matched in wealth data
-    merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
 
     # child_mortality use for both child mortality and neonatal.
     # variable name will be changed below
@@ -3947,6 +4693,9 @@ def run_training_data_prep_neonatal(
     df["ihme_loc_id"] = df["ihme_loc_id"].str.replace("KEN_.*", "KEN", regex=True)
     df[["year_start", "year_end"]] = df[["year_start", "year_end"]].astype(int)
 
+    # Find out percent of anemia nids and hh_ids that can be matched in wealth data
+    merge_cols = ["nid", "ihme_loc_id", "hh_id", "psu", "year_start"]
+
     df_wealth = merge_left_without_inflating(
         df,
         dhs_wealth_data_test.drop(
@@ -3972,6 +4721,20 @@ def run_training_data_prep_neonatal(
         f"Dropped {dropped_too_missingness:,} rows from {len(df_wealth):,} due to excessive wealth missingness in NIDs"
     )
     logging.info(f"Total unique NIDs remaining: {df_merged['nid'].nunique():,}")
+
+    # Add the birth-year version of LDI-PC alongside the survey-year one above.
+    # It needs both frames: the raw extract to rank households against the whole
+    # survey, and df_merged for each child's birth year. col_suffix keeps both
+    # sets of columns so they can be compared.
+    df_merged = get_ldipc_from_asset_score_by_birth_year(
+        dhs_wealth_data,
+        cm_data,
+        df_merged,
+        asset_score_col="wealth_index_dhs",
+        weights_col="hhweight",
+        ldi_version=LDI_VERSION,
+        col_suffix="_birth_year",
+    )
 
     # replace age_month with aod_months for rows with child_alive==0
     df_merged["age_month_original"] = df_merged["age_month"]  # keep copy of original
@@ -4051,7 +4814,8 @@ def run_training_data_prep_neonatal(
     # flip child_alive so 1 = died, 0 = alive for easier interpretation
     df_climate["child_mortality"] = 1 - df_climate["child_alive"]
 
-    df_climate["consumption"] = df_climate["ldipc_weighted_no_match"]
+    df_climate["consumption"] = df_climate["ldipc_weighted_no_match_birth_year"]
+    df_climate = df_climate[df_climate["consumption"].notnull()]
 
     # # collapse by average climate var exposure for each child
     # climate_vars = [
@@ -4468,8 +5232,85 @@ def run_training_data_prep_neonatal(
         "age_month_original"
     ]
 
-    # save final version
-    df_min_age_final.to_parquet(Path(output_path_version) / "data.parquet")
+    # ---- post-processing, ported from neonatal_data_checks_edits.ipynb ------
+    # Births further than this many months before the interview are dropped
+    # from data.parquet, but kept in data_no_10_yr_cutoff.parquet.  Inclusive.
+    max_recall_months = 60
+    # Columns the model cannot tolerate nulls in.
+    cols_to_check = [
+        "neonatal_mortality",
+        "consumption_pd",
+        "int_birth_year_diff_months",
+        "birth_year",
+        "days_over_30C_prev_0_mo",
+        "total_precipitation_prev_0_mo",
+    ]
+
+    # National median consumption from the RT income distributions rather than
+    # the survey households: the reference scenario at the 50th population
+    # percentile, divided to per-day so it sits on the same scale as the
+    # survey-derived consumption_pd.  Uses the same LDI_VERSION as the
+    # household matching above, so both read one income vintage.
+    # Built from measure_root rather than reusing `cm_data`: that name is
+    # rebound to child_mortality under DEFAULT_ROOT further up, so it no longer
+    # tracks this run's output_root.
+    rt_consumption_df = ClimateMalnutritionData(measure_root).load_ldi_distributions(
+        geospecificity="national", version=LDI_VERSION
+    )
+    rt_consumption_df = rt_consumption_df[
+        (rt_consumption_df["scenario"] == "reference")
+        & (rt_consumption_df["population_percentile"] == 0.5)
+    ][["ihme_loc_id", "year_id", "location_id", "ldipc"]].rename(
+        columns={"year_id": "birth_year", "ldipc": "consumption_median_RT"}
+    )
+    df_min_age_final = df_min_age_final.drop(
+        columns="consumption_median_RT", errors="ignore"
+    ).merge(
+        rt_consumption_df,
+        on=["ihme_loc_id", "location_id", "birth_year"],
+        how="left",
+    )
+    n_missing_rt = int(df_min_age_final["consumption_median_RT"].isna().sum())
+    if n_missing_rt:
+        msg = (
+            f"{n_missing_rt:,} rows have no {LDI_VERSION} national "
+            "median consumption after the merge; the LDI series is missing some "
+            "ihme_loc_id/location_id/birth_year present in the survey data."
+        )
+        raise ValueError(msg)
+    df_min_age_final["consumption_median_RT"] /= 365
+
+    # Every column the model needs must be complete.  Checked before the recall
+    # cutoff, so it holds for both saved versions.
+    missing_counts = {
+        col: int(df_min_age_final[col].isna().sum())
+        for col in cols_to_check
+    }
+    for col, n_missing in missing_counts.items():
+        print(f"{col}: {n_missing} missing values")
+    incomplete = {col: n for col, n in missing_counts.items() if n}
+    if incomplete:
+        msg = f"Missing values in required neonatal columns: {incomplete}"
+        raise ValueError(msg)
+
+    # Save the uncut extract, then the recall-limited one the models train on.
+    # index=False on both: the frame has been filtered repeatedly, so its index
+    # is non-contiguous and would otherwise be written as a column.
+    df_min_age_final.to_parquet(
+        Path(output_path_version) / "data_no_10_yr_cutoff.parquet", index=False
+    )
+    print(f"data_no_10_yr_cutoff.parquet saved ({len(df_min_age_final):,} rows)")
+
+    df_min_age_final = df_min_age_final[
+        df_min_age_final["int_birth_year_diff_months"] <= max_recall_months
+    ]
+    df_min_age_final.to_parquet(
+        Path(output_path_version) / "data.parquet", index=False
+    )
+    print(
+        f"data.parquet saved ({len(df_min_age_final):,} rows, "
+        f"int_birth_year_diff_months <= {max_recall_months})"
+    )
 
 
 @click.command()  # type: ignore[arg-type]
