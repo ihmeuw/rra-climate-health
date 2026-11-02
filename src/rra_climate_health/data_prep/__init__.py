@@ -4,6 +4,7 @@ from rra_climate_health.data_prep.run_inference_data_prep import (
 )
 from rra_climate_health.data_prep.run_training_data_prep import (
     run_training_data_prep,
+    run_training_data_prep_task,
 )
 
 RUNNERS = {
@@ -12,6 +13,6 @@ RUNNERS = {
 }
 
 TASK_RUNNERS = {
-    "data_prep": run_training_data_prep,
+    "data_prep": run_training_data_prep_task,
     "ldi_prep": run_ldi_prep_task,
 }
