@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Climate Scenario Deaths: FHS vs RRA</title>
+<!--
+  Template for apply_scenario_differences_to_FHS.ipynb. write_global_deaths_html()
+  replaces the data placeholder near the end of this file with the Global death
+  counts and writes the result to PLOT_OUTPUT. Self-contained: no library, font
+  or network request, so the written file opens anywhere.
+-->
+<style>
+  /* Layout: the indicator choice and legend, then two rows of two chart cards
+     (absolute approach, relative approach). */
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --fg: #1c2230;
+    --muted: #5b6475;
+    --line: #dce0e7;
+    --grid: #eceef2;
+    --axis: #b7beca;
+    --rcp26: #2a78d6;
+    --rcp45: #52514e;
+    --rcp85: #eb6834;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #13161c;
+      --panel: #1b1f27;
+      --fg: #e7eaf0;
+      --muted: #a0a8b5;
+      --line: #2d333e;
+      --grid: #252a33;
+      --axis: #485061;
+      --rcp26: #5b9ce8;
+      --rcp45: #a9a8a3;
+      --rcp85: #f08a5d;
+      color-scheme: dark;
+    }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; line-height: 1.45; }
+  .page { box-sizing: border-box; max-width: 1400px; margin: 0 auto; padding: 28px 16px 48px; display: grid; gap: 32px; }
+  .head { display: grid; gap: 14px; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 0.85rem; color: var(--muted); }
+  select { font: inherit; font-size: 0.95rem; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  select:focus-visible { outline: 2px solid var(--rcp26); outline-offset: 2px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; padding: 0; list-style: none; font-size: 0.8rem; color: var(--muted); }
+  .legend li { display: flex; align-items: center; gap: 7px; }
+  .legend-title { flex-basis: 100%; color: var(--fg); font-weight: 600; }
+  .swatch { display: inline-block; width: 22px; height: 0; border-top: 2px solid currentColor; }
+  .swatch.dashed { border-top-style: dashed; }
+  .s-ssp126 { color: var(--rcp26); }
+  .s-ssp245 { color: var(--rcp45); }
+  .s-ssp585 { color: var(--rcp85); }
+  .approach { display: grid; gap: 12px; }
+  h2 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 14px; }
+  .card { display: grid; gap: 4px; align-content: start; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+  h3 { margin: 0 0 6px; font-size: 0.95rem; font-weight: 600; }
+  .chart { position: relative; min-height: 300px; }
+  .chart svg { display: block; overflow: visible; }
+  .chart text { font-family: var(--font); font-size: 12px; }
+  .tip { position: absolute; top: 0; z-index: 2; display: grid; gap: 2px; min-width: 13rem; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14); padding: 6px 9px; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .tip-year { color: var(--muted); font-weight: 600; }
+  .tip-row { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 8px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="head">
+    <div class="controls">
+      <label for="indicator">Indicator</label>
+      <select id="indicator"></select>
+    </div>
+    <ul class="legend" aria-label="Legend">
+      <li class="legend-title">Representative Control Pathways (RCP) Scenarios</li>
+      <li><span class="swatch s-ssp126"></span>FHS, RCP 2.6</li>
+      <li><span class="swatch s-ssp245"></span>FHS, RCP 4.5 (reference)</li>
+      <li><span class="swatch s-ssp585"></span>FHS, RCP 8.5</li>
+      <li><span class="swatch dashed s-ssp126"></span>RRA model, RCP 2.6</li>
+      <li><span class="swatch dashed s-ssp245"></span>RRA model, RCP 4.5</li>
+      <li><span class="swatch dashed s-ssp585"></span>RRA model, RCP 8.5</li>
+    </ul>
+  </header>
+
+  <section class="approach" id="absolute">
+    <h2>Absolute differences approach: FHS + (RRA scenario − RRA RCP 4.5)</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>Deaths per year</h3>
+        <div class="chart" data-approach="absolute" data-measure="per_year"></div>
+      </article>
+      <article class="card">
+        <h3>Cumulative deaths since 2024</h3>
+        <div class="chart" data-approach="absolute" data-measure="cumulative"></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="approach" id="relative">
+    <h2>Relative differences approach: FHS × (RRA scenario ÷ RRA RCP 4.5)</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>Deaths per year</h3>
+        <div class="chart" data-approach="relative" data-measure="per_year"></div>
+      </article>
+      <article class="card">
+        <h3>Cumulative deaths since 2024</h3>
+        <div class="chart" data-approach="relative" data-measure="cumulative"></div>
+      </article>
+    </div>
+  </section>
+</div>
+
+<script id="cs-data" type="application/json">__GLOBAL_DEATHS_DATA__</script>
+<script>
+(() => {
+  const DATA = JSON.parse(document.getElementById('cs-data').textContent);
+  const ORDER = ['ssp126', 'ssp245', 'ssp585'];
+  const DISPLAY = { ssp126: 'RCP 2.6', ssp245: 'RCP 4.5', ssp585: 'RCP 8.5' };
+  const COLOUR = { ssp126: 'var(--rcp26)', ssp245: 'var(--rcp45)', ssp585: 'var(--rcp85)' };
+  const PANELS = {
+    absolute: { fhs: 'FHS absolute', rra: ['ssp126', 'ssp585'] },
+    relative: { fhs: 'FHS relative', rra: ORDER },
+  };
+  const GAP_YEARS = [2050, 2100];
+  const HEIGHT = 300;
+  const NS = 'http://www.w3.org/2000/svg';
+  const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+  const whole = new Intl.NumberFormat('en', { maximumFractionDigits: 0 });
+  const share = (v) => `${v < 0 ? '−' : '+'}${Math.abs(v * 100).toFixed(1)}%`;
+
+  // cumulative deaths from the first year, per indicator, series and scenario
+  const key = (r) => `${r.indicator}|${r.series}|${r.scenario}`;
+  const running = new Map();
+  const rows = [...DATA.rows]
+    .sort((a, b) => a.year - b.year)
+    .map((r) => {
+      const total = (running.get(key(r)) ?? 0) + r.deaths;
+      running.set(key(r), total);
+      return { ...r, cumulative: total };
+    });
+  const firstYear = rows[0].year;
+  const lastYear = rows[rows.length - 1].year;
+  const byKey = new Map(rows.map((r) => [`${key(r)}|${r.year}`, r]));
+  const value = (indicator, series, scenario, year, field) => byKey.get(`${indicator}|${series}|${scenario}|${year}`)?.[field];
+  const gapOf = (indicator, series, year, field) => {
+    const lo = value(indicator, series, 'ssp126', year, field);
+    const hi = value(indicator, series, 'ssp585', year, field);
+    return lo === undefined || hi === undefined ? null : { lo, hi, gap: hi - lo, pct: (hi - lo) / lo };
+  };
+
+  const select = document.getElementById('indicator');
+  for (const ind of DATA.indicators) select.append(new Option(ind.name, ind.name));
+
+  function ticks(lo, hi, count) {
+    const raw = (hi - lo) / count;
+    const pow = 10 ** Math.floor(Math.log10(raw));
+    const err = raw / pow;
+    const step = pow * (err >= 7.07 ? 10 : err >= 3.16 ? 5 : err >= 1.41 ? 2 : 1);
+    const out = [];
+    for (let v = Math.floor(lo / step) * step; v <= Math.ceil(hi / step) * step + step / 2; v += step) {
+      out.push(Math.round(v / step) * step);
+    }
+    return out;
+  }
+  function svgEl(tag, attrs, parent, style) {
+    const node = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    Object.assign(node.style, style || {});
+    parent.append(node);
+    return node;
+  }
+
+  function drawChart(chart) {
+    const indicator = select.value;
+    const { approach, measure } = chart.dataset;
+    const field = measure === 'cumulative' ? 'cumulative' : 'deaths';
+    const panel = PANELS[approach];
+    const series = [
+      ...ORDER.map((s) => ({ series: panel.fhs, scenario: s, dashed: false, label: `FHS, ${DISPLAY[s]}${s === 'ssp245' ? ' (reference)' : ''}` })),
+      ...panel.rra.map((s) => ({ series: 'RRA model', scenario: s, dashed: true, label: `RRA model, ${DISPLAY[s]}` })),
+    ].map((d) => ({
+      ...d,
+      points: rows
+        .filter((r) => r.indicator === indicator && r.series === d.series && r.scenario === d.scenario)
+        .map((r) => ({ year: r.year, v: r[field] })),
+    }));
+
+    // one y scale per measure across both approaches, so the two rows compare directly
+    const all = rows.filter((r) => r.indicator === indicator).map((r) => r[field]);
+    const yt = ticks(measure === 'cumulative' ? 0 : Math.min(...all) * 0.92, Math.max(...all) * 1.03, 5);
+    const width = Math.max(chart.clientWidth, 280);
+    chart.replaceChildren();
+    const svg = svgEl('svg', {
+      viewBox: `0 0 ${width} ${HEIGHT}`,
+      width: '100%',
+      role: 'img',
+      'aria-label': `${indicator}, Global ${measure === 'cumulative' ? 'cumulative deaths' : 'deaths per year'} by scenario, ${approach} differences approach`,
+    }, chart);
+
+    let tickWidth = 0;
+    for (const t of yt) {
+      const probe = svgEl('text', {}, svg);
+      probe.textContent = compact.format(t);
+      tickWidth = Math.max(tickWidth, probe.getComputedTextLength());
+      probe.remove();
+    }
+    const m = { top: 10, right: 12, bottom: 28, left: Math.ceil(tickWidth) + 10 };
+    const plotWidth = width - m.left - m.right;
+    const x = (year) => m.left + ((year - firstYear) / (lastYear - firstYear)) * plotWidth;
+    const y = (v) => HEIGHT - m.bottom - ((v - yt[0]) / (yt[yt.length - 1] - yt[0])) * (HEIGHT - m.top - m.bottom);
+
+    for (const t of yt) {
+      svgEl('line', { x1: m.left, x2: width - m.right, y1: y(t), y2: y(t) }, svg, { stroke: 'var(--grid)' });
+      const label = svgEl('text', { x: m.left - 8, y: y(t), dy: '0.32em', 'text-anchor': 'end' }, svg, { fill: 'var(--muted)' });
+      label.textContent = compact.format(t);
+    }
+    svgEl('line', { x1: m.left, x2: width - m.right, y1: HEIGHT - m.bottom, y2: HEIGHT - m.bottom }, svg, { stroke: 'var(--axis)' });
+    for (const t of plotWidth < 300 ? [2040, 2070, 2100] : [2030, 2050, 2070, 2090]) {
+      const label = svgEl('text', { x: x(t), y: HEIGHT - m.bottom + 18, 'text-anchor': 'middle' }, svg, { fill: 'var(--muted)' });
+      label.textContent = String(t);
+    }
+
+    for (const d of series) {
+      svgEl('path', { d: d.points.map((p, i) => `${i ? 'L' : 'M'}${x(p.year).toFixed(1)},${y(p.v).toFixed(1)}`).join('') }, svg, {
+        fill: 'none',
+        stroke: COLOUR[d.scenario],
+        strokeWidth: '2',
+        strokeLinejoin: 'round',
+        strokeLinecap: d.dashed ? 'butt' : 'round',
+        strokeDasharray: d.dashed ? '6 4' : '',
+      });
+    }
+
+    // RCP 8.5 - RCP 2.6 brackets: 2050 labelled to the right, 2100 to the left
+    const showGap = (n) => (plotWidth < 420 ? compact.format(n) : whole.format(n));
+    for (const year of GAP_YEARS) {
+      for (const [name, key] of [['RRA', 'RRA model'], ['FHS', panel.fhs]]) {
+        const g = gapOf(indicator, key, year, field);
+        if (!g) continue;
+        const bx = x(year);
+        const ink = { stroke: 'var(--fg)', strokeWidth: '1' };
+        svgEl('line', { x1: bx, x2: bx, y1: y(g.lo), y2: y(g.hi) }, svg, ink);
+        svgEl('line', { x1: bx - 4, x2: bx + 4, y1: y(g.lo), y2: y(g.lo) }, svg, ink);
+        svgEl('line', { x1: bx - 4, x2: bx + 4, y1: y(g.hi), y2: y(g.hi) }, svg, ink);
+        const right = year < lastYear;
+        const label = svgEl('text', {
+          x: bx + (right ? 8 : -8),
+          y: (y(g.lo) + y(g.hi)) / 2,
+          dy: '0.32em',
+          'text-anchor': right ? 'start' : 'end',
+        }, svg, { fill: 'var(--fg)', paintOrder: 'stroke', stroke: 'var(--panel)', strokeWidth: '4px', strokeLinejoin: 'round' });
+        label.textContent = `${name} 8.5 − 2.6: ${showGap(g.gap)} (${share(g.pct)})`;
+      }
+    }
+
+    // hover: a rule at the nearest year and a popover listing every line
+    const rule = svgEl('line', { y1: m.top, y2: HEIGHT - m.bottom, visibility: 'hidden' }, svg, { stroke: 'var(--axis)' });
+    const tip = document.createElement('div');
+    tip.className = 'tip';
+    tip.hidden = true;
+    chart.append(tip);
+    const overlay = svgEl('rect', { x: m.left, y: m.top, width: plotWidth, height: HEIGHT - m.top - m.bottom }, svg, { fill: 'transparent' });
+    overlay.addEventListener('pointermove', (event) => {
+      const box = svg.getBoundingClientRect();
+      const px = ((event.clientX - box.left) / box.width) * width;
+      const year = Math.max(firstYear, Math.min(lastYear, Math.round(firstYear + ((px - m.left) / plotWidth) * (lastYear - firstYear))));
+      rule.setAttribute('x1', x(year));
+      rule.setAttribute('x2', x(year));
+      rule.setAttribute('visibility', 'visible');
+      const head = document.createElement('div');
+      head.className = 'tip-year';
+      head.textContent = String(year);
+      const lines = series.map((d) => {
+        const row = document.createElement('div');
+        row.className = 'tip-row';
+        const sw = document.createElement('span');
+        sw.className = `swatch s-${d.scenario}${d.dashed ? ' dashed' : ''}`;
+        const label = document.createElement('span');
+        label.textContent = d.label;
+        const val = document.createElement('span');
+        const p = d.points.find((q) => q.year === year);
+        val.textContent = p ? whole.format(p.v) : '—';
+        row.append(sw, label, val);
+        return row;
+      });
+      tip.replaceChildren(head, ...lines);
+      tip.hidden = false;
+      const scale = box.width / width;
+      let left = x(year) * scale + 12;
+      if (left + tip.offsetWidth > chart.clientWidth) left = Math.max(0, x(year) * scale - tip.offsetWidth - 12);
+      tip.style.left = `${left}px`;
+    });
+    overlay.addEventListener('pointerleave', () => {
+      rule.setAttribute('visibility', 'hidden');
+      tip.hidden = true;
+    });
+  }
+
+  const charts = [...document.querySelectorAll('.chart')];
+  const drawAll = () => charts.forEach(drawChart);
+  select.addEventListener('change', drawAll);
+  let pending = 0;
+  new ResizeObserver(() => {
+    cancelAnimationFrame(pending);
+    pending = requestAnimationFrame(() => charts.forEach(drawChart));
+  }).observe(document.querySelector('.page'));
+  drawAll();
+})();
+</script>
+</body>
+</html>

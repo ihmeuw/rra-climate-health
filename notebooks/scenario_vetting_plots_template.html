@@ -1,0 +1,458 @@
+<meta charset="utf-8">
+<title>Scenario Vetting Plots</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a control bar over a 3x3 sheet of small multiples, one location per panel, with the source files listed underneath. */
+:root {
+  --bg: #f4f4f1;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e7e6e0;
+  --axis: #c3c2b7;
+  --line: rgba(11, 11, 11, 0.10);
+  --both: #2a78d6;
+  --female: #eb6834;
+  --male: #1baf7a;
+  --flag-bg: #fbecd9;
+  --flag-ink: #7a4300;
+  --font-ui: "Public Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #45443f;
+    --line: rgba(255, 255, 255, 0.10);
+    --both: #3987e5;
+    --female: #d95926;
+    --male: #199e70;
+    --flag-bg: #3a2a14;
+    --flag-ink: #f2c27d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0d0d;
+  --surface: #1a1a19;
+  --ink: #f0efec;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #45443f;
+  --line: rgba(255, 255, 255, 0.10);
+  --both: #3987e5;
+  --female: #d95926;
+  --male: #199e70;
+  --flag-bg: #3a2a14;
+  --flag-ink: #f2c27d;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-block: 24px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid;
+  gap: 18px;
+}
+header { display: grid; gap: 4px; }
+h1 { margin: 0; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--ink-2); max-width: 70ch; }
+.controls {
+  display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px;
+}
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button, .pager button {
+  font: inherit; font-size: 0.86rem; font-weight: 500;
+  border: 1px solid var(--line); background: transparent; color: var(--ink-2);
+  border-radius: 6px; padding: 6px 10px; cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.seg button:hover:not([aria-pressed="true"]), .pager button:hover:not(:disabled) { color: var(--ink); border-color: var(--axis); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--both); outline-offset: 2px; }
+.pager button:disabled { opacity: 0.4; cursor: default; }
+.field { display: flex; align-items: center; gap: 6px; font-size: 0.86rem; color: var(--ink-2); }
+select {
+  font: inherit; font-size: 0.86rem; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; max-width: 16rem;
+}
+.pager { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.pager .count { font-family: var(--font-data); font-size: 0.82rem; color: var(--ink-2); font-variant-numeric: tabular-nums; min-width: 8.5ch; text-align: center; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: center; justify-content: space-between; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.84rem; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend svg { overflow: visible; }
+.units { font-size: 0.84rem; color: var(--ink-2); }
+.units b { color: var(--ink); font-weight: 600; }
+.sheet { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 900px) { .sheet { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .sheet { grid-template-columns: minmax(0, 1fr); } .pager { margin-left: 0; } }
+.panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 8px 4px; position: relative; min-width: 0;
+}
+.panel h2 { margin: 0 0 2px; font-size: 0.86rem; font-weight: 600; display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+.panel h2 .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.panel .where { font-size: 0.72rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
+.flag { flex: none; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em; background: var(--flag-bg); color: var(--flag-ink); border-radius: 4px; padding: 1px 6px; }
+.panel svg { display: block; width: 100%; height: auto; }
+.panel svg text { font-family: var(--font-data); font-size: 10px; fill: var(--muted); }
+.empty { grid-column: 1 / -1; padding: 28px; text-align: center; color: var(--ink-2); background: var(--surface); border: 1px dashed var(--axis); border-radius: 8px; }
+.tip {
+  position: fixed; z-index: 20; pointer-events: none; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 0.78rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+.tip .t { font-weight: 600; margin-bottom: 4px; }
+.tip table { border-collapse: collapse; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.tip th, .tip td { padding: 1px 6px; text-align: right; font-weight: 400; }
+.tip th { color: var(--muted); }
+.tip td.k { text-align: left; color: var(--ink-2); font-family: var(--font-ui); }
+.tip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+footer { display: grid; gap: 8px; }
+footer h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.files { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.files table { border-collapse: collapse; width: 100%; font-size: 0.84rem; }
+.files th, .files td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.files tr:last-child td { border-bottom: 0; }
+.files th { font-size: 0.74rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.files td.path { font-family: var(--font-data); font-size: 0.78rem; word-break: break-all; min-width: 18rem; }
+.files td.num { font-family: var(--font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.files tr.active td:first-child { box-shadow: inset 3px 0 0 var(--ink); font-weight: 600; }
+.files .names { color: var(--ink-2); font-family: var(--font-ui); white-space: normal; }
+.note { margin: 0; font-size: 0.8rem; color: var(--muted); max-width: 90ch; }
+</style>
+
+<div class="page">
+  <header>
+    <h1>Scenario Vetting Plots</h1>
+    <p class="sub">Mean estimates by location, one line per sex and scenario. Global comes first, then super regions, regions and countries, each in the Goalkeepers location order, nine per page.</p>
+  </header>
+
+  <div class="controls">
+    <div class="seg" id="indicator-buttons" role="group" aria-label="Indicator"></div>
+    <div class="seg" id="metric-buttons" role="group" aria-label="Rate or count"></div>
+    <label class="field" for="y-scale">Y axis <select id="y-scale">
+      <option value="panel" selected>Per panel</option>
+      <option value="fixed">Fixed at the highest value</option>
+    </select></label>
+    <label class="field"><input type="checkbox" id="show-past" checked> <span id="past-label">Show years before 2024</span></label>
+    <label class="field"><input type="checkbox" id="zero-only"> <span id="zero-label">Only locations that reach 0</span></label>
+    <label class="field" for="jump">Go to <select id="jump"></select></label>
+    <div class="pager">
+      <button type="button" id="prev" aria-label="Previous page">&larr; Prev</button>
+      <span class="count" id="page-count"></span>
+      <button type="button" id="next" aria-label="Next page">Next &rarr;</button>
+    </div>
+  </div>
+
+  <div class="meta">
+    <div class="legend" id="legend"></div>
+    <div class="units" id="units"></div>
+  </div>
+
+  <div class="sheet" id="sheet"></div>
+
+  <footer>
+    <h2>Results file</h2>
+    <div class="files"><table>
+      <tbody>
+        <tr><td>Combined CSV</td><td class="path" id="final-path"></td></tr>
+        <tr><td>Made from</td><td class="path" id="sources"></td></tr>
+      </tbody>
+    </table></div>
+    <h2>Locations that drop to 0</h2>
+    <div class="files"><table>
+      <thead><tr><th>Indicator</th><th>Units</th><th>Locations that drop to 0</th></tr></thead>
+      <tbody id="files"></tbody>
+    </table></div>
+    <p class="note">A location drops to 0 when its mean estimate equals 0 in at least one year, sex or scenario. Counts are out of the locations in the file. Each indicator is shown for all of its age groups combined. Each y axis starts at 0 and is scaled to its own panel, or, with the fixed option, to the highest value of the indicator across all locations in the years shown.</p>
+  </footer>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+const DATA = __DATA__;
+// one entry per CSV Indicator and units; `group` is the indicator a rate and
+// its count share, `metric` is "Rate" or "Count"
+const INDS = DATA.indicators;
+const GROUPS = [...new Set(INDS.map((d) => d.group))];
+
+const SEXES = ["Both sexes", "Female", "Male"];
+const SEX_VARS = ["--both", "--female", "--male"];
+const SCENARIOS = ["RCP 4.5 (reference)", "RCP 2.6 (optimistic)", "RCP 8.5 (pessimistic)"];
+const DASHES = ["", "6 4", "1.6 3.2"];
+const PER_PAGE = 9;
+const W = 320, H = 200, M = { l: 40, r: 10, t: 8, b: 22 };
+// years before this are retrospective: the reference scenario only
+const FIRST_FORECAST_YEAR = 2024;
+
+const state = { ind: 0, page: 0, zeroOnly: false, showPast: true, yFixed: false };
+try {
+  const saved = Number(localStorage.getItem("vetting-indicator"));
+  if (Number.isInteger(saved) && saved >= 0 && saved < INDS.length) state.ind = saved;
+} catch (e) { /* storage unavailable; use the default */ }
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function niceStep(max) {
+  if (!(max > 0)) return 1;
+  const raw = max / 4;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const f = raw / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+}
+// axis labels; from 10,000 up, in k / M / B so counts fit the axis
+const SCALES = [[1e9, "B"], [1e6, "M"], [1e3, "k"]];
+function fmt(v, step, top) {
+  if (v === null || v === undefined) return "–";
+  if (top >= 1e4) {
+    const [div, suffix] = SCALES.find(([d]) => top >= d) || SCALES[2];
+    const s = step / div;
+    const d = s >= 1 ? 0 : Math.min(3, Math.ceil(-Math.log10(s) - 1e-9));
+    return v === 0 ? "0" : `${(v / div).toFixed(d)}${suffix}`;
+  }
+  const d = step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(step)));
+  return v.toFixed(d);
+}
+function fmtVal(v) {
+  if (v === null || v === undefined) return "–";
+  const a = Math.abs(v);
+  if (a >= 1e4) return Math.round(v).toLocaleString("en-US");
+  return a >= 100 ? v.toFixed(1) : a >= 10 ? v.toFixed(2) : a >= 1 ? v.toFixed(3) : v.toPrecision(3);
+}
+
+// index of the first year shown: 0, or the first forecast year when the
+// retrospective years are hidden
+function startIndex(ind) {
+  if (state.showPast) return 0;
+  const k = ind.years.findIndex((yr) => yr >= FIRST_FORECAST_YEAR);
+  return k < 0 ? 0 : k;
+}
+
+// highest value over every location, sex and scenario of the indicator, in
+// the years shown: the top of every panel when the y axis is fixed
+function indicatorMax(ind, k0) {
+  let max = 0;
+  for (const loc of ind.locs) for (const s of loc.s) {
+    for (let k = k0; k < s.length; k++) if (s[k] !== null && s[k] > max) max = s[k];
+  }
+  return max;
+}
+
+function visibleLocs() {
+  const ind = INDS[state.ind];
+  return state.zeroOnly ? ind.locs.filter((l) => l.z) : ind.locs;
+}
+
+function renderButtons() {
+  $("indicator-buttons").innerHTML = GROUPS.map((g) =>
+    `<button type="button" data-g="${esc(g)}">${esc(g)}</button>`).join("");
+}
+
+// the selected indicator's rate and count, or whichever it has
+function renderMetricButtons() {
+  const group = INDS[state.ind].group;
+  $("metric-buttons").innerHTML = INDS.map((d, i) => d.group === group
+    ? `<button type="button" data-i="${i}" aria-pressed="${i === state.ind}" title="${esc(d.units)}">${esc(d.metric)}</button>`
+    : "").join("");
+}
+
+function selectIndicator(i) {
+  state.ind = i;
+  state.page = 0;
+  if (!INDS[i].zero.length) { state.zeroOnly = false; $("zero-only").checked = false; }
+  try { localStorage.setItem("vetting-indicator", String(i)); } catch (e) { /* ignore */ }
+  render();
+}
+
+function renderLegend() {
+  const sexes = SEXES.map((s, i) =>
+    `<span><svg width="22" height="10"><line x1="0" y1="5" x2="22" y2="5" stroke="var(${SEX_VARS[i]})" stroke-width="2.5" stroke-linecap="round"/></svg>${s}</span>`);
+  const scen = SCENARIOS.map((s, i) =>
+    `<span><svg width="22" height="10"><line x1="0" y1="5" x2="22" y2="5" stroke="var(--ink-2)" stroke-width="1.8" stroke-dasharray="${DASHES[i]}" stroke-linecap="round"/></svg>${s}</span>`);
+  $("legend").innerHTML = sexes.concat(scen).join("");
+}
+
+function panelSvg(ind, loc, k0, fixedMax) {
+  const years = ind.years.slice(k0);
+  const series = loc.s.map((s) => s.slice(k0));
+  const y0 = years[0], y1 = years[years.length - 1];
+  let max = 0;
+  if (fixedMax !== null) max = fixedMax;
+  else for (const s of series) for (const v of s) if (v !== null && v > max) max = v;
+  const step = niceStep(max);
+  const top = Math.max(step, Math.ceil(max / step) * step);
+  const pw = W - M.l - M.r, ph = H - M.t - M.b;
+  const x = (yr) => M.l + ((yr - y0) / (y1 - y0)) * pw;
+  const y = (v) => M.t + ph - (v / top) * ph;
+
+  let g = "";
+  for (let v = 0; v <= top + step * 1e-6; v += step) {
+    const yy = y(v).toFixed(1);
+    g += `<line x1="${M.l}" x2="${W - M.r}" y1="${yy}" y2="${yy}" stroke="var(--grid)" stroke-width="1"/>`;
+    g += `<text x="${M.l - 5}" y="${yy}" text-anchor="end" dominant-baseline="middle">${fmt(v, step, top)}</text>`;
+  }
+  const xt = [];
+  for (let yr = Math.ceil(y0 / 25) * 25; yr <= y1; yr += 25) xt.push(yr);
+  // label the first year too, unless it would crowd the first round tick
+  if (!xt.length || xt[0] - y0 > 8) xt.unshift(y0);
+  for (const yr of xt) {
+    g += `<text x="${x(yr).toFixed(1)}" y="${H - 6}" text-anchor="middle">${yr}</text>`;
+  }
+  g += `<line x1="${M.l}" x2="${W - M.r}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="var(--axis)" stroke-width="1"/>`;
+
+  // reference lines last so the solid line sits on top of its dashed scenarios
+  const order = [];
+  for (let sc = SCENARIOS.length - 1; sc >= 0; sc--) for (let sx = 0; sx < SEXES.length; sx++) order.push([sx, sc]);
+  for (const [sx, sc] of order) {
+    const vals = series[sx * 3 + sc];
+    let d = "", pen = false;
+    vals.forEach((v, k) => {
+      if (v === null) { pen = false; return; }
+      d += `${pen ? "L" : "M"}${x(years[k]).toFixed(1)},${y(v).toFixed(1)}`;
+      pen = true;
+    });
+    if (d) g += `<path d="${d}" fill="none" stroke="var(${SEX_VARS[sx]})" stroke-width="${sc === 0 ? 1.8 : 1.5}" stroke-dasharray="${DASHES[sc]}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  g += `<line class="cross" x1="0" x2="0" y1="${M.t}" y2="${M.t + ph}" stroke="var(--ink-2)" stroke-width="1" visibility="hidden"/>`;
+  g += `<rect class="hit" x="${M.l}" y="${M.t}" width="${pw}" height="${ph}" fill="transparent"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(loc.n)}: ${esc(ind.indicator)} by sex and scenario, ${y0} to ${y1}">${g}</svg>`;
+}
+
+function render() {
+  const ind = INDS[state.ind];
+  const locs = visibleLocs();
+  const pages = Math.max(1, Math.ceil(locs.length / PER_PAGE));
+  state.page = Math.min(state.page, pages - 1);
+  const slice = locs.slice(state.page * PER_PAGE, (state.page + 1) * PER_PAGE);
+  const k0 = startIndex(ind);
+  const fixedMax = state.yFixed ? indicatorMax(ind, k0) : null;
+
+  $("sheet").innerHTML = slice.length ? slice.map((loc, i) => {
+    const where = [loc.sr, loc.rg].filter(Boolean).join(" › ") || " ";
+    return `<article class="panel" data-k="${i}">
+      <h2><span class="name">${esc(loc.n)}</span>${loc.z ? '<span class="flag">Reaches 0</span>' : ""}</h2>
+      <p class="where">${esc(where)}</p>
+      ${panelSvg(ind, loc, k0, fixedMax)}
+    </article>`;
+  }).join("") : `<div class="empty">No location in ${esc(ind.indicator)} drops to 0.</div>`;
+
+  $("page-count").textContent = `${state.page + 1} / ${pages}`;
+  $("prev").disabled = state.page === 0;
+  $("next").disabled = state.page >= pages - 1;
+  $("units").innerHTML = `<b>${esc(ind.indicator)}</b> · ${esc(ind.age)} · ${esc(ind.units)} · ${ind.years[k0]}–${ind.years[ind.years.length - 1]}`;
+  // nothing to hide when an indicator has no retrospective years
+  const hasPast = ind.years[0] < FIRST_FORECAST_YEAR;
+  $("show-past").disabled = !hasPast;
+  $("past-label").textContent = hasPast ? "Show years before 2024" : "Show years before 2024 (none)";
+  const nz = ind.zero.length;
+  $("zero-label").textContent = `Only locations that reach 0 (${nz})`;
+  $("zero-only").disabled = nz === 0 && !state.zeroOnly;
+
+  $("jump").innerHTML = locs.map((l, i) =>
+    `<option value="${i}"${Math.floor(i / PER_PAGE) === state.page && i % PER_PAGE === 0 ? " selected" : ""}>${esc(l.n)}</option>`).join("");
+
+  for (const b of $("indicator-buttons").children) b.setAttribute("aria-pressed", String(b.dataset.g === ind.group));
+  renderMetricButtons();
+  for (const tr of $("files").children) tr.classList.toggle("active", Number(tr.dataset.i) === state.ind);
+
+  wireHover(ind, slice, k0);
+}
+
+function wireHover(ind, slice, k0) {
+  const tip = $("tip");
+  const years = ind.years.slice(k0);
+  const pw = W - M.l - M.r;
+  for (const panel of $("sheet").querySelectorAll(".panel")) {
+    const loc = slice[Number(panel.dataset.k)];
+    const svg = panel.querySelector("svg");
+    const hit = svg.querySelector(".hit");
+    const cross = svg.querySelector(".cross");
+    const move = (ev) => {
+      const r = svg.getBoundingClientRect();
+      const sx = ((ev.clientX - r.left) / r.width) * W;
+      const frac = Math.min(1, Math.max(0, (sx - M.l) / pw));
+      const k = Math.round(frac * (years.length - 1));
+      const xx = (M.l + (k / (years.length - 1)) * pw).toFixed(1);
+      cross.setAttribute("x1", xx); cross.setAttribute("x2", xx); cross.setAttribute("visibility", "visible");
+      let rows = "";
+      SEXES.forEach((s, sx2) => {
+        rows += `<tr><td class="k"><i style="background:var(${SEX_VARS[sx2]})"></i>${s}</td>` +
+          SCENARIOS.map((_, sc) => `<td>${fmtVal(loc.s[sx2 * 3 + sc][k0 + k])}</td>`).join("") + "</tr>";
+      });
+      tip.innerHTML = `<div class="t">${esc(loc.n)}, ${years[k]}</div><table><tr><th></th>${SCENARIOS.map((s) => `<th>${s}</th>`).join("")}</tr>${rows}</table>`;
+      tip.hidden = false;
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let left = ev.clientX + 14, topPx = ev.clientY + 14;
+      if (left + tw > window.innerWidth - 8) left = ev.clientX - tw - 14;
+      if (topPx + th > window.innerHeight - 8) topPx = ev.clientY - th - 14;
+      tip.style.left = `${Math.max(8, left)}px`; tip.style.top = `${Math.max(8, topPx)}px`;
+    };
+    const leave = () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); };
+    hit.addEventListener("pointermove", move);
+    hit.addEventListener("pointerleave", leave);
+  }
+}
+
+function renderFiles() {
+  $("final-path").textContent = DATA.path;
+  $("sources").innerHTML = DATA.sources.length ? DATA.sources.map((s) => `<div>${esc(s)}</div>`).join("") : "–";
+  $("files").innerHTML = INDS.map((d, i) => {
+    const names = d.zero.length ? `<div class="names">${d.zero.map(esc).join(", ")}</div>` : "";
+    return `<tr data-i="${i}"><td>${esc(d.indicator)}</td><td>${esc(d.units)}</td><td class="num">${d.zero.length} of ${d.locs.length}${names}</td></tr>`;
+  }).join("");
+}
+
+$("indicator-buttons").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button");
+  if (!b) return;
+  // keep the rate or count choice when switching indicator, if it has one
+  const metric = INDS[state.ind].metric;
+  const inGroup = INDS.map((d, i) => i).filter((i) => INDS[i].group === b.dataset.g);
+  const same = inGroup.find((i) => INDS[i].metric === metric);
+  selectIndicator(same !== undefined ? same : inGroup[0]);
+});
+$("metric-buttons").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button");
+  if (b) selectIndicator(Number(b.dataset.i));
+});
+$("zero-only").addEventListener("change", (ev) => { state.zeroOnly = ev.target.checked; state.page = 0; render(); });
+$("show-past").addEventListener("change", (ev) => { state.showPast = ev.target.checked; render(); });
+$("y-scale").addEventListener("change", (ev) => { state.yFixed = ev.target.value === "fixed"; render(); });
+$("jump").addEventListener("change", (ev) => { state.page = Math.floor(Number(ev.target.value) / PER_PAGE); render(); });
+$("prev").addEventListener("click", () => { state.page -= 1; render(); });
+$("next").addEventListener("click", () => { state.page += 1; render(); });
+document.addEventListener("keydown", (ev) => {
+  if (ev.target.closest("select, input")) return;
+  if (ev.key === "ArrowRight" && !$("next").disabled) { state.page += 1; render(); }
+  if (ev.key === "ArrowLeft" && !$("prev").disabled) { state.page -= 1; render(); }
+});
+
+renderButtons();
+renderLegend();
+renderFiles();
+render();
+</script>
