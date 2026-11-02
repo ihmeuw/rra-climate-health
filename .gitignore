@@ -102,3 +102,7 @@ specifications/
 /core.[0-9]*
 *.core
 
+
+# generated plots and OS files
+src/**/*.pdf
+.DS_Store
