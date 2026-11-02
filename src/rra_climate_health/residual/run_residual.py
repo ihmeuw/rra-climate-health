@@ -53,6 +53,7 @@ def get_residual_prediction(
     results_version: str,
     location_hierarchy: pd.DataFrame,
     last_gbd_year: int = LAST_GBD_YEAR,
+    gbd_measure: str | None = None,
 ) -> pd.DataFrame:
     """Fit the GBD-vs-model residual on SDI and predict it over the forecast.
 
@@ -60,7 +61,8 @@ def get_residual_prediction(
     slope and a location/age/sex specific intercept.
     """
     gbd_df = get_gbd_data(
-        cm_data, measure, 0, draws=False, metric="prevalence"
+        cm_data, measure, 0, draws=False, metric="prevalence",
+        gbd_measure=gbd_measure,
     ).reset_index()
     sdi_df = get_sdi()
 
@@ -434,6 +436,7 @@ def residual_main(  # noqa: PLR0915
     output_dir: Path,
     measure: str,
     results_version: str,
+    gbd_measure: str | None = None,
 ) -> None:
     """Run the residual model, the intercept shift and the SEV conversion."""
     cm_data = ClimateMalnutritionData(output_dir / measure)
@@ -442,6 +445,8 @@ def residual_main(  # noqa: PLR0915
         f"Running residual model and SEV conversion for {measure} with results "
         f"version {results_version}"
     )
+    if gbd_measure:
+        print(f"  scoring against the GBD files for '{gbd_measure}', not '{measure}'")
 
     results_spec = cm_data.load_results_specification(results_version)
     scenarios = results_spec.scenarios
@@ -459,14 +464,15 @@ def residual_main(  # noqa: PLR0915
     )
 
     model_draws = model_draws.droplevel("scenario")
-    gbd_draws = get_gbd_data(cm_data, measure, n_draws, draws=True)
+    gbd_draws = get_gbd_data(cm_data, measure, n_draws, draws=True,
+                             gbd_measure=gbd_measure)
     locs = model_draws.index.get_level_values("location_id").unique()
     gbd_draws = gbd_draws.query(
         "age_group_id in @age_group_ids and location_id in @locs"
     )
 
     residual_prediction_df = get_residual_prediction(
-        cm_data, measure, results_version, fhs_loc_meta
+        cm_data, measure, results_version, fhs_loc_meta, gbd_measure=gbd_measure
     )
     model_plus_predicted_residual = model_draws.add(
         residual_prediction_df.query("year_id >= 2000").set_index(IDX_COLS)[
@@ -580,16 +586,19 @@ def residual_main(  # noqa: PLR0915
 @clio.with_output_root(DEFAULT_ROOT)
 @clio.with_measure()
 @clio.with_results_version()
+@clio.with_gbd_measure()
 def residual_task(
     output_root: str,
     measure: str,
     results_version: str,
+    gbd_measure: str | None,
 ) -> None:
     """Run the residual model on a set of forecast results, and plot diagnostics."""
     residual_main(
         Path(output_root),
         measure,
         results_version,
+        gbd_measure=gbd_measure,
     )
     make_results_plots(Path(output_root), measure, results_version)
 
@@ -599,11 +608,13 @@ def residual_task(
 @clio.with_measure()
 @clio.with_results_version()
 @clio.with_queue()
+@clio.with_gbd_measure()
 def run_residual(
     output_root: str,
     measure: str,
     results_version: str,
     queue: str,
+    gbd_measure: str | None,
 ) -> None:
     """Run the residual step for a results version produced by inference."""
     cm_data = ClimateMalnutritionData(Path(output_root) / measure)
@@ -616,6 +627,17 @@ def run_residual(
         )
         raise click.ClickException(message)
 
+    if gbd_measure:
+        # Fail before the fan-out rather than inside the task.
+        for _p in (
+            cm_data.gbd_inputs / f"gbd_mean_{gbd_measure}_prevalence.parquet",
+            cm_data.gbd_inputs / f"gbd_draws_{gbd_measure}_prevalence_100.parquet",
+        ):
+            if not _p.exists():
+                message = f"--gbd-measure {gbd_measure} given, but {_p} is missing."
+                raise click.ClickException(message)
+        print(f"Scoring against the GBD files for '{gbd_measure}', not '{measure}'")
+
     print(f"Running residual step for {measure}, results version {results_version}")
     jobmon.run_parallel(
         runner="sttask",
@@ -626,6 +648,7 @@ def run_residual(
         task_args={
             "output-root": output_root,
             "results-version": results_version,
+            **({"gbd-measure": gbd_measure} if gbd_measure else {}),
         },
         task_resources={
             "queue": queue,
