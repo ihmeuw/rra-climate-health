@@ -4299,11 +4299,16 @@ def run_training_data_prep_child_mortality_monthly(
     # )
 
     # ---- post-processing, ported from
-    # notebooks/child_mortality/child_mortality_data_checks_edits_10_07.ipynb --
+    # notebooks/child_mortality/child_mortality_data_checks_edits_10_07.ipynb and
+    # child_mortality_data_checks_edits_10_14.ipynb --
     # Births further than this many months before the interview are dropped from
-    # data.parquet but kept in data_no_10_yr_cutoff.parquet.  Inclusive, and 108
-    # rather than the 120 that filename implies.
-    max_recall_months = 108
+    # data.parquet but kept in data_no_10_yr_cutoff.parquet.  Inclusive.
+    max_recall_months = 120
+    # Age strata dropped from both saved versions.  The first month of life is the
+    # neonatal_mortality model's, so child_mortality is fit from day 28 (5q28),
+    # and 5q0 is rebuilt from the two downstream (strun fhs_scenarios).  Rows go,
+    # the age_1_m dummy column stays, all zero, as in training data 2026_10_14.01.
+    excluded_age_groups = ["age_1_m"]
     # Columns the model cannot tolerate nulls in.
     cols_to_check = [
         "child_mortality",
@@ -4347,6 +4352,15 @@ def run_training_data_prep_child_mortality_monthly(
         )
         raise ValueError(msg)
     df_grouped_cumulative["consumption_median_RT"] /= 365
+
+    n_rows = len(df_grouped_cumulative)
+    df_grouped_cumulative = df_grouped_cumulative[
+        ~df_grouped_cumulative["age_group"].isin(excluded_age_groups)
+    ]
+    print(
+        f"Dropped {n_rows - len(df_grouped_cumulative):,} rows in age groups "
+        f"{excluded_age_groups}"
+    )
 
     # Every column the model needs must be complete.  Checked before the recall
     # cutoff, so it holds for both saved versions.
