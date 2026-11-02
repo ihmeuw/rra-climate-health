@@ -978,11 +978,32 @@ def model_inference(
     save_rasters: bool,
 ) -> None:
     """Run model inference."""
+    asked_for_all = set(age_group_id) == set(clio.VALID_AGE_GROUP_IDS)
     age_group_id = clio.resolve_age_group_ids_for_measure(measure, age_group_id)
+    cm_data = ClimateMalnutritionData(Path(output_root) / measure)
+    # Which strata exist is a property of the measure; which ones this model can
+    # speak to is a property of the fit. Narrow to the latter, because a stratum
+    # the model never saw is silently returned as a copy of the reference cell
+    # rather than raising -- see ClimateMalnutritionData.model_age_strata.
+    supported = cm_data.model_age_strata(model_version)
+    if supported is not None:
+        unsupported = [a for a in age_group_id if a not in supported]
+        if unsupported and not asked_for_all:
+            msg = (
+                f"age-group-id(s) {unsupported} are not covered by model "
+                f"{model_version}, which was fit on {supported}."
+            )
+            raise click.BadParameter(msg)
+        if unsupported:
+            print(
+                f"Model {model_version} covers {len(supported)} of the "
+                f"{len(age_group_id)} strata valid for {measure}; "
+                f"dropping {unsupported}."
+            )
+            age_group_id = [a for a in age_group_id if a in supported]
     # The spec records the types the forecast and residual steps will work in; the task
     # fan-out below keeps the raw CLI strings, which each task re-normalizes itself.
     spec_age_group_ids = clio.normalize_age_group_ids(measure, age_group_id)
-    cm_data = ClimateMalnutritionData(Path(output_root) / measure)
     results_version = cm_data.new_results_version(model_version, spec_age_group_ids,
         sex_id, year, cmip6_scenario, draws, save_rasters=save_rasters)
     draw_range = list(range(0, draws))

@@ -129,6 +129,47 @@ class ClimateMalnutritionData:
         touch(model_spec_path)
         model_spec.to_yaml(model_spec_path)
 
+    def model_age_strata(self, version: str) -> list[str] | None:
+        """The named age strata a model actually covers, in canonical order.
+
+        Returns ``None`` for measures whose age groups are GBD ids; those are not
+        a property of the fit.
+
+        For a named-strata measure the answer is the set present in the model's
+        own training data, which is what makes neonates optional rather than
+        hard-coded. Asking for a stratum outside that set does not fail loudly:
+        ``inference.run_inference.get_categorical_coefficient`` treats a value
+        with no matching coefficient as the reference level, so the task would
+        quietly emit a copy of the reference stratum's surface, and
+        ``aggregate_mortality_over_ages`` would multiply that duplicate into the
+        5q0 product. Hence the launcher narrows the request to this list.
+
+        The ``age_group`` VALUES decide, not the column names: training data
+        built after neonates were excluded still carries an all-zero ``age_1_m``
+        column, so a column test would readmit it.
+        """
+        from rra_climate_health import cli_options as clio
+
+        measure = self.root.name
+        if measure not in clio.NAMED_AGE_STRATA_MEASURES:
+            return None
+        spec = self.load_model_specification(version)
+        canonical = clio.AGE_GROUP_IDS_BY_MEASURE[measure]
+        path = self.training_data / spec.version.training_data / "data.parquet"
+        present = set(
+            pd.read_parquet(path, columns=["age_group"])["age_group"].astype(str)
+        )
+        strata = [a for a in canonical if a in present]
+        dummies = [p.name for p in spec.predictors if p.name in canonical]
+        reference = [a for a in strata if a not in dummies]
+        if len(reference) != 1:
+            msg = (
+                f"model {version}: expected exactly one reference stratum, got "
+                f"{reference}; training data holds {strata}, spec names {dummies}"
+            )
+            raise ValueError(msg)
+        return strata
+
     def load_model_specification(self, version: str) -> ModelSpecification:
         model_spec_path = self.models / version / "specification.yaml"
         return ModelSpecification.from_yaml(model_spec_path)
