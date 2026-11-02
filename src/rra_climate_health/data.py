@@ -129,6 +129,47 @@ class ClimateMalnutritionData:
         touch(model_spec_path)
         model_spec.to_yaml(model_spec_path)
 
+    def model_age_strata(self, version: str) -> list[str] | None:
+        """The named age strata a model actually covers, in canonical order.
+
+        Returns ``None`` for measures whose age groups are GBD ids; those are not
+        a property of the fit.
+
+        For a named-strata measure the answer is the set present in the model's
+        own training data, which is what makes neonates optional rather than
+        hard-coded. Asking for a stratum outside that set does not fail loudly:
+        ``inference.run_inference.get_categorical_coefficient`` treats a value
+        with no matching coefficient as the reference level, so the task would
+        quietly emit a copy of the reference stratum's surface, and
+        ``aggregate_mortality_over_ages`` would multiply that duplicate into the
+        5q0 product. Hence the launcher narrows the request to this list.
+
+        The ``age_group`` VALUES decide, not the column names: training data
+        built after neonates were excluded still carries an all-zero ``age_1_m``
+        column, so a column test would readmit it.
+        """
+        from rra_climate_health import cli_options as clio
+
+        measure = self.root.name
+        if measure not in clio.NAMED_AGE_STRATA_MEASURES:
+            return None
+        spec = self.load_model_specification(version)
+        canonical = clio.AGE_GROUP_IDS_BY_MEASURE[measure]
+        path = self.training_data / spec.version.training_data / "data.parquet"
+        present = set(
+            pd.read_parquet(path, columns=["age_group"])["age_group"].astype(str)
+        )
+        strata = [a for a in canonical if a in present]
+        dummies = [p.name for p in spec.predictors if p.name in canonical]
+        reference = [a for a in strata if a not in dummies]
+        if len(reference) != 1:
+            msg = (
+                f"model {version}: expected exactly one reference stratum, got "
+                f"{reference}; training data holds {strata}, spec names {dummies}"
+            )
+            raise ValueError(msg)
+        return strata
+
     def load_model_specification(self, version: str) -> ModelSpecification:
         model_spec_path = self.models / version / "specification.yaml"
         return ModelSpecification.from_yaml(model_spec_path)
@@ -618,6 +659,76 @@ class ClimateMalnutritionData:
 
         path = self.shared_inputs / "ldi" / version / f"{geospecificity}_estimates.parquet"
         return pd.read_parquet(path)
+
+    def load_national_ldi_percentile(
+        self,
+        version: str,
+        scenario: str,
+        year: int,
+        percentile: float = 0.5,
+    ) -> "pd.Series[float]":
+        """National LDI-PC at one percentile, as consumption per day by ihme_loc_id.
+
+        The national distributions are the same ones the training data reads a
+        household's within-survey rank off, so a country-level summary predictor
+        (e.g. consumption_pd_national_median, consumption_median_RT) resolves to
+        the same quantity at training and inference time.
+        """
+        path = self.shared_inputs / "ldi" / version / "national_estimates.parquet"
+        national = pd.read_parquet(
+            path,
+            columns=["ihme_loc_id", "year_id", "scenario", "population_percentile", "ldipc"],
+            filters=[
+                ("year_id", "==", int(year)),
+                ("population_percentile", "==", float(percentile)),
+            ],
+        )
+        if "scenario" in national.columns:
+            national = national.loc[national["scenario"] == scenario]
+        if national.empty:
+            error_message = (
+                f"No national LDI for {version} {scenario} {year} at percentile "
+                f"{percentile}."
+            )
+            raise ValueError(error_message)
+        # ldipc is annual; the training covariates are per day
+        return national.set_index("ihme_loc_id")["ldipc"] / 365.0
+
+    def load_national_parent_of_admin2(
+        self, version: str, scenario: str, year: int
+    ) -> "pd.Series[str]":
+        """Look up which country each admin2 unit belongs to.
+
+        Returns a Series INDEXED BY admin2 location_id whose values are the
+        national ihme_loc_id. Nothing is aggregated: this is the join key used to
+        broadcast a national quantity DOWN onto admin2 units, and from there onto
+        the pixels of the admin2 raster, which stores admin2 location_ids.
+
+        Read from the admin2 LDI estimates, which carry both ids on every row.
+        Filtered to a single year, scenario and percentile so this reads tens of
+        thousands of rows rather than the whole 150m-row file; the parent of an
+        admin2 is the same in every slice.
+        """
+        path = self.shared_inputs / "ldi" / version / "admin2_estimates.parquet"
+        crosswalk = pd.read_parquet(
+            path,
+            columns=["location_id", "national_ihme_loc_id", "year_id", "scenario", "population_percentile"],
+            filters=[
+                ("year_id", "==", int(year)),
+                ("population_percentile", "==", 0.5),
+                ("scenario", "==", scenario),
+            ],
+        )
+        if crosswalk.empty:
+            error_message = (
+                f"No admin2 LDI rows for {version} {scenario} {year}; cannot build "
+                "the admin2 to national crosswalk."
+            )
+            raise ValueError(error_message)
+        return (
+            crosswalk.drop_duplicates("location_id")
+            .set_index("location_id")["national_ihme_loc_id"]
+        )
 
     def ldi_raster_path(self, scenario: int | str, year: int | str, percentile: float | str, version: str) -> Path:
         return self.shared_inputs / "ldi_raster" / version / str(scenario) / f"{year}_{percentile}.tif"

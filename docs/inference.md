@@ -40,6 +40,10 @@ Each predictor contributes according to how the specification declared it:
 * **Age, sex, `age_sex`** — a categorical coefficient, constant across the
   grid, so it is simply added to the accumulator. A value that has no
   coefficient is treated as the reference level.
+* **Named age-interval dummies** (measures in `NAMED_AGE_STRATA_MEASURES`,
+  i.e. `child_mortality`'s `age_1_m` ... `age_60_m` predictors) — each one-hot
+  dummy contributes its categorical coefficient when it is the stratum being
+  computed and the reference level (zero) otherwise.
 * **Year** — evaluated at the maximum transformed year value rather than the
   year being predicted, i.e. the year effect is held at the end of the training
   period instead of being extrapolated.

@@ -1,4 +1,4 @@
-LDI_VERSION = "v8"
+LDI_VERSION = "v9"
 import multiprocessing as mp
 import multiprocessing
 import tqdm
@@ -1273,25 +1273,33 @@ def add_temperature_zone(
     results_df['temperature_zone'] = results_df.temperature_zone.round(0).astype(int).clip(lower=6, upper=29)
     return results_df
 
-tempzone_df = add_temperature_zone(measure_df, year_col='int_year')
-
-print(len(measure_df))
-final_df = measure_df.merge(
-    tempzone_df[['lat', 'long', 'int_year', 'temperature_zone']],
-    on=['lat', 'long', 'int_year'],
-    how='left',
-    validate='many_to_one'
-)
-print(len(measure_df))
-
-print(len(measure_df))
-final_df = final_df.merge(
-    thresholds_df,
-    on=['lat', 'long', 'int_year'],
-    how='left',
-    validate='many_to_one'
-)
-print(len(measure_df))
+# NOTE: dead code, commented out 2026-10-14.
+# `thresholds_df` is never defined anywhere in this file, so the second merge
+# raised NameError.  `final_df` is never read again either -- the save below uses
+# `measure_df` -- so this block contributed nothing.  Confirmed against the shipped
+# extract lbw/training_data/2026_08_18.01/data.parquet, which has no
+# `temperature_zone` column (the output of the first merge) and already carries the
+# threshold aggregates as the 68 `*_past_*m` / 24 `days_over_*_quant_past_*m` columns
+# built earlier via relative_thresh_df -> results_df -> interval_agg.
+# tempzone_df = add_temperature_zone(measure_df, year_col='int_year')
+#
+# print(len(measure_df))
+# final_df = measure_df.merge(
+#     tempzone_df[['lat', 'long', 'int_year', 'temperature_zone']],
+#     on=['lat', 'long', 'int_year'],
+#     how='left',
+#     validate='many_to_one'
+# )
+# print(len(measure_df))
+#
+# print(len(measure_df))
+# final_df = final_df.merge(
+#     thresholds_df,
+#     on=['lat', 'long', 'int_year'],
+#     how='left',
+#     validate='many_to_one'
+# )
+# print(len(measure_df))
 
 
 for ldi_col in ["ldipc_weighted_no_match"]:  # ldi_cols:
@@ -1299,6 +1307,34 @@ for ldi_col in ["ldipc_weighted_no_match"]:  # ldi_cols:
 measure_root = Path(output_root) / data_source_type
 os.makedirs(Path(measure_root) / "training_data", exist_ok=True, mode=0o777)
 cm_data = ClimateMalnutritionData(measure_root)
+
+# National median consumption from the RT income distributions, the same source
+# and scenario the household matching above draws on. Merged on year_start,
+# which is the year get_ldipc_from_asset_score matches a household's income at
+# (its year_df_col default), so the national median and the household value
+# describe the same year. Divided to per-day to match consumption_pd elsewhere.
+rt_consumption_df = cm_data.load_ldi_distributions(
+    geospecificity="national", version=LDI_VERSION
+)
+rt_consumption_df = rt_consumption_df[
+    (rt_consumption_df["scenario"] == "reference")
+    & (rt_consumption_df["population_percentile"] == 0.5)
+][["ihme_loc_id", "year_id", "ldipc"]].rename(
+    columns={"year_id": "year_start", "ldipc": "consumption_median_RT"}
+)
+measure_df = measure_df.drop(
+    columns="consumption_median_RT", errors="ignore"
+).merge(rt_consumption_df, on=["ihme_loc_id", "year_start"], how="left")
+_n_missing_rt = int(measure_df["consumption_median_RT"].isna().sum())
+if _n_missing_rt:
+    msg = (
+        f"{_n_missing_rt:,} rows have no {LDI_VERSION} national median "
+        "consumption after the merge; the LDI series is missing some "
+        "ihme_loc_id/year_start present in the survey data."
+    )
+    raise ValueError(msg)
+measure_df["consumption_median_RT"] = measure_df["consumption_median_RT"] / 365
+
 version = cm_data.new_training_version()
 cm_data.save_training_data(measure_df.query("birth_weight < 9500"), version)
 print(f"Saved to version {version}")

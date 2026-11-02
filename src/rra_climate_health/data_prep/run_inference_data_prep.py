@@ -91,7 +91,26 @@ def run_ldi_prep_task(output_root: str, year: str, wealth_version :str) -> None:
 @clio.with_year(allow_all=True)
 @clio.with_queue()
 @clio.with_wealth_version()
-def run_ldi_prep(output_root: str, year: list[str], queue: str, wealth_version: str) -> None:
+@click.option(
+    "--memory",
+    default="64Gb",
+    show_default=True,
+    help=(
+        "Memory per task. Each task holds the whole admin2 LDI table in pandas "
+        "(~21Gb for v9's 158m rows) plus the raster template and admin2 shapes "
+        "(~7Gb), and peaks while groupby.transform and the "
+        "population_percentile > 0 filter each hold a second copy. Measured "
+        "high-water mark for one year of v9 was 43.7GiB, hence the 64Gb default; "
+        "the old 35Gb was not enough and every task died on it."
+    ),
+)
+def run_ldi_prep(
+    output_root: str,
+    year: list[str],
+    queue: str,
+    wealth_version: str,
+    memory: str,
+) -> None:
     """Prep LDI rasters from admin2 data"""
     jobmon.run_parallel(
         runner="sttask",
@@ -104,7 +123,7 @@ def run_ldi_prep(output_root: str, year: list[str], queue: str, wealth_version: 
         task_resources={
             "queue": queue,
             "cores": 1,
-            "memory": "35Gb",
+            "memory": memory,
             "runtime": "4h",
             "project": "proj_rapidresponse",
         },

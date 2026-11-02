@@ -51,9 +51,20 @@ def get_gbd_data(
     *,
     draws: bool = False,
     metric: str = "prevalence",
+    gbd_measure: str | None = None,
 ) -> pd.DataFrame:
-    """Load the cached GBD estimates for a measure."""
+    """Load the cached GBD estimates for a measure.
+
+    ``gbd_measure`` scores a run against a different measure's GBD files while
+    leaving everything else -- the output tree, the model, the results version
+    -- under ``measure``. It exists for child_mortality models fit without the
+    neonatal stratum: those predict 5q28, not 5q0, and scoring them against
+    ``gbd_mean_child_mortality_prevalence`` would charge the whole neonatal
+    component to model bias (5q0 runs about 1.9x 5q28 at 2023). Off by default;
+    nothing picks it up unless asked.
+    """
     root_path = cm_data.gbd_inputs
+    measure = gbd_measure or measure
     if draws and measure != "neonatal_mortality":
         filepath = root_path / f"gbd_draws_{measure}_{metric}_{n_draws}.parquet"
     else:
@@ -62,6 +73,8 @@ def get_gbd_data(
         if draws and n_draws < SAVED_DRAW_COUNT:
             # Only the 100-draw file is saved, so resample down from it.
             return resample_like_fhs(
+                # `measure` is already the resolved one, so the override is
+                # not passed again here.
                 get_gbd_data(
                     cm_data, measure, SAVED_DRAW_COUNT, draws=True, metric=metric
                 ),

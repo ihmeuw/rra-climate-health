@@ -105,7 +105,15 @@ scipy = ">=1.14,<2.0"
 scikit-learn = ">=1.5,<2.0"
 matplotlib = ">=3.9,<4.0"
 seaborn = ">=0.13,<0.14"
+# plotly is imported by the standalone data_prep_* scripts
+# (data_prep_anemia.py, data_prep_lbw.py, data_prep_cgf.py) for their
+# interactive diagnostics; it is not used by the strun/sttask pipeline.
+plotly = ">=5.22,<7.0"
 xarray = ">=2024.3"
+# polars does the out-of-core joins of the monthly climate lookups onto the
+# child mortality training data in run_training_data_prep.py, which are too
+# large for pandas in memory.
+polars = ">=1.0,<2.0"
 # The residual step fits its SDI model with statsmodels and builds design
 # matrices for the coefficient-clamped prediction with patsy directly. Both
 # already arrived transitively (statsmodels via the seaborn meta-package,
