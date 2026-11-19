@@ -47,6 +47,7 @@ VALID_SOURCE_TYPES = [
     "anemia",
     "child_mortality",
     "lbw",
+    "neonatal_mortality",
 ]
 
 
@@ -115,6 +116,11 @@ AGE_GROUP_IDS_BY_MEASURE: dict[str, list[str]] = {
     "lbw":                ["2"],
     "neonatal_mortality": ["42"],
     #"child_mortality":    ["42", "388", "888", "389", "238", "50", "51", "52"],
+    # The full set of strata the measure CAN be run with. Which of them a given
+    # run actually uses is a property of the model, not of the measure, so the
+    # launcher narrows this to what the model covers via
+    # ``ClimateMalnutritionData.model_age_strata``. A model fit without neonates
+    # drops age_1_m there; one fit with them keeps it, no edit required.
     "child_mortality": ['age_1_m', 'age_3_m', 'age_6_m', 'age_12_m', 'age_24_m', 'age_36_m', 'age_48_m', 'age_60_m',]
 }
 
@@ -286,6 +292,30 @@ def with_wealth_version() -> ClickOption[_P, _T]:
         help="The version of wealth (income/consumption) to use.",
     )
 
+GBD_COMPARATOR_MEASURES = ["5q28"]
+
+
+def with_gbd_measure() -> ClickOption[_P, _T]:
+    """Score a run against another measure's GBD files.
+
+    Opt-in and off by default: without it nothing changes. The case it exists
+    for is a child_mortality model fit without the neonatal stratum, whose
+    output is 5q28 rather than 5q0 -- scoring that against the child_mortality
+    GBD files would charge the entire neonatal component to model bias.
+    """
+    return click.option(
+        "--gbd-measure",
+        type=click.Choice(GBD_COMPARATOR_MEASURES),
+        default=None,
+        help=(
+            "Score against this measure's GBD files instead of --measure's. "
+            "Use 5q28 for a child_mortality run whose model has no age_1_m "
+            "stratum. Everything else -- output tree, model, results version "
+            "-- stays under --measure. Omit it for a normal run."
+        ),
+    )
+
+
 def with_n_draws() -> ClickOption[_P, _T]:
     return click.option(
         "--draws",
@@ -306,6 +336,7 @@ def with_draw() -> ClickOption[_P, _T]:
     )
 
 __all__ = [
+    "GBD_COMPARATOR_MEASURES",
     "VALID_MEASURES",
     "with_measure",
     "VALID_SOURCE_TYPES",

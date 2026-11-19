@@ -29,6 +29,27 @@ class IdentityScaler:
         return data
 
 
+# Values at or below this floor are clamped before taking the log.  The income
+# rasters used at inference contain exact zeros, and the bottom ~0.1% of the
+# training data sits at population percentiles around 4e-06 where the income
+# distribution is being extrapolated rather than measured.
+LOG_FLOOR = 0.25
+
+
+class LogScaler:
+    def __init__(self) -> None:
+        pass
+
+    def fit(self, data: npt.NDArray[Any]) -> None:
+        pass
+
+    def transform(self, data: npt.NDArray[Any]) -> npt.NDArray[Any]:
+        return np.log(np.maximum(data, LOG_FLOOR))
+
+    def inverse_transform(self, data: npt.NDArray[Any]) -> npt.NDArray[Any]:
+        return np.exp(data)
+
+
 class InnerNinetyFiveScaler:
     def __init__(self) -> None:
         self.two_point_five = np.nan
@@ -91,6 +112,7 @@ class InferenceNinetyFiveScaler:
 
 SCALING_STRATEGIES = {
     ScalingStrategy.IDENTITY: IdentityScaler,
+    ScalingStrategy.LOG: LogScaler,
     ScalingStrategy.MIN_MAX: MinMaxScaler,
     ScalingStrategy.STANDARDIZE: StandardScaler,
     ScalingStrategy.INNER_NINETY_FIVE: InnerNinetyFiveScaler,

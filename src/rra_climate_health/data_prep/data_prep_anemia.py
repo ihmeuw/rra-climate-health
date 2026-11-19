@@ -3,7 +3,7 @@ import plotly.express as px
 import logging
 import tqdm
 
-LDI_VERSION = 'v8'
+LDI_VERSION = 'v9'
 import multiprocessing as mp
 from functools import partial
 from pathlib import Path
@@ -1044,7 +1044,7 @@ def run_training_data_prep_anemia(
                 f.write(message)
     return 
 
-LDI_VERSION = 'v8'
+LDI_VERSION = 'v9'
 import multiprocessing as mp
 from functools import partial
 from pathlib import Path
@@ -2190,6 +2190,34 @@ merged_df['sex_id'] = merged_df['sex_id'].astype(int)
 merged_df['age_sex'] = merged_df.apply(lambda row: f"{row['age_group_id']}_{row['sex_id']}", axis=1)
 
 anemia_df = merged_df
+
+# National median consumption from the RT income distributions, the same source
+# and scenario the household matching above draws on. Merged on year_start,
+# which is the year get_ldipc_from_asset_score matches a household's income at
+# (its year_df_col default), so the national median and the household value
+# describe the same year. Divided to per-day to match consumption_pd elsewhere.
+rt_consumption_df = cm_data.load_ldi_distributions(
+    geospecificity="national", version=LDI_VERSION
+)
+rt_consumption_df = rt_consumption_df[
+    (rt_consumption_df["scenario"] == "reference")
+    & (rt_consumption_df["population_percentile"] == 0.5)
+][["ihme_loc_id", "year_id", "ldipc"]].rename(
+    columns={"year_id": "year_start", "ldipc": "consumption_median_RT"}
+)
+anemia_df = anemia_df.drop(
+    columns="consumption_median_RT", errors="ignore"
+).merge(rt_consumption_df, on=["ihme_loc_id", "year_start"], how="left")
+_n_missing_rt = int(anemia_df["consumption_median_RT"].isna().sum())
+if _n_missing_rt:
+    msg = (
+        f"{_n_missing_rt:,} rows have no {LDI_VERSION} national median "
+        "consumption after the merge; the LDI series is missing some "
+        "ihme_loc_id/year_start present in the survey data."
+    )
+    raise ValueError(msg)
+anemia_df["consumption_median_RT"] = anemia_df["consumption_median_RT"] / 365
+
 # Write to output
 for measure in MEASURES_IN_SOURCE[data_source_type]:
     measure_df = anemia_df[anemia_df[measure].notna()].copy()

@@ -67,7 +67,7 @@ predictors:
       bs: "mpi"
       k: 4
   - name: "ldi_pc_pd"
-    version: "v5"
+    version: "v9"
     transform:
       type: "scaling"
       strategy: "inner_ninety_five"

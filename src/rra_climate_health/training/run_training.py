@@ -52,8 +52,16 @@ def model_training_main(
     raw_df = full_training_data.loc[:, columns_to_keep]
     null_mask = raw_df.isna().any(axis=1)
     if null_mask.sum() > 0:
-        msg = f"Null values found in raw data for {null_mask.sum()} rows"
-        print(msg)
+        # Nulls indicate an upstream data prep problem. R would silently drop
+        # these rows before fitting (default na.action), leaving the fitted
+        # values misaligned with the dataframes, so refuse to train instead.
+        null_counts = raw_df.isna().sum()
+        null_counts = null_counts[null_counts > 0]
+        msg = (
+            f"Null values found in {null_mask.sum()} rows of the training data; "
+            f"fix upstream in data prep. Null counts by column:\n{null_counts}"
+        )
+        raise ValueError(msg)
 
     df, var_info = cm_data.prepare_model_data(raw_df, model_spec)
 

@@ -11,6 +11,7 @@ class ModelType(StrEnum):
 
 class ScalingStrategy(StrEnum):
     IDENTITY = "identity"
+    LOG = "log"
     MIN_MAX = "min_max"
     STANDARDIZE = "standardize"
     INNER_NINETY_FIVE = "inner_ninety_five"
