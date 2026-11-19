@@ -1,37 +1,65 @@
-"""CSV export step.
+"""CSV export step: the final LBW and anemia CSVs.
 
+Which script makes which final CSV
+----------------------------------
+- Low birth weight and anemia: this script (``strun csv_creation``).
+- Neonatal and under-5 mortality: NOT this script. Their final CSVs come from
+  ``run_fhs_scenarios_mx_reagg_q0s.py``, which applies the RRA model's
+  scenario ratios to FHS's forecast death rates (mx), re-aggregates the
+  locations, and computes 28q0 and 5q0 from the result. The reference
+  scenario there equals FHS's own forecast exactly. See that script's
+  docstring.
+
+This script still accepts ``neonatal_mortality`` and ``child_mortality``, but
+the output is the RRA model on its own, without FHS. It is not the final
+result, and for current child_mortality models it is mislabelled: those models
+are fit without the first month of life, so they predict 5q28 (death between
+28 days and age 5), not 5q0, while the output says "Under-5 Mortality". The
+child growth measures (stunting, wasting, underweight) also still run.
+
+What it does
+------------
 Runs after the residual step. Reads ``shifted_prevalence.parquet`` for a
-results version and writes mean estimates to a CSV in the same results folder,
-in the Goalkeepers results format (see ``xarray_results_to_plot_csv.py`` in the
-goal_keepers repo).
+results version: the RRA model's prevalence draws by scenario, shifted to
+match GBD in the past. Draws are clipped to [0, 1] and averaged, then
+aggregated up the FHS location hierarchy for each sex and both sexes
+combined. It writes ``mean_estimates.csv`` in the same results folder, in the
+Goalkeepers results format (see ``xarray_results_to_plot_csv.py`` in the
+goal_keepers repo). Output covers:
 
-Draws are clipped to [0, 1] and averaged, then weighted up the FHS location
-hierarchy, for each sex and for both sexes combined. Output covers:
-
-- metrics: the rate (q0 or prevalence) and the count (deaths or cases);
-- scenarios: RCP 4.5 (reference), RCP 2.6 (optimistic), RCP 8.5 (pessimistic);
+- metrics: prevalence and the count;
+- scenarios: RCP 4.5 (reference), RCP 2.6 (optimistic), RCP 8.5 (pessimistic),
+  in that order;
 - years: 2025-2100;
-- locations: global, super region, region and national;
+- locations: Global, super region, region and national;
 - sexes: male, female and both sexes;
 - ages: each modelled age group, plus all of them combined when the measure
-  has more than one;
-- except anemia, which is written for females aged 15-49 only
-  (REPORTED_SUBSETS).
+  has more than one.
 
-The mortality measures and low birth weight are per live birth, so they are
-weighted by live births; everything else is weighted by population. The
-count is the rate times that weight: deaths or cases among live births, or
-cases among the population.
+Low birth weight
+----------------
+Prevalence is the share of live births under 2,500 g. It is weighted by live
+births, and the count is LBW births (prevalence x live births). Live births
+are FHS's (s130v97). FHS gives them for each country, with no sex split, so
+they are shared out among subnationals and sexes in proportion to the
+neonatal population (POPULATION_PATH, FHS s130v156, age group 42).
 
-Population is the same file the mortality counts use (POPULATION_PATH, FHS
-s130v156). It weights the population-based measures (anemia, and the child
-growth measures) and splits national live births among subnationals and sexes.
+Anemia
+------
+Prevalence is the share of women aged 15-49 with anemia, modelled in 5-year
+age groups (15-19 to 45-49). It is weighted by population (POPULATION_PATH,
+FHS s130v156, the same file the mortality counts use). The count is prevalent
+cases (prevalence x women aged 15-49); summed over years it is
+person-years lived with anemia. Only females aged 15-49 combined are written
+(REPORTED_SUBSETS).
 
+Aggregation (both)
+------------------
 Counts are aggregated as FHS's aggregator does for mortality: each region is
 its countries' sum times the region's GBD population scalar (one value per
 region, for all ages and both sexes), and super regions and Global are sums
 of regions. The scalar multiplies the count and its weight alike, so a
-region's rate is the same as without it.
+region's prevalence is the same as without it.
 """
 
 from pathlib import Path
