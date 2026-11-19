@@ -22,6 +22,16 @@ The mortality measures and low birth weight are per live birth, so they are
 weighted by live births; everything else is weighted by population. The
 count is the rate times that weight: deaths or cases among live births, or
 cases among the population.
+
+Population is the same file the mortality counts use (POPULATION_PATH, FHS
+s130v156). It weights the population-based measures (anemia, and the child
+growth measures) and splits national live births among subnationals and sexes.
+
+Counts are aggregated as FHS's aggregator does for mortality: each region is
+its countries' sum times the region's GBD population scalar (one value per
+region, for all ages and both sexes), and super regions and Global are sums
+of regions. The scalar multiplies the count and its weight alike, so a
+region's rate is the same as without it.
 """
 
 from pathlib import Path
@@ -31,9 +41,8 @@ import pandas as pd
 import xarray as xr
 
 from rra_climate_health import cli_options as clio
-from rra_climate_health.constants import REFERENCE_SCENARIO
+from rra_climate_health.constants import AGE_GROUP_AGGREGATES, REFERENCE_SCENARIO
 from rra_climate_health.data import DEFAULT_ROOT, ClimateMalnutritionData
-from rra_climate_health.inference.run_inference import load_population_timeseries
 
 OUTPUT_FILE = "mean_estimates.csv"
 OUTPUT_YEARS = range(2025, 2101)
@@ -41,7 +50,16 @@ OUTPUT_YEARS = range(2025, 2101)
 # FHS live births: national only, by maternal age, no sex dimension.
 LIVE_BIRTHS_FILEPATH = "/mnt/share/forecasting/data/32/future/live_births/future_livebirth_s130v97/live_births.nc"
 LIVE_BIRTHS_MATERNAL_AGES = [8, 9, 10, 11, 12, 13, 14]
-# Population used to split national births among subnationals and sexes.
+# FHS population, the same file the mortality counts use: s130v156, draws,
+# most-detailed locations, sexes 1-2, by age group, with age groups 42 and 1
+# added by notebooks/prep_population.py. Weights the population-based measures
+# and splits national births among subnationals and sexes.
+POPULATION_PATH = Path(DEFAULT_ROOT) / "population_files" / "population.nc"
+# GBD regional population scalars, one per region (all ages, both sexes), from
+# FHS's aggregator via notebooks/prep_population.py.
+REGION_SCALARS_PATH = Path(DEFAULT_ROOT) / "population_files" / "region_scalars.csv"
+REGION_LEVEL = 2
+# Age group whose population splits national births among subnationals and sexes.
 NEONATAL_AGE_GROUP_ID = 42
 PER_BIRTH_MEASURES = ["neonatal_mortality", "child_mortality", "lbw"]
 
@@ -144,6 +162,46 @@ OUTPUT_COLUMNS = [
 ]
 
 
+def load_population(
+    locations: list[int],
+    age_group_ids,
+) -> pd.Series:
+    """Population (draw mean) by location_id, year_id, sex_id and age_group_id.
+
+    From POPULATION_PATH. An age group that is not in the file is summed from
+    its parts (constants.AGE_GROUP_AGGREGATES).
+    """
+    pop = (
+        xr.open_dataset(POPULATION_PATH)["draws"]
+        .sel(location_id=list(locations))
+        .mean("draw")
+    )
+    available = set(pop["age_group_id"].to_numpy().tolist())
+    frames = []
+    for age in age_group_ids:
+        parts = [age] if age in available else AGE_GROUP_AGGREGATES.get(age, [])
+        if not parts or not set(parts) <= available:
+            message = f"No population for age_group_id {age} in {POPULATION_PATH}."
+            raise ValueError(message)
+        frame = (
+            pop.sel(age_group_id=parts)
+            .sum("age_group_id")
+            .to_series()
+            .rename("population")
+            .reset_index()
+        )
+        frame["age_group_id"] = age
+        frames.append(frame)
+    return pd.concat(frames).set_index(
+        ["location_id", "year_id", "sex_id", "age_group_id"]
+    )["population"]
+
+
+def load_region_scalars() -> pd.Series:
+    """GBD regional population scalar by region location_id."""
+    return pd.read_csv(REGION_SCALARS_PATH).set_index("location_id")["mean"]
+
+
 def load_live_births(
     hierarchy: pd.DataFrame,
     locations: list[int],
@@ -152,7 +210,7 @@ def load_live_births(
 
     The births file is national only and has no sex dimension, so each
     country's births are divided among its most-detailed (location, sex)
-    cells in proportion to their neonatal population:
+    cells in proportion to their neonatal population (POPULATION_PATH):
 
         births[l, s] = births[country] * pop42[l, s] / pop42[country]
 
@@ -178,19 +236,18 @@ def load_live_births(
         .rename_axis(index={"location_id": "country_id"})
     )
     pop = (
-        load_population_timeseries(locations, [NEONATAL_AGE_GROUP_ID])
-        .mean(axis=1)
+        load_population(locations, [NEONATAL_AGE_GROUP_ID])
         .droplevel("age_group_id")
         .rename("population")
         .reset_index()
         .join(country_ids, on="location_id")
     )
-    # Population goes back to 1950; births start in 1990.
+    # keep the years both files cover
     birth_years = births.index.get_level_values("year_id").unique()
     pop = pop[pop["year_id"].isin(birth_years)]
-    pop["country_pop"] = pop.groupby(["country_id", "year_id"])[
-        "population"
-    ].transform("sum")
+    pop["country_pop"] = pop.groupby(["country_id", "year_id"])["population"].transform(
+        "sum"
+    )
     pop = pop.join(births, on=["country_id", "year_id"])
     if pop["country_births"].isna().any():
         missing = pop.loc[pop["country_births"].isna(), "country_id"].unique()
@@ -204,8 +261,20 @@ def aggregate_means(
     means: pd.Series,
     weights: pd.Series,
     hierarchy: pd.DataFrame,
+    scalars: pd.Series,
 ) -> pd.DataFrame:
     """Weight most-detailed means up the hierarchy, over sex and over age.
+
+    Regions and everything above them carry the GBD regional population
+    scalar, as in FHS's aggregator: a most-detailed location's count and
+    weight are multiplied by its region's scalar wherever they land in a
+    region, super region or Global, so
+
+        region       = scalar[region] * sum of its countries
+        super region = sum of its regions
+        Global       = sum of the super regions
+
+    ``scalars`` is indexed by region location_id; regions without one use 1.
 
     ``weights`` is population or live births, indexed by a subset of the
     means' index levels. Returns the count (mean x weight) and the weight,
@@ -215,10 +284,14 @@ def aggregate_means(
     is count / weight. Taking the draw mean before aggregating gives the same
     answer as aggregating draws, since the weights are fixed.
     """
-    df = means.rename("mean").reset_index().merge(
-        weights.rename("weight").reset_index(),
-        on=list(weights.index.names),
-        how="left",
+    df = (
+        means.rename("mean")
+        .reset_index()
+        .merge(
+            weights.rename("weight").reset_index(),
+            on=list(weights.index.names),
+            how="left",
+        )
     )
     if df["weight"].isna().any():
         missing = df.loc[df["weight"].isna(), "location_id"].unique()
@@ -234,9 +307,17 @@ def aggregate_means(
         .str.split(",")
         .apply(lambda ids: [int(i) for i in ids])
     )
+    loc = hierarchy.set_index("location_id")
+    df["scalar"] = df["location_id"].map(loc["region_id"]).map(scalars).fillna(1.0)
     df["location_id"] = df["location_id"].map(ancestors)
     df = df.explode("location_id")
     df["location_id"] = df["location_id"].astype(int)
+    # the scalar applies at regions and above, not at countries or subnationals
+    scaled = df["location_id"].map(loc["level"]) <= REGION_LEVEL
+    df.loc[scaled, ["count", "weight"]] = df.loc[scaled, ["count", "weight"]].mul(
+        df.loc[scaled, "scalar"], axis=0
+    )
+    df = df.drop(columns="scalar")
 
     by_sex = df.groupby(by)[["count", "weight"]].sum()
     both_sexes = (
@@ -277,15 +358,15 @@ def format_results(
     df = df.assign(
         **{
             "Sex": df["sex_id"].map(SEX_LABELS),
-            "Scenario type": df["scenario"].map(
-                lambda s: SCENARIO_LABELS.get(s, s)
-            ),
+            "Scenario type": df["scenario"].map(lambda s: SCENARIO_LABELS.get(s, s)),
             "Age": df["age_group_id"].map(age_labels),
         }
     )
     if df["Age"].isna().any():
         missing = sorted(df.loc[df["Age"].isna(), "age_group_id"].unique())
-        message = f"No age label for age_group_ids {missing}; add them to AGE_GROUP_LABELS."
+        message = (
+            f"No age label for age_group_ids {missing}; add them to AGE_GROUP_LABELS."
+        )
         raise ValueError(message)
     rates = df.assign(
         **{
@@ -311,11 +392,23 @@ def format_results(
     )
     for column, keep in REPORTED_SUBSETS.get(measure, {}).items():
         df = df[df[column].isin(keep)]
-    # rates before counts, all ages combined before the age groups
+    # rates before counts, all ages combined before the age groups, and
+    # scenarios in the order reference, optimistic, pessimistic
     df["_count"] = df["Indicator"] == count_indicator
     df["_age"] = df["age_group_id"] != ALL_AGES_ID
+    df["_scenario"] = df["Scenario type"].map(
+        {label: k for k, label in enumerate(SCENARIO_LABELS.values())}
+    )
     return df.sort_values(
-        ["_count", "location_id", "_age", "age_group_id", "Sex", "Scenario type", "Year"]
+        [
+            "_count",
+            "location_id",
+            "_age",
+            "age_group_id",
+            "Sex",
+            "_scenario",
+            "Year",
+        ]
     )[OUTPUT_COLUMNS]
 
 
@@ -332,7 +425,9 @@ def get_mean_estimates(
     if missing := sorted(most_detailed - draw_locs):
         print(f"Warning: no draws for most-detailed location_ids {missing}")
     if extra := sorted(draw_locs - most_detailed):
-        print(f"Warning: dropping location_ids not most-detailed in the hierarchy {extra}")
+        print(
+            f"Warning: dropping location_ids not most-detailed in the hierarchy {extra}"
+        )
         draws = draws.query("location_id in @most_detailed")
 
     years = draws.index.get_level_values("year_id")
@@ -346,11 +441,11 @@ def get_mean_estimates(
     if measure in PER_BIRTH_MEASURES:
         weights = load_live_births(hierarchy, locations)
     else:
-        weights = load_population_timeseries(
+        weights = load_population(
             locations, means.index.get_level_values("age_group_id").unique()
-        ).mean(axis=1)
+        )
 
-    aggregated = aggregate_means(means, weights, hierarchy)
+    aggregated = aggregate_means(means, weights, hierarchy, load_region_scalars())
     return format_results(aggregated, hierarchy, measure)
 
 
